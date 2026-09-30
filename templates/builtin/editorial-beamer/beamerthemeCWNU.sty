@@ -1,0 +1,197 @@
+\mode<presentation>
+
+\RequirePackage{tikz}
+\RequirePackage{etoolbox}
+\RequirePackage{fontspec}
+\RequirePackage[skins]{tcolorbox}
+
+\usetikzlibrary{shadows.blur}
+
+% \definecolor{cwnuBlue}{RGB}{23,113,161}
+% \definecolor{cwnuDeepBlue}{RGB}{0,82,125}
+% \definecolor{cwnuDark}{RGB}{1,14,19}
+% \definecolor{cwnuBlockBg}{RGB}{232,239,243}
+% \definecolor{cwnuBlockLine}{RGB}{207,218,224}
+
+\definecolor{cwnuBlue}{RGB}{178,34,34}      % 主红：标题栏、页脚、项目符号
+\definecolor{cwnuDeepBlue}{RGB}{128,18,18}  % 深红：block 标题、强调色
+\definecolor{cwnuDark}{RGB}{38,10,10}       % 暗红黑：标题栏渐变终点
+\definecolor{cwnuNavBg}{RGB}{126,18,23}     % 顶部进度条背景
+\definecolor{cwnuNavMuted}{RGB}{207,132,136} % 非当前题/页
+\definecolor{cwnuBlockBg}{RGB}{250,240,240} % 浅红底：内容块背景
+\definecolor{cwnuBlockLine}{RGB}{232,198,198} % 浅红灰：备用边线
+
+% ProblemForge Linux adaptation: fonts are preinstalled in the sandbox image.
+\setCJKmainfont{Noto Sans CJK SC}
+\setCJKsansfont{Noto Sans CJK SC}
+\setCJKfamilyfont{cwnuTitleCJK}{Noto Sans CJK SC}
+
+\newcommand{\cwnuTitleText}[1]{{\CJKfamily{cwnuTitleCJK}\mdseries #1}}
+\newcommand{\cwnuTitleLine}[1]{\makebox[0.78\paperwidth][c]{\cwnuTitleText{#1}}}
+
+\setbeamercolor{normal text}{fg=black,bg=white}
+\setbeamercolor{structure}{fg=cwnuBlue}
+\setbeamercolor{frametitle}{fg=white,bg=cwnuBlue}
+\setbeamercolor{title}{fg=white,bg=cwnuBlue}
+\setbeamercolor{block title}{fg=white,bg=cwnuDeepBlue}
+\setbeamercolor{block body}{fg=black,bg=cwnuBlockBg}
+\setbeamercolor{item}{fg=cwnuDeepBlue}
+\setbeamercolor{subitem}{fg=cwnuDeepBlue}
+\setbeamercolor{section in head/foot}{fg=white,bg=cwnuNavBg}
+\setbeamercolor{mini frame}{fg=white,bg=cwnuNavBg}
+
+\setbeamertemplate{navigation symbols}{}
+
+\setbeamersize{text margin left=0.68cm,text margin right=0.68cm}
+\setbeamersize{mini frame size=0.18cm,mini frame offset=-0.01cm}
+
+\setbeamerfont{title}{size=\large,series=\mdseries}
+\setbeamerfont{subtitle}{size=\large,series=\mdseries}
+\setbeamerfont{author}{size=\small,series=\mdseries}
+\setbeamerfont{date}{size=\small,series=\mdseries}
+\setbeamerfont{frametitle}{size=\normalsize,series=\mdseries}
+\setbeamerfont{block title}{size=\normalsize,series=\mdseries}
+\setbeamerfont{footline}{size=\tiny}
+\setbeamerfont{section in head/foot}{size=\scriptsize,series=\mdseries}
+\setbeamerfont{mini frame}{size=\tiny}
+
+% 顶部题目/页面进度条。Beamer 会从 \section 和 frame 自动生成导航数据：
+% 每个 section 是一组，每个 frame 是该组中的一个圆点。
+\setbeamertemplate{section in head/foot}{%
+  \color{white}\strut\insertsectionhead%
+}
+\setbeamertemplate{section in head/foot shaded}{%
+  \color{cwnuNavMuted}\strut\insertsectionhead%
+}
+
+\newcommand{\cwnuMiniFrameFilled}{%
+  \beamer@xelatex@fixminiframes
+  \begin{pgfpicture}{0pt}{0pt}{0.14cm}{0.14cm}
+    \pgfpathcircle{\pgfpoint{0.07cm}{0.07cm}}{0.065cm}
+    \pgfusepath{fill,stroke}
+  \end{pgfpicture}%
+}
+\newcommand{\cwnuMiniFrameOutline}{%
+  \beamer@xelatex@fixminiframes
+  \begin{pgfpicture}{0pt}{0pt}{0.14cm}{0.14cm}
+    \pgfsetlinewidth{0.55pt}
+    \pgfpathcircle{\pgfpoint{0.07cm}{0.07cm}}{0.065cm}
+    \pgfusepath{stroke}
+  \end{pgfpicture}%
+}
+
+\setbeamertemplate{mini frame}{\color{white}\cwnuMiniFrameFilled}
+\setbeamertemplate{mini frame in current section}{\color{white}\cwnuMiniFrameOutline}
+\setbeamertemplate{mini frame in current subsection}{\color{white}\cwnuMiniFrameOutline}
+\setbeamertemplate{mini frame in other section}{\color{cwnuNavMuted}\cwnuMiniFrameOutline}
+\setbeamertemplate{mini frame in other subsection}{\color{cwnuNavMuted}\cwnuMiniFrameOutline}
+
+\newcommand{\cwnuProgressBarHeight}{0.62cm}
+
+\setbeamertemplate{headline}{%
+  \ifnum\insertsectionnumber>0\relax
+    \leavevmode%
+    \begin{beamercolorbox}[wd=\paperwidth,ht=0.34cm,dp=0.38cm]{section in head/foot}%
+      \insertnavigation{\paperwidth}%
+    \end{beamercolorbox}%
+  \fi%
+}
+
+\setbeamertemplate{frametitle}{%
+  \nointerlineskip%
+  \begin{tikzpicture}[remember picture,overlay]
+    \ifnum\insertsectionnumber>0\relax
+      \coordinate (cwnu-frametitle-nw)
+        at ([yshift=-\cwnuProgressBarHeight]current page.north west);
+      \coordinate (cwnu-frametitle-ne)
+        at ([yshift=-\cwnuProgressBarHeight]current page.north east);
+    \else
+      \coordinate (cwnu-frametitle-nw) at (current page.north west);
+      \coordinate (cwnu-frametitle-ne) at (current page.north east);
+    \fi
+    \shade[left color=cwnuBlue,right color=cwnuDark]
+      (cwnu-frametitle-nw) rectangle ([yshift=-0.64cm]cwnu-frametitle-ne);
+    \node[anchor=west,text=white,font=\usebeamerfont{frametitle}]
+      at ([xshift=0.32cm,yshift=-0.34cm]cwnu-frametitle-nw) {\insertframetitle};
+  \end{tikzpicture}%
+  \vspace{0.66cm}%
+}
+
+\setbeamertemplate{footline}{%
+  \leavevmode%
+  \hbox{%
+      \begin{beamercolorbox}[wd=.50\paperwidth,ht=0.24cm,dp=0.1cm,leftskip=0.33\paperwidth]{author in head/foot}%
+        \usebeamerfont{footline}\color{white}\insertshortauthor
+      \end{beamercolorbox}%
+      \begin{beamercolorbox}[wd=.50\paperwidth,ht=0.24cm,dp=0.1cm,leftskip=0.02\paperwidth]{title in head/foot}%
+        \usebeamerfont{footline}\color{white}\insertshorttitle\quad\insertshortsubtitle
+      \end{beamercolorbox}%
+    }%
+  
+}
+
+\setbeamercolor{author in head/foot}{fg=white,bg=black}
+\setbeamercolor{title in head/foot}{fg=white,bg=cwnuBlue}
+\setbeamercolor{date in head/foot}{fg=white,bg=cwnuBlue}
+
+\setbeamertemplate{itemize item}{%
+  \tikz[baseline=-0.65ex]\shade[ball color=cwnuBlue] (0,0) circle (0.09cm);%
+}
+\setbeamertemplate{itemize subitem}{%
+  \tikz[baseline=-0.65ex]\shade[ball color=cwnuBlue] (0,0) circle (0.07cm);%
+}
+
+\BeforeBeginEnvironment{block}{\vspace{0.2em}}
+\AfterEndEnvironment{block}{\vspace{0.2em}}
+
+\setbeamertemplate{blocks}[rounded][shadow=true]
+
+\newtcolorbox{cwnublock}[1][]{%
+  enhanced,
+  width=\linewidth,
+  colback=cwnuBlockBg,
+  colframe=cwnuBlockBg,
+  colbacktitle=cwnuDeepBlue,
+  coltitle=white,
+  title={\strut\ifstrempty{#1}{}{#1}},
+  fonttitle=\usebeamerfont{block title},
+  boxrule=0pt,
+  arc=4pt,
+  left=0.28cm,
+  right=0.28cm,
+  top=0.18cm,
+  bottom=0.16cm,
+  titlerule=0pt,
+  toptitle=1.2pt,
+  bottomtitle=1.2pt,
+  drop shadow={black!55!white,opacity=0.55,shadow xshift=2pt,shadow yshift=-2pt},
+}
+
+\newcommand{\cwnuTitleBoxY}{1.28cm}
+\newcommand{\cwnuTitleAuthorY}{-0.42cm}
+\newcommand{\cwnuTitleDateY}{-1.66cm}
+
+\setbeamertemplate{title page}{%
+  \begin{tikzpicture}[remember picture,overlay]
+    \node[
+      rounded corners=4pt,
+      fill=cwnuBlue,
+      blur shadow={shadow blur steps=5,shadow xshift=2pt,shadow yshift=-2pt},
+      minimum width=0.865\paperwidth,
+      minimum height=1.95cm,
+      text=white,
+      align=center,
+      text width=0.78\paperwidth,
+      inner xsep=0.4cm
+    ] (cwnu-title-box) at ([yshift=\cwnuTitleBoxY]current page.center) {%
+      {\usebeamerfont{title}\cwnuTitleLine{\inserttitle}\par}
+      \ifx\insertsubtitle\@empty\else\vspace{0.16cm}{\usebeamerfont{subtitle}\cwnuTitleLine{\insertsubtitle}\par}\fi
+    };
+    \node[anchor=north,text=black,font=\usebeamerfont{author},align=center]
+      (cwnu-title-author) at ([yshift=\cwnuTitleAuthorY]current page.center) {\cwnuTitleText{\insertauthor}};
+    \node[anchor=north,text=black,font=\usebeamerfont{date},align=center]
+      (cwnu-title-date) at ([yshift=\cwnuTitleDateY]current page.center) {\cwnuTitleText{\insertdate}};
+  \end{tikzpicture}%
+}
+
+\mode<all>

@@ -1,0 +1,9 @@
+protocolVersion: 1
+kind: STATEMENT
+entry: main.tex
+profile: xelatex-2022-bookworm-v1
+languages: [zh-CN]
+single: true
+contest: true
+bookletEntry: booklet.tex
+sourcePreset: uploaded-main-tex

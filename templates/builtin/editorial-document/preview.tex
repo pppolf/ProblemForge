@@ -1,0 +1,15 @@
+\section*{算法思路}
+读入 $a,b$ 并计算 $a+b$。使用足够宽的整数类型保存中间结果。
+\section*{正确性证明}
+程序直接计算题目定义的运算，因此输出等于 $a+b$。
+\section*{复杂度分析}
+时间复杂度 $O(1)$，额外空间复杂度 $O(1)$。
+\section*{参考代码}
+\begin{verbatim}
+#include <iostream>
+int main() {
+  long long a, b;
+  std::cin >> a >> b;
+  std::cout << a + b << '\n';
+}
+\end{verbatim}

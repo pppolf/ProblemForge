@@ -1,0 +1,44 @@
+\documentclass[11pt,a4paper,chinese,fontset=overleaf]{ctexart} % 文档类型为ctexart，基础字号 11 磅，纸张尺寸 A4，支持中文
+% \documentclass[11pt,a4paper,chinese,fontset=windows]{ctexart}
+% 加载各种宏包
+\usepackage{array,lastpage,amsmath,amssymb,mathtools,enumitem,graphicx,multirow,tocbibind,longtable,makecell,varwidth,titlesec,bm,booktabs,comment,qtree,listings,tikz,flowchart,algorithm,algorithmic}
+\usepackage{olymp}
+\usepackage{fancyhdr}
+ 
+% \setCJKmainfont[BoldFont=Heiti SC Medium]{Songti SC Light}
+% \setCJKmainfont[BoldFont=SimHei]{SimSun}
+
+% 页眉页脚设置
+\pagestyle{fancy}
+\fancyhf{}
+\chead{
+    \sffamily\normalsize {{CONTEST_TITLE}}（{{CONTEST_STAGE}}）\\
+    \sffamily\normalsize {{CONTEST_DATE_HEADER}}
+} % 页眉：比赛名称与日期
+\renewcommand{\headrulewidth}{.5pt} % 页眉线宽
+\renewcommand{\footrulewidth}{.5pt} % 页脚线宽
+\setlength{\headsep}{20pt} % 页眉与正文间距
+\cfoot{\sffamily \normalsize Page \thepage \ of \pageref{LastPage}} % 页脚居中显示页码  包含第一页
+
+% 居中显示 verbatim 内容（如输入输出样例）
+\usepackage{varwidth}
+\newenvironment{centerverbatim}{\par\centering\varwidth{\linewidth}\verbatim}{\endverbatim\endvarwidth\par}
+
+\usepackage[thinlines]{easytable}
+% 代码高亮配置：代码自动换行、禁用边框、使用等宽字体
+\lstset{escapeinside=``, breaklines=true, frame=none, extendedchars=false, basicstyle=\ttfamily, showstringspaces=false}
+% 优化中文排版
+\setlength{\parindent}{2em} % 首行缩进 2 字符
+\setlength{\parskip}{2.0ex} % 段间距 2 倍行高
+\linespread{1.15} % 行距 1.15 倍
+
+% 数学符号简写
+\newcommand*{\mat}[1]{\boldsymbol{\mathrm{#1}}} % 粗体矩阵
+\renewcommand*{\vec}[1]{\boldsymbol{\mathrm{#1}}} % 粗体向量
+
+% 绘图工具配置
+\usepackage{tikz,flowchart}
+\usetikzlibrary{shapes,shapes.geometric,arrows,automata,positioning}
+\usepackage{pgfplots}
+
+\input{style.tex}

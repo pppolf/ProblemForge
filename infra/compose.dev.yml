@@ -1,0 +1,43 @@
+name: problemforge
+services:
+  postgres:
+    image: postgres:16-alpine@sha256:20edbde7749f822887a1a022ad526fde0a47d6b2be9a8364433605cf65099416
+    environment:
+      POSTGRES_USER: problemforge
+      POSTGRES_DB: problemforge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?configure POSTGRES_PASSWORD}
+    env_file: ../.env
+    ports: ["127.0.0.1:15432:5432"]
+    volumes: ["database:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U problemforge -d problemforge"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+  redis:
+    image: redis:7-alpine@sha256:8b81dd37ff027bec4e516d41acfbe9fe2460070dc6d4a4570a2ac5b9d59df065
+    env_file: ../.env
+    command: ["sh", "-c", "exec redis-server --appendonly yes --maxmemory-policy noeviction --requirepass \"$$REDIS_PASSWORD\""]
+    ports: ["127.0.0.1:16379:6379"]
+    volumes: ["redis:/data"]
+    restart: unless-stopped
+  tex-sandbox:
+    build:
+      context: ..
+      dockerfile: infra/tex-sandbox.Dockerfile
+      args:
+        DEBIAN_MIRROR: ${DEBIAN_MIRROR:-http://deb.debian.org/debian}
+        DEBIAN_SECURITY_MIRROR: ${DEBIAN_SECURITY_MIRROR:-http://deb.debian.org/debian-security}
+    environment:
+      ES_AUTH_TOKEN: ${TEX_SANDBOX_TOKEN:?configure TEX_SANDBOX_TOKEN}
+    # Only the isolated execution service needs Linux namespaces / cgroups.
+    # API and Workers have neither privileged mode nor the Docker socket.
+    privileged: true
+    shm_size: 256mb
+    ports: ["127.0.0.1:15050:5050"]
+    command: ["-http-addr", ":5050", "-mount-conf", "/opt/tex-mount.yaml", "-parallelism", "1", "-pre-fork", "1", "-container-cred-start", "20000", "-tmp-fs-param", "size=128m,nr_inodes=4096", "-output-limit", "32m", "-copy-out-limit", "16m", "-file-timeout", "10m"]
+    restart: unless-stopped
+volumes:
+  database:
+  redis:

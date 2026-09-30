@@ -1,0 +1,195 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+enum SystemRole {
+  ADMIN
+  USER
+}
+enum ResourceRole {
+  OWNER
+  EDITOR
+  REVIEWER
+  VIEWER
+}
+enum DocumentKind {
+  STATEMENT
+  EDITORIAL_DOCUMENT
+  EDITORIAL_BEAMER
+}
+enum TemplateState {
+  DRAFT
+  VALIDATED
+  PUBLISHED
+  ARCHIVED
+  REVOKED
+}
+enum BuildState {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELED
+}
+model User {
+  id String @id @default(cuid())
+  email String @unique
+  name String
+  passwordHash String
+  role SystemRole @default(USER)
+  disabled Boolean @default(false)
+  createdAt DateTime @default(now())
+  sessions Session[]
+  memberships ProblemMember[]
+  builds Build[]
+}
+model Session {
+  id String @id
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  csrfToken String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([expiresAt])
+}
+model Problem {
+  id String @id @default(cuid())
+  title String
+  archived Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  members ProblemMember[]
+  documents Document[]
+  assets Asset[]
+}
+model ProblemMember {
+  problemId String
+  problem Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role ResourceRole
+  @@id([problemId, userId])
+}
+model Document {
+  id String @id @default(cuid())
+  problemId String
+  problem Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  language String
+  kind DocumentKind
+  enabled Boolean @default(true)
+  version Int @default(1)
+  currentRevisionId String? @unique
+  currentRevision ContentRevision? @relation("CurrentRevision", fields: [currentRevisionId], references: [id], onDelete: SetNull)
+  templateVersionId String?
+  templateVersion TemplateVersion? @relation(fields: [templateVersionId], references: [id])
+  revisions ContentRevision[] @relation("DocumentHistory")
+  publications Publication[]
+  updatedAt DateTime @updatedAt
+  @@unique([problemId, language, kind])
+}
+model ContentRevision {
+  id String @id @default(cuid())
+  documentId String
+  document Document @relation("DocumentHistory", fields: [documentId], references: [id], onDelete: Cascade)
+  version Int
+  body String @db.Text
+  metadata Json
+  hash String
+  createdAt DateTime @default(now())
+  currentFor Document? @relation("CurrentRevision")
+  @@unique([documentId, version])
+}
+model Template {
+  id String @id @default(cuid())
+  name String
+  kind DocumentKind
+  createdAt DateTime @default(now())
+  versions TemplateVersion[]
+}
+model TemplateVersion {
+  id String @id @default(cuid())
+  templateId String
+  template Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  number Int
+  editVersion Int @default(1)
+  state TemplateState @default(DRAFT)
+  files Json
+  styleConfig Json?
+  hash String
+  validationBuildId String?
+  validationBuildHash String?
+  publishedAt DateTime?
+  reason String?
+  createdAt DateTime @default(now())
+  documents Document[]
+  @@unique([templateId, number])
+}
+model Build {
+  id String @id @default(cuid())
+  requestedById String
+  requestedBy User @relation(fields: [requestedById], references: [id])
+  problemId String?
+  documentId String?
+  revisionId String?
+  templateVersionId String
+  kind DocumentKind
+  purpose String @default("DOCUMENT")
+  state BuildState @default(QUEUED)
+  input Json
+  inputHash String
+  log String @default("") @db.Text
+  diagnostics Json?
+  errorCode String?
+  queuedAt DateTime?
+  startedAt DateTime?
+  finishedAt DateTime?
+  cancelRequested Boolean @default(false)
+  createdAt DateTime @default(now())
+  artifacts Artifact[]
+  publications Publication[]
+  @@index([state, queuedAt])
+  @@index([problemId, documentId, createdAt])
+}
+model Artifact {
+  id String @id @default(cuid())
+  buildId String
+  build Build @relation(fields: [buildId], references: [id], onDelete: Cascade)
+  key String @unique
+  mediaType String
+  hash String
+  bytes Int
+  createdAt DateTime @default(now())
+}
+model Asset {
+  id String @id @default(cuid())
+  problemId String
+  problem Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  name String
+  key String @unique
+  mediaType String
+  hash String
+  bytes Int
+  createdAt DateTime @default(now())
+}
+model Publication {
+  id String @id @default(cuid())
+  documentId String
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  buildId String
+  build Build @relation(fields: [buildId], references: [id])
+  token String @unique
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+}
+model AuditLog {
+  id String @id @default(cuid())
+  actorId String?
+  action String
+  resourceId String?
+  detail Json?
+  createdAt DateTime @default(now())
+  @@index([createdAt])
+}

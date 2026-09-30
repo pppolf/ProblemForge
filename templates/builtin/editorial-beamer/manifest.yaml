@@ -1,0 +1,7 @@
+protocolVersion: 1
+kind: EDITORIAL_BEAMER
+entry: main.tex
+profile: xelatex-2022-bookworm-v1
+languages: [zh-CN]
+single: true
+contest: false

@@ -1,0 +1,10 @@
+{
+  "name": "@problemforge/template-engine", "version": "0.1.0", "private": true, "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "check": "tsc -p tsconfig.json" },
+  "dependencies": {
+    "@problemforge/contracts": "workspace:*",
+    "@unified-latex/unified-latex-util-parse": "1.8.4",
+    "@unified-latex/unified-latex-types": "1.8.4", "yaml": "2.8.1"
+  }
+}

@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+.local/
+/storage/
+*.log
+coverage/
+.pnpm-store/
+playwright-report/
+test-results/

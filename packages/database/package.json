@@ -1,0 +1,11 @@
+{
+  "name": "@problemforge/database", "version": "0.1.0", "private": true, "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "generate": "tsx ../../scripts/database.ts generate",
+    "migrate": "tsx ../../scripts/database.ts migrate",
+    "check": "tsc -p tsconfig.json"
+  },
+  "dependencies": { "@prisma/client": "6.19.0", "dotenv": "16.6.1" },
+  "devDependencies": { "prisma": "6.19.0" }
+}

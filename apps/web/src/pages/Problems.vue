@@ -1,0 +1,11 @@
+<script setup lang="ts">
+import { onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
+import { NButton, NInput, NModal, NFormItem, NTag, NEmpty, useMessage } from 'naive-ui';
+import { api } from '../api';
+const problems = ref<any[]>([]); const filter = ref(''); const show = ref(false); const title = ref(''); const creating = ref(false); const message = useMessage(); const router = useRouter();
+async function load() { try { problems.value = await api('/problems'); } catch (e) { message.error((e as Error).message); } }
+onMounted(load);
+async function create() { creating.value = true; try { const result = await api('/problems', { method: 'POST', body: JSON.stringify({ title: title.value, language: 'zh-CN' }) }); router.push(`/problems/${result.id}`); } catch (e) { message.error((e as Error).message); } finally { creating.value = false; } }
+</script>
+<template><div class="page-heading"><div><h1>题目</h1><p>管理私有题目与出版资料</p></div><NButton type="primary" @click="show = true">＋ 创建题目</NButton></div><div class="panel"><div class="panel-toolbar"><NInput v-model:value="filter" placeholder="搜索题目名称" style="max-width: 360px" clearable /><span class="muted">{{ problems.length }} 道题目</span></div><table class="data-table" v-if="problems.length"><thead><tr><th>题目名称</th><th>文稿</th><th>最近更新</th><th></th></tr></thead><tbody><tr v-for="p in problems.filter(p => p.title.includes(filter))" :key="p.id"><td><RouterLink :to="`/problems/${p.id}`" class="problem-title">{{ p.title }}</RouterLink><small>{{ p.id }}</small></td><td><NTag size="small">{{ p._count.documents }} 份独立文稿</NTag></td><td>{{ new Date(p.updatedAt).toLocaleString('zh-CN') }}</td><td><NButton size="small" @click="router.push(`/problems/${p.id}`)">打开工作区</NButton></td></tr></tbody></table><NEmpty v-else description="创建第一道题目，开始编写题面和题解" class="empty" /></div><NModal v-model:show="show" preset="card" title="创建私有题目" style="width: 460px"><NFormItem label="题目名称"><NInput v-model:value="title" placeholder="例如：A + B" :maxlength="160" @keydown.enter="create" /></NFormItem><p class="muted">将分别创建简体中文题面、文档题解和 Beamer 题解。</p><NButton type="primary" :disabled="!title.trim()" :loading="creating" @click="create">创建并编辑</NButton></NModal></template>

@@ -1,0 +1,6 @@
+{
+  "name": "@problemforge/web", "version": "0.1.0", "private": true, "type": "module",
+  "scripts": { "dev": "vite --host 127.0.0.1 --port 5180 --strictPort", "build": "vue-tsc --noEmit && vite build", "check": "vue-tsc --noEmit" },
+  "dependencies": { "@problemforge/contracts": "workspace:*", "vue": "3.5.22", "vue-router": "4.5.1", "naive-ui": "2.43.2", "monaco-editor": "0.52.2", "pdfjs-dist": "5.4.296" },
+  "devDependencies": { "@vitejs/plugin-vue": "6.0.1", "vite": "7.3.1", "vue-tsc": "3.1.1" }
+}
