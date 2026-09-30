@@ -6,10 +6,11 @@
   "packageManager": "pnpm@10.11.1",
   "engines": { "node": ">=22.12.0 <25" },
   "scripts": {
-    "dev": "pnpm --parallel --filter @problemforge/api --filter @problemforge/web --filter @problemforge/tex-worker dev",
+    "dev": "pnpm --parallel --filter @problemforge/api --filter @problemforge/web --filter @problemforge/tex-worker --filter @problemforge/judge-worker dev",
     "dev:api": "pnpm --filter @problemforge/api dev",
     "dev:web": "pnpm --filter @problemforge/web dev",
     "dev:tex": "pnpm --filter @problemforge/tex-worker dev",
+    "dev:judge": "pnpm --filter @problemforge/judge-worker dev",
     "db:generate": "pnpm --filter @problemforge/database generate",
     "db:migrate": "pnpm --filter @problemforge/database migrate",
     "admin:init": "tsx scripts/init-admin.ts",
@@ -18,12 +19,15 @@
     "test:quick": "node scripts/quick.mjs",
     "check": "node scripts/check.mjs",
     "verify:p1": "tsx scripts/verify-p1.ts",
+    "verify:p2": "tsx scripts/verify-p2.ts",
+    "verify:p2:results": "tsx scripts/verify-p2-results.ts",
     "verify:tex": "tsx scripts/verify-tex.ts",
     "verify:sandbox": "tsx scripts/verify-sandbox.ts",
     "verify:publication": "tsx scripts/verify-publication.ts",
     "build:web": "pnpm --filter @problemforge/web build",
-    "infra:up": "docker compose -f infra/compose.dev.yml up -d postgres redis",
-    "infra:tex": "docker compose -f infra/compose.dev.yml up -d --build tex-sandbox"
+    "infra:up": "docker compose --env-file .env -f infra/compose.dev.yml up -d postgres redis",
+    "infra:tex": "docker compose --env-file .env -f infra/compose.dev.yml up -d --build tex-sandbox",
+    "infra:judge": "docker compose --env-file .env -f infra/compose.dev.yml up -d --build judge-sandbox"
   },
   "devDependencies": {
     "@problemforge/database": "workspace:*",

@@ -38,6 +38,20 @@ services:
     ports: ["127.0.0.1:15050:5050"]
     command: ["-http-addr", ":5050", "-mount-conf", "/opt/tex-mount.yaml", "-parallelism", "1", "-pre-fork", "1", "-container-cred-start", "20000", "-tmp-fs-param", "size=128m,nr_inodes=4096", "-output-limit", "32m", "-copy-out-limit", "16m", "-file-timeout", "10m"]
     restart: unless-stopped
+  judge-sandbox:
+    build:
+      context: ..
+      dockerfile: infra/judge-sandbox.Dockerfile
+      args:
+        DEBIAN_MIRROR: ${DEBIAN_MIRROR:-http://deb.debian.org/debian}
+        DEBIAN_SECURITY_MIRROR: ${DEBIAN_SECURITY_MIRROR:-http://deb.debian.org/debian-security}
+    environment:
+      ES_AUTH_TOKEN: ${JUDGE_SANDBOX_TOKEN:?configure JUDGE_SANDBOX_TOKEN}
+    privileged: true
+    shm_size: 256mb
+    ports: ["127.0.0.1:15051:5050"]
+    command: ["-http-addr", ":5050", "-mount-conf", "/opt/judge-mount.yaml", "-parallelism", "2", "-pre-fork", "2", "-container-cred-start", "21000", "-tmp-fs-param", "size=128m,nr_inodes=4096", "-output-limit", "8m", "-copy-out-limit", "8m", "-file-timeout", "1h"]
+    restart: unless-stopped
 volumes:
   database:
   redis:

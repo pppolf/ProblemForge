@@ -45,6 +45,7 @@ model User {
   sessions Session[]
   memberships ProblemMember[]
   builds Build[]
+  testRuns TestRun[]
 }
 model Session {
   id String @id
@@ -64,6 +65,13 @@ model Problem {
   members ProblemMember[]
   documents Document[]
   assets Asset[]
+  judgeVersion Int @default(1)
+  judgeSettings Json?
+  programs Program[]
+  tests TestCase[]
+  generatorPlans GeneratorPlan[]
+  selfTests ToolSelfTest[]
+  testRuns TestRun[]
 }
 model ProblemMember {
   problemId String
@@ -97,6 +105,7 @@ model ContentRevision {
   version Int
   body String @db.Text
   metadata Json
+  sampleRevisionIds String[] @default([])
   hash String
   createdAt DateTime @default(now())
   currentFor Document? @relation("CurrentRevision")
@@ -192,4 +201,230 @@ model AuditLog {
   detail Json?
   createdAt DateTime @default(now())
   @@index([createdAt])
+}
+enum ProgramRole {
+  MAIN_SOLUTION
+  CORRECT_SOLUTION
+  WRONG_SOLUTION
+  TIME_LIMIT_SOLUTION
+  BRUTE_FORCE
+  GENERATOR
+  VALIDATOR
+  EXTRA_VALIDATOR
+  CHECKER
+  INTERACTOR
+}
+enum ProgramLanguage {
+  CPP17
+  CPP20
+  PYTHON3
+}
+enum JudgePurpose {
+  COMPILE
+  GENERATE
+  VALIDATE
+  ANSWERS
+  SELF_TEST
+  ACCEPTANCE
+}
+model CompileProfile {
+  id String @id
+  name String
+  language ProgramLanguage
+  version Int @default(1)
+  enabled Boolean @default(true)
+  config Json
+  hash String
+  updatedAt DateTime @updatedAt
+  programs Program[]
+}
+model Program {
+  id String @id @default(cuid())
+  problemId String
+  problem Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  name String
+  role ProgramRole
+  profileId String
+  profile CompileProfile @relation(fields: [profileId], references: [id])
+  expectedVerdicts Json
+  notes String @default("")
+  enabled Boolean @default(true)
+  version Int @default(1)
+  currentRevisionId String? @unique
+  currentRevision ProgramRevision? @relation("CurrentProgramRevision", fields: [currentRevisionId], references: [id], onDelete: SetNull)
+  revisions ProgramRevision[] @relation("ProgramHistory")
+  plans GeneratorPlan[]
+  selfTests ToolSelfTest[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([problemId, role])
+}
+model ProgramRevision {
+  id String @id @default(cuid())
+  programId String
+  program Program @relation("ProgramHistory", fields: [programId], references: [id], onDelete: Cascade)
+  version Int
+  source String @db.Text
+  hash String
+  configuration Json
+  currentFor Program? @relation("CurrentProgramRevision")
+  createdAt DateTime @default(now())
+  @@unique([programId, version])
+}
+model TestCase {
+  id String @id @default(cuid())
+  problemId String
+  problem Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  number Int
+  groupName String @default("main")
+  isSample Boolean @default(false)
+  enabled Boolean @default(true)
+  notes String @default("")
+  version Int @default(1)
+  currentRevisionId String? @unique
+  currentRevision TestCaseRevision? @relation("CurrentTestRevision", fields: [currentRevisionId], references: [id], onDelete: SetNull)
+  revisions TestCaseRevision[] @relation("TestHistory")
+  createdAt DateTime @default(now())
+  @@unique([problemId, number])
+}
+model TestCaseRevision {
+  id String @id @default(cuid())
+  testCaseId String
+  testCase TestCase @relation("TestHistory", fields: [testCaseId], references: [id], onDelete: Cascade)
+  version Int
+  inputKey String
+  inputHash String
+  inputBytes Int
+  answerKey String?
+  answerHash String?
+  answerBytes Int?
+  provenance Json
+  configuration Json
+  currentFor TestCase? @relation("CurrentTestRevision")
+  createdAt DateTime @default(now())
+  @@unique([testCaseId, version])
+}
+model GeneratorPlan {
+  id String @id @default(cuid())
+  problemId String
+  problem Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  programId String
+  program Program @relation(fields: [programId], references: [id])
+  name String
+  version Int @default(1)
+  enabled Boolean @default(true)
+  data Json
+  hash String
+  revisions GeneratorPlanRevision[]
+  createdAt DateTime @default(now())
+  @@index([problemId])
+}
+model GeneratorPlanRevision {
+  id String @id @default(cuid())
+  planId String
+  plan GeneratorPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  version Int
+  data Json
+  hash String
+  createdAt DateTime @default(now())
+  @@unique([planId, version])
+}
+model ToolSelfTest {
+  id String @id @default(cuid())
+  problemId String
+  problem Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  programId String?
+  program Program? @relation(fields: [programId], references: [id])
+  kind String
+  name String
+  expected String
+  enabled Boolean @default(true)
+  version Int @default(1)
+  data Json
+  hash String
+  revisions ToolSelfTestRevision[]
+  createdAt DateTime @default(now())
+  @@index([problemId])
+}
+model ToolSelfTestRevision {
+  id String @id @default(cuid())
+  selfTestId String
+  selfTest ToolSelfTest @relation(fields: [selfTestId], references: [id], onDelete: Cascade)
+  version Int
+  data Json
+  hash String
+  createdAt DateTime @default(now())
+  @@unique([selfTestId, version])
+}
+model TestRun {
+  id String @id @default(cuid())
+  problemId String
+  problem Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  requestedById String
+  requestedBy User @relation(fields: [requestedById], references: [id])
+  requestKey String @unique
+  purpose JudgePurpose
+  state BuildState @default(QUEUED)
+  input Json
+  inputHash String
+  dependencyHash String
+  accepted Boolean?
+  report Json?
+  completed Int @default(0)
+  total Int @default(0)
+  stage String @default("等待入队")
+  log String @default("") @db.Text
+  errorCode String?
+  cancelRequested Boolean @default(false)
+  queuedAt DateTime?
+  startedAt DateTime?
+  finishedAt DateTime?
+  createdAt DateTime @default(now())
+  cases RunCase[]
+  invocations Invocation[]
+  @@index([state, queuedAt])
+  @@index([problemId, createdAt])
+}
+model RunCase {
+  id String @id @default(cuid())
+  runId String
+  run TestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  ref String
+  number Int
+  groupName String
+  isSample Boolean @default(false)
+  inputKey String
+  inputHash String
+  inputBytes Int
+  answerKey String?
+  answerHash String?
+  answerBytes Int?
+  origin Json
+  validation String @default("NOT_RUN")
+  @@unique([runId, ref])
+}
+model Invocation {
+  id String @id @default(cuid())
+  runId String
+  run TestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  programId String?
+  programRevisionId String?
+  caseRef String?
+  selfTestId String?
+  phase String
+  verdict String
+  status String
+  exitStatus Int
+  timeMs Float
+  wallTimeMs Float
+  memoryBytes Int
+  stdoutKey String?
+  stdoutHash String?
+  stdoutBytes Int @default(0)
+  stderrKey String?
+  stderrBytes Int @default(0)
+  diagnostic String @default("") @db.Text
+  detail Json?
+  createdAt DateTime @default(now())
+  @@index([runId, phase])
 }

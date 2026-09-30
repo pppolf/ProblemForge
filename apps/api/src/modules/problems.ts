@@ -63,10 +63,16 @@ export async function problemRoutes(app: Api) {
       if (!tv || tv.template.kind !== document.kind || (tv.id !== document.templateVersionId && tv.state !== 'PUBLISHED')) throw new HttpError(422, '只能选择本类型已发布的管理员模板');
       if (!templateLanguages(tv.files as TemplateFiles).includes(document.language)) throw new HttpError(422, '模板没有声明支持本语言，请选择管理员提供的相应模板');
     }
+    const sampleRevisionIds = req.body.sampleRevisionIds ?? [];
+    if (document.kind !== 'STATEMENT' && sampleRevisionIds.length) throw new HttpError(422, '只有题面可以引用测试数据样例');
     const saved = await db.$transaction(async tx => {
+      if (sampleRevisionIds.length) {
+        const samples = await tx.testCaseRevision.findMany({ where: { id: { in: sampleRevisionIds }, testCase: { problemId: document.problemId } } });
+        if (samples.length !== sampleRevisionIds.length || samples.some(s => !(s.configuration as { isSample: boolean }).isSample || !s.answerKey)) throw new HttpError(422, '样例必须引用本题标记为样例且已有答案的具体测试数据版本');
+      }
       const changed = await tx.document.updateMany({ where: { id: document.id, version: req.body.expectedVersion }, data: { version: { increment: 1 }, enabled: req.body.enabled, templateVersionId: req.body.templateVersionId } });
       if (!changed.count) throw new HttpError(409, '文稿已被其他窗口更新，请重载并合并；您的本地正文仍然保留', 'VERSION_CONFLICT');
-      const revision = await tx.contentRevision.create({ data: { documentId: document.id, version: req.body.expectedVersion + 1, body: req.body.body, metadata: req.body.metadata, hash: hashObject({ body: req.body.body, metadata: req.body.metadata }) } });
+      const revision = await tx.contentRevision.create({ data: { documentId: document.id, version: req.body.expectedVersion + 1, body: req.body.body, metadata: req.body.metadata, sampleRevisionIds, hash: hashObject({ body: req.body.body, metadata: req.body.metadata, sampleRevisionIds }) } });
       const result = await tx.document.update({ where: { id: document.id }, data: { currentRevisionId: revision.id }, include: { currentRevision: true } });
       await tx.problem.update({ where: { id: document.problemId }, data: { updatedAt: new Date() } });
       return result;

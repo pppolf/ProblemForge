@@ -1,5 +1,6 @@
 # 仓库规则
 
+- 本机默认直接在主目录 `D:\project\ProblemForge` 修改和验证；除非用户明确要求，不新建 Git worktree。
 - 完整任务书在 [AGENT_PROMPT.md](AGENT_PROMPT.md)，按 P0 → P5 推进，不删除功能范围。
 - 功能块完成后做定向检查；默认 test/test:quick 仅固定的轻量快查，支持单范围，不隐式执行全量、E2E、真实 TeX 或 Judge。
 - 管理员独占模板维护权限；题面、文档题解、Beamer 独立保存，构建固定不可变版本。

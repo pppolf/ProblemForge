@@ -7,6 +7,7 @@ import type { DocumentKind, AdminStyle } from '@problemforge/contracts';
 
 export const POLICY_VERSION = 'pf-content-3';
 export const TEX_PROFILE = 'xelatex-2022-bookworm-v1';
+export const SAMPLE_RENDERER_VERSION = 'pf-samples-2';
 export type TemplateFiles = Record<string, string>;
 export async function loadTemplateDirectory(directory: string, prefix = ''): Promise<TemplateFiles> {
   const files: TemplateFiles = {};
@@ -184,7 +185,13 @@ function publicationContext(files: TemplateFiles) {
   if (Object.keys(defaults).some(k => !names.includes(k)) || names.some(k => typeof defaults[k] !== 'string' || defaults[k].length > 160)) throw new Error('出版预览信息仅允许比赛标题、场次和日期文本');
   return defaults as { contestTitle: string; contestStage: string; dateHeader: string; dateCover: string };
 }
-export function render(files: TemplateFiles, kind: DocumentKind, body: string, metadata: { title: string; author: string }, assetPaths: string[] = [], mode: 'single' | 'booklet' = 'single') {
+export function printableSample(bytes: Buffer) {
+  if (bytes.length > 65536) throw new Error('题面单个样例输入/答案最多 64KiB');
+  let value: string; try { value = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { throw new Error('题面样例必须是可显示的 UTF-8 文本，原始测试数据未改变'); }
+  if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value)) throw new Error('题面样例包含不能显示的控制字节，原始测试数据未改变');
+}
+export type SamplePaths = { inputPath: string; answerPath: string };
+export function render(files: TemplateFiles, kind: DocumentKind, body: string, metadata: { title: string; author: string }, assetPaths: string[] = [], mode: 'single' | 'booklet' = 'single', samples: SamplePaths[] = []) {
   validateTemplate(files, kind);
   validateBody(body, kind, assetPaths);
   const result: Record<string, string> = {};
@@ -198,6 +205,16 @@ export function render(files: TemplateFiles, kind: DocumentKind, body: string, m
   for (const [name, source] of Object.entries(result)) result[name] = source.replace(/\{\{([A-Z_]+)\}\}/g, (_, k: string) => values[k] ?? `{{${k}}}`);
   if (mode === 'booklet') { if (!result['booklet.tex']) throw new Error('模板未提供题册入口'); result['main.tex'] = result['booklet.tex']; }
   result['content.tex'] = body;
+  if (samples.length) {
+    if (kind !== 'STATEMENT' || samples.length > 10 || samples.some(s => !/^samples\/sample-[1-9][0-9]*\.in$/.test(s.inputPath) || !/^samples\/sample-[1-9][0-9]*\.ans$/.test(s.answerPath))) throw new Error('样例文件必须使用平台固定的题面命名空间');
+    // The trusted template supplies exmpfile/verbatiminput. Author body validation
+    // still forbids file-reading macros; bytes never enter an executable TeX slot.
+    // olymp's example uses obeylines: structural newlines would add empty table
+    // rows and leave vertical rules below the bottom border. Suppress only these
+    // source newlines; the input/answer files keep their original bytes.
+    result['samples.tex'] = '\\Examples\n\\begin{example}%\n' + samples.map(s => `\\exmpfile{${s.inputPath}}{${s.answerPath}}%`).join('\n') + '\n\\end{example}\n';
+    result['content.tex'] += '\n\\input{samples.tex}\n';
+  }
   delete result['preview.tex'];
   return result;
 }

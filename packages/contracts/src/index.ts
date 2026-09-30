@@ -1,4 +1,5 @@
 import { Type, type Static } from '@sinclair/typebox';
+export * from './judge.ts';
 
 export const kinds = ['STATEMENT', 'EDITORIAL_DOCUMENT', 'EDITORIAL_BEAMER'] as const;
 export type DocumentKind = typeof kinds[number];
@@ -17,6 +18,7 @@ export const DocumentInput = Type.Object({
   expectedVersion: Type.Integer({ minimum: 1 }), body: Type.String({ maxLength: 200000 }),
   enabled: Type.Boolean(), metadata: Metadata,
   templateVersionId: Type.Union([Type.String({ maxLength: 80 }), Type.Null()]),
+  sampleRevisionIds: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 80 }), { maxItems: 10, uniqueItems: true })),
 }, strict);
 export type DocumentSave = Static<typeof DocumentInput>;
 export const TemplateInput = Type.Object({ name: Type.String({ minLength: 1, maxLength: 120 }), kind: Kind }, strict);

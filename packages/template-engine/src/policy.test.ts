@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateBody, render, ContentPolicyError, loadTemplateDirectory } from './index.ts';
+import { validateBody, render, printableSample, ContentPolicyError, loadTemplateDirectory } from './index.ts';
 import { fileURLToPath } from 'node:url';
 
 test('three representative manuscripts render into administrator-controlled shells', async () => {
@@ -33,4 +33,12 @@ test('images resolve only approved immutable assets and bounded local dimensions
   assert.deepEqual(validateBody(`\\includegraphics[width=0.8\\linewidth]{${path}}`, 'STATEMENT', [path]), [path]);
   assert.throws(() => validateBody('\\includegraphics{/etc/passwd}', 'STATEMENT', [path]), ContentPolicyError);
   assert.throws(() => validateBody(`\\includegraphics[width=0.8\\linewidth,command=\\input{secret}]{${path}}`, 'STATEMENT', [path]), ContentPolicyError);
+});
+test('sample slots use platform file paths while authors cannot read files', async () => {
+  const files = await loadTemplateDirectory(fileURLToPath(new URL('../../../templates/builtin/statement/', import.meta.url)));
+  const result = render(files, 'STATEMENT', '计算 $a+b$。', { title: '样例', author: '作者' }, [], 'single', [{ inputPath: 'samples/sample-1.in', answerPath: 'samples/sample-1.ans' }]);
+  assert.match(result['samples.tex'], /\\exmpfile\{samples\/sample-1\.in\}\{samples\/sample-1\.ans\}/);
+  assert.throws(() => validateBody('\\exmpfile{secret}{secret}', 'STATEMENT'), ContentPolicyError);
+  assert.throws(() => render(files, 'STATEMENT', '', { title: '', author: '' }, [], 'single', [{ inputPath: '../secret', answerPath: 'samples/sample-1.ans' }]));
+  assert.throws(() => printableSample(Buffer.from([0, 255])));
 });

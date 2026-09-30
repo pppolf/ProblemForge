@@ -1,0 +1,8 @@
+{
+  "name": "@problemforge/judge-worker", "version": "0.1.0", "private": true, "type": "module",
+  "scripts": { "dev": "tsx src/index.ts", "dev:watch": "tsx watch src/index.ts", "start": "tsx src/index.ts", "check": "tsc -p tsconfig.json" },
+  "dependencies": {
+    "@problemforge/database": "workspace:*", "@problemforge/domain": "workspace:*", "@problemforge/storage": "workspace:*",
+    "@problemforge/contracts": "workspace:*", "@problemforge/judge-adapter": "workspace:*", "@problemforge/judge-core": "workspace:*", "bullmq": "5.61.2"
+  }
+}

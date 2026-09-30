@@ -59,6 +59,9 @@ importers:
       '@problemforge/judge-adapter':
         specifier: workspace:*
         version: link:../../packages/judge-adapter
+      '@problemforge/judge-core':
+        specifier: workspace:*
+        version: link:../../packages/judge-core
       '@problemforge/storage':
         specifier: workspace:*
         version: link:../../packages/storage
@@ -147,6 +150,22 @@ importers:
         specifier: 8.18.1
         version: 8.18.1
 
+  packages/judge-core:
+    dependencies:
+      '@problemforge/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@problemforge/judge-adapter':
+        specifier: workspace:*
+        version: link:../judge-adapter
+      yauzl:
+        specifier: 3.2.0
+        version: 3.2.0
+    devDependencies:
+      '@types/yauzl':
+        specifier: 2.10.3
+        version: 2.10.3
+
   packages/storage: {}
 
   packages/template-engine:
@@ -163,6 +182,30 @@ importers:
       yaml:
         specifier: 2.8.1
         version: 2.8.1
+
+  workers/judge:
+    dependencies:
+      '@problemforge/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@problemforge/database':
+        specifier: workspace:*
+        version: link:../../packages/database
+      '@problemforge/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
+      '@problemforge/judge-adapter':
+        specifier: workspace:*
+        version: link:../../packages/judge-adapter
+      '@problemforge/judge-core':
+        specifier: workspace:*
+        version: link:../../packages/judge-core
+      '@problemforge/storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
+      bullmq:
+        specifier: 5.61.2
+        version: 5.61.2
 
   workers/tex:
     dependencies:
@@ -906,6 +949,9 @@ packages:
   '@types/ws@8.18.1':
     resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==, tarball: https://registry.npmmirror.com/@types/ws/-/ws-8.18.1.tgz}
 
+  '@types/yauzl@2.10.3':
+    resolution: {integrity: sha512-oJoftv0LSuaDZE3Le4DbKX+KS9G36NzOeSap90UIK0yMA/NhKJhqlSGtNDORNRaIbQfzjXDrQa0ytJ6mNRGz/Q==, tarball: https://registry.npmmirror.com/@types/yauzl/-/yauzl-2.10.3.tgz}
+
   '@unified-latex/unified-latex-builder@1.8.4':
     resolution: {integrity: sha512-Rw5XlVhJ50wk7J/hukJ0YBjLqaCjNTYDLZc6lNPH8Vji56YPzZbduuh/kY3ueME+CnxJq/34CGY8D/0cOZY8yw==, tarball: https://registry.npmmirror.com/@unified-latex/unified-latex-builder/-/unified-latex-builder-1.8.4.tgz}
 
@@ -1062,6 +1108,9 @@ packages:
   brace-expansion@5.0.12:
     resolution: {integrity: sha512-YovQ3rzhaLMIrDjNDMkNS01tea93qhEhG5xy8f6+R0l+dw3Ki+5sCoIoI942iuLZTHWogWktgwVDhU09iNEimQ==, tarball: https://registry.npmmirror.com/brace-expansion/-/brace-expansion-5.0.12.tgz}
     engines: {node: 20 || >=22}
+
+  buffer-crc32@0.2.13:
+    resolution: {integrity: sha512-VO9Ht/+p3SN7SKWqcrgEzjGbRSJYTx+Q1pTQC0wrWqHx0vpJraQ6GtHx8tvcg1rlK1byhU5gccxgOgj7B0TDkQ==, tarball: https://registry.npmmirror.com/buffer-crc32/-/buffer-crc32-0.2.13.tgz}
 
   bullmq@5.61.2:
     resolution: {integrity: sha512-b39hbiq/xXpOTT/OfmKpQYD+4VE4+XUlvdZ6GjbGl9asmRk8cSvUaQWD18jVCn1I0SzIfbrgOf+RAkqjXDUhJg==, tarball: https://registry.npmmirror.com/bullmq/-/bullmq-5.61.2.tgz}
@@ -1454,6 +1503,9 @@ packages:
     resolution: {integrity: sha512-DlOzet0HO7OEnmUmB6wWGJrrdvbyJKftI1bhMitK7O2N8W2gc757yyYBbINy9IDafXAV9wmKr9t7xsTaNKRG5Q==, tarball: https://registry.npmmirror.com/pdfjs-dist/-/pdfjs-dist-5.4.296.tgz}
     engines: {node: '>=20.16.0 || >=22.3.0'}
 
+  pend@1.2.0:
+    resolution: {integrity: sha512-F3asv42UuXchdzt+xXqfW1OGlVBe+mxa2mqI0pg5yAHZPvFmY3Y6drSf/GQ1A86WgWEN9Kzh/WrgKa6iGcHXLg==, tarball: https://registry.npmmirror.com/pend/-/pend-1.2.0.tgz}
+
   perfect-debounce@1.0.0:
     resolution: {integrity: sha512-xCy9V055GLEqoFaHoC1SoLIaLmWctgCUaBaWxDZ7/Zx4CTyX7cJQLJOok/orfjZAh9kEYpjJa4d0KcJmCbctZA==, tarball: https://registry.npmmirror.com/perfect-debounce/-/perfect-debounce-1.0.0.tgz}
 
@@ -1768,6 +1820,10 @@ packages:
     resolution: {integrity: sha512-lcYcMxX2PO9XMGvAJkJ3OsNMw+/7FKes7/hgerGUYWIoWu5j/+YQqcZr5JnPZWzOsEBgMbSbiSTn/dv/69Mkpw==, tarball: https://registry.npmmirror.com/yaml/-/yaml-2.8.1.tgz}
     engines: {node: '>= 14.6'}
     hasBin: true
+
+  yauzl@3.2.0:
+    resolution: {integrity: sha512-Ow9nuGZE+qp1u4JIPvg+uCiUr7xGQWdff7JQSk5VGYTAZMDe2q8lxJ10ygv10qmSj031Ty/6FNJpLO4o1Sgc+w==, tarball: https://registry.npmmirror.com/yauzl/-/yauzl-3.2.0.tgz}
+    engines: {node: '>=12'}
 
 snapshots:
 
@@ -2242,6 +2298,10 @@ snapshots:
     dependencies:
       '@types/node': 22.15.30
 
+  '@types/yauzl@2.10.3':
+    dependencies:
+      '@types/node': 22.15.30
+
   '@unified-latex/unified-latex-builder@1.8.4':
     dependencies:
       '@unified-latex/unified-latex-types': 1.8.4
@@ -2501,6 +2561,8 @@ snapshots:
   brace-expansion@5.0.12:
     dependencies:
       balanced-match: 4.0.4
+
+  buffer-crc32@0.2.13: {}
 
   bullmq@5.61.2:
     dependencies:
@@ -2963,6 +3025,8 @@ snapshots:
     optionalDependencies:
       '@napi-rs/canvas': 0.1.100
 
+  pend@1.2.0: {}
+
   perfect-debounce@1.0.0: {}
 
   picocolors@1.1.1: {}
@@ -3247,3 +3311,8 @@ snapshots:
   ws@8.18.3: {}
 
   yaml@2.8.1: {}
+
+  yauzl@3.2.0:
+    dependencies:
+      buffer-crc32: 0.2.13
+      pend: 1.2.0

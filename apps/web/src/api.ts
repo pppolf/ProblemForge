@@ -10,6 +10,15 @@ export async function api<T = any>(path: string, options: RequestInit = {}): Pro
 export async function loadSession() {
   try { Object.assign(session, await api('/auth/me')); } catch {} finally { session.ready = true; }
 }
+export function bytesBase64(bytes: Uint8Array) {
+  let binary = ''; for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+  return btoa(binary);
+}
+export async function binaryFile(path: string): Promise<string> {
+  const response = await fetch(`/api${path}`, { credentials: 'same-origin' });
+  if (!response.ok) { const e = await response.json(); throw new ApiError(e.message, response.status, e.code); }
+  return bytesBase64(new Uint8Array(await response.arrayBuffer()));
+}
 export type Artifact = { id: string; hash: string; bytes: number };
 export type Build = { id: string; kind: string; state: string; log: string; errorCode?: string; stale: boolean; artifacts: Artifact[]; documentId?: string; purpose: string; input: Record<string, any>; createdAt: string; diagnostics?: any[] };
-export type Draft = { id: string; kind: 'STATEMENT' | 'EDITORIAL_DOCUMENT' | 'EDITORIAL_BEAMER'; language: string; version: number; enabled: boolean; templateVersionId: string | null; currentRevision: { id: string; body: string; metadata: { title: string; author: string } }; templateVersion?: any; dirty: boolean; saving: boolean; savedAt?: string; conflict?: boolean; policyIssues?: any[] };
+export type Draft = { id: string; kind: 'STATEMENT' | 'EDITORIAL_DOCUMENT' | 'EDITORIAL_BEAMER'; language: string; version: number; enabled: boolean; templateVersionId: string | null; currentRevision: { id: string; body: string; metadata: { title: string; author: string }; sampleRevisionIds?: string[] }; templateVersion?: any; dirty: boolean; saving: boolean; savedAt?: string; conflict?: boolean; policyIssues?: any[] };

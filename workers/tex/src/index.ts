@@ -2,13 +2,13 @@ import { Worker } from 'bullmq';
 import { db } from '@problemforge/database';
 import { config, redisConnection, hashObject, sha256 } from '@problemforge/domain';
 import { PrivateFileStorage } from '@problemforge/storage';
-import { render, templateImage, POLICY_VERSION, TEX_PROFILE, ContentPolicyError, type TemplateFiles } from '@problemforge/template-engine';
+import { render, templateImage, printableSample, POLICY_VERSION, TEX_PROFILE, SAMPLE_RENDERER_VERSION, ContentPolicyError, type TemplateFiles } from '@problemforge/template-engine';
 import type { DocumentKind } from '@problemforge/contracts';
 import { SandboxClient, InfrastructureError, GO_JUDGE_VERSION, type SandboxCommand } from '@problemforge/judge-adapter';
 
 const sandbox = new SandboxClient(config.sandboxUrl, config.sandboxToken);
 const storage = new PrivateFileStorage(config.storageRoot);
-type Input = { kind: DocumentKind; body: string; mode?: 'single' | 'booklet'; metadata: { title: string; author: string }; files: TemplateFiles; templateHash: string; policy: string; toolchain: string; sandboxVersion: string; assets?: { path: string; key: string; hash: string; bytes: number }[] };
+type Input = { kind: DocumentKind; body: string; mode?: 'single' | 'booklet'; metadata: { title: string; author: string }; files: TemplateFiles; templateHash: string; policy: string; toolchain: string; sandboxVersion: string; sampleRendererVersion?: string; assets?: { path: string; key: string; hash: string; bytes: number }[]; samples?: { revisionId: string; inputPath: string; answerPath: string; input: { key: string; hash: string; bytes: number }; answer: { key: string; hash: string; bytes: number } }[] };
 const worker = new Worker('tex', async job => {
   const id = (job.data as { buildId: string }).buildId;
   const build = await db.build.findUnique({ where: { id } });
@@ -31,8 +31,9 @@ const worker = new Worker('tex', async job => {
     const input = build.input as unknown as Input;
     if (hashObject(build.input) !== build.inputHash || hashObject(input.files) !== input.templateHash) throw new Error('构建快照哈希不匹配');
     if (input.policy !== POLICY_VERSION || input.toolchain !== TEX_PROFILE || input.sandboxVersion !== GO_JUDGE_VERSION) throw new Error('构建策略或工具链与当前 Worker 不一致，需创建新构建');
+    if (input.samples?.length && input.sampleRendererVersion !== SAMPLE_RENDERER_VERSION) throw new Error('样例渲染版本与当前 Worker 不一致，需创建新构建');
     const assets = input.assets ?? [];
-    const sources = render(input.files, input.kind, input.body, input.metadata, assets.map(a => a.path), input.mode);
+    const sources = render(input.files, input.kind, input.body, input.metadata, assets.map(a => a.path), input.mode, input.samples);
     const copyIn: SandboxCommand['copyIn'] = Object.fromEntries(Object.entries(sources).map(([name, content]) => [name, { content }]));
     for (const [name, encoded] of Object.entries(input.files)) if (/\.(png|jpe?g)$/.test(name)) {
       const fileId = await sandbox.upload(name.split('/').at(-1)!, templateImage(encoded, name));
@@ -43,6 +44,13 @@ const worker = new Worker('tex', async job => {
       if (bytes.length !== asset.bytes || sha256(bytes) !== asset.hash) throw new Error('资源快照哈希不匹配');
       const fileId = await sandbox.upload(asset.path.split('/').at(-1)!, bytes);
       cacheIds.push(fileId); copyIn[asset.path] = { fileId };
+    }
+    for (const sample of input.samples ?? []) for (const [path, ref] of [[sample.inputPath, sample.input], [sample.answerPath, sample.answer]] as const) {
+      const bytes = await storage.get(ref.key);
+      if (bytes.length !== ref.bytes || sha256(bytes) !== ref.hash) throw new Error('样例数据快照哈希不匹配');
+      printableSample(bytes);
+      const fileId = await sandbox.upload(path.split('/').at(-1)!, bytes);
+      cacheIds.push(fileId); copyIn[path] = { fileId };
     }
     const cmd: SandboxCommand = {
       args: ['/usr/bin/latexmk', '-norc', '-xelatex', '-no-shell-escape', '-halt-on-error', '-interaction=nonstopmode', '-file-line-error', 'main.tex'],

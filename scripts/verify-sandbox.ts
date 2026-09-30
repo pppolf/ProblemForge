@@ -5,7 +5,9 @@ import { config, root } from '@problemforge/domain';
 import { SandboxClient, InfrastructureError, type SandboxCommand } from '../packages/judge-adapter/src/index.ts';
 
 // Explicit integration entry; never called by test/test:quick.
-const sandbox = new SandboxClient(config.sandboxUrl, config.sandboxToken);
+const judge = process.argv.includes('--judge');
+if (judge && !config.judgeSandboxToken) throw new Error('请配置 JUDGE_SANDBOX_TOKEN');
+const sandbox = new SandboxClient(judge ? config.judgeSandboxUrl : config.sandboxUrl, judge ? config.judgeSandboxToken! : config.sandboxToken);
 const base: SandboxCommand = {
   args: ['/usr/bin/python3', '-c', `import os,json,socket
 assert os.getuid() != 0
@@ -37,6 +39,6 @@ console.log('PASS Linux unprivileged execution / private filesystem / read-only 
 const [limit] = await sandbox.execute({ ...base, args: ['/usr/bin/python3', '-c', 'while True: pass'], cpuLimit: 150e6, clockLimit: 2e9 });
 assert.equal(limit.status, 'Time Limit Exceeded', JSON.stringify(limit));
 console.log('PASS CPU limit terminates the sandbox process.');
-await assert.rejects(() => new SandboxClient('http://127.0.0.1:1', config.sandboxToken).execute(base), InfrastructureError);
+await assert.rejects(() => new SandboxClient('http://127.0.0.1:1', judge ? config.judgeSandboxToken! : config.sandboxToken).execute(base), InfrastructureError);
 console.log('PASS unavailable sandbox fails explicitly; no host execution fallback.');
-await writeFile(resolve(root, '.local/verify-sandbox.json'), JSON.stringify({ checkedAt: new Date().toISOString(), proof, limitStatus: limit.status, unavailable: 'InfrastructureError' }, null, 2));
+await writeFile(resolve(root, judge ? '.local/verify-judge-sandbox.json' : '.local/verify-sandbox.json'), JSON.stringify({ checkedAt: new Date().toISOString(), proof, limitStatus: limit.status, unavailable: 'InfrastructureError' }, null, 2));

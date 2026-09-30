@@ -2,7 +2,7 @@ import { Type } from '@sinclair/typebox';
 import { BuildInput, PublishInput } from '@problemforge/contracts';
 import { db, type Build } from '@problemforge/database';
 import { config, hashObject, HttpError, problemAccess, texQueue, token, audit } from '@problemforge/domain';
-import { validateBody, templateLanguages, POLICY_VERSION, TEX_PROFILE, type TemplateFiles } from '@problemforge/template-engine';
+import { validateBody, templateLanguages, printableSample, POLICY_VERSION, TEX_PROFILE, SAMPLE_RENDERER_VERSION, type TemplateFiles } from '@problemforge/template-engine';
 import { GO_JUDGE_VERSION } from '@problemforge/judge-adapter';
 import { admin, authenticate, storage, type Api } from '../app.ts';
 import { assetPath } from './assets.ts';
@@ -41,9 +41,17 @@ export async function buildRoutes(app: Api) {
     const assets = await db.asset.findMany({ where: { problemId: doc.problemId } });
     const used = validateBody(doc.currentRevision.body, doc.kind, assets.map(assetPath));
     const assetSnapshot = assets.filter(a => used.includes(assetPath(a))).map(a => ({ path: assetPath(a), key: a.key, hash: a.hash, bytes: a.bytes }));
+    const samples = [];
+    for (const [i, revisionId] of doc.currentRevision.sampleRevisionIds.entries()) {
+      const sample = await db.testCaseRevision.findUnique({ where: { id: revisionId }, include: { testCase: true } });
+      if (!sample || sample.testCase.problemId !== doc.problemId || !sample.answerKey || !(sample.configuration as { isSample: boolean }).isSample) throw new HttpError(422, '题面样例的数据版本不完整或不属于本题');
+      try { printableSample(await storage.get(sample.inputKey)); printableSample(await storage.get(sample.answerKey)); } catch (e) { throw new HttpError(422, (e as Error).message); }
+      samples.push({ revisionId, inputPath: `samples/sample-${i + 1}.in`, answerPath: `samples/sample-${i + 1}.ans`, input: { key: sample.inputKey, hash: sample.inputHash, bytes: sample.inputBytes }, answer: { key: sample.answerKey, hash: sample.answerHash!, bytes: sample.answerBytes! } });
+    }
     const input = { kind: doc.kind, language: doc.language, body: doc.currentRevision.body, metadata: doc.currentRevision.metadata,
       files: doc.templateVersion.files as TemplateFiles, templateHash: doc.templateVersion.hash, contentHash: doc.currentRevision.hash,
-      revisionId: doc.currentRevision.id, contentVersion: doc.version, templateNumber: doc.templateVersion.number, assets: assetSnapshot,
+      revisionId: doc.currentRevision.id, contentVersion: doc.version, templateNumber: doc.templateVersion.number, assets: assetSnapshot, samples,
+      ...(samples.length ? { sampleRendererVersion: SAMPLE_RENDERER_VERSION } : {}),
       policy: POLICY_VERSION, toolchain: TEX_PROFILE, sandboxVersion: GO_JUDGE_VERSION };
     const active = await db.build.count({ where: { requestedById: req.user.id, state: { in: ['QUEUED', 'RUNNING'] } } });
     if (active >= 6) throw new HttpError(429, '每个用户最多同时排队/执行六个文档构建');

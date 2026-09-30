@@ -19,6 +19,8 @@ export const config = {
   storageRoot: resolve(root, process.env.STORAGE_ROOT ?? './storage'),
   redisUrl: required('REDIS_URL'), sandboxUrl: process.env.TEX_SANDBOX_URL ?? 'http://127.0.0.1:15050',
   sandboxToken: required('TEX_SANDBOX_TOKEN'),
+  judgeSandboxUrl: process.env.JUDGE_SANDBOX_URL ?? 'http://127.0.0.1:15051',
+  judgeSandboxToken: process.env.JUDGE_SANDBOX_TOKEN,
 };
 export function canonical(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
@@ -64,3 +66,4 @@ export function redisConnection(worker = false) {
     ...(url.protocol === 'rediss:' ? { tls: {} } : {}), maxRetriesPerRequest: worker ? null : 1, enableOfflineQueue: worker };
 }
 export const texQueue = () => new Queue('tex', { connection: redisConnection(), prefix: 'problemforge', defaultJobOptions: { attempts: 1, removeOnComplete: 200, removeOnFail: 200 } });
+export const judgeQueue = () => new Queue('judge', { connection: redisConnection(), prefix: 'problemforge', defaultJobOptions: { attempts: 1, removeOnComplete: 200, removeOnFail: 200 } });

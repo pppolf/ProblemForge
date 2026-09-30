@@ -15,6 +15,8 @@ import { problemRoutes } from './modules/problems.ts';
 import { templateRoutes } from './modules/templates.ts';
 import { buildRoutes } from './modules/builds.ts';
 import { assetRoutes } from './modules/assets.ts';
+import { judgeRoutes } from './modules/judge.ts';
+import { testRunRoutes } from './modules/test-runs.ts';
 
 declare module 'fastify' {
   interface FastifyRequest { user: UserView; sessionId: string; csrfToken: string; }
@@ -67,6 +69,8 @@ export async function createApp(logging = true) {
   await templateRoutes(app);
   await buildRoutes(app);
   await assetRoutes(app);
+  await judgeRoutes(app);
+  await testRunRoutes(app);
   app.addHook('onClose', async () => { redis.disconnect(); });
   return app;
 }

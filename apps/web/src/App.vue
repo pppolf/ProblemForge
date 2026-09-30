@@ -14,8 +14,8 @@ async function logout() { await api('/auth/logout', { method: 'POST' }); session
           <div class="nav-label">出题工作台</div>
           <RouterLink to="/problems" class="nav-link">题目</RouterLink>
           <RouterLink to="/tasks" class="nav-link">任务中心</RouterLink>
-          <template v-if="session.user.role === 'ADMIN'"><div class="nav-label">系统管理</div><RouterLink to="/admin/templates" class="nav-link">模板中心</RouterLink><RouterLink to="/admin/users" class="nav-link">用户管理</RouterLink></template>
-          <div class="sidebar-foot"><NTag size="small" :bordered="false">P0 / P1 开发版</NTag><p>题目、正文和资源默认私有</p></div>
+          <template v-if="session.user.role === 'ADMIN'"><div class="nav-label">系统管理</div><RouterLink to="/admin/templates" class="nav-link">模板中心</RouterLink><RouterLink to="/admin/compile-profiles" class="nav-link">编译配置</RouterLink><RouterLink to="/admin/users" class="nav-link">用户管理</RouterLink></template>
+          <div class="sidebar-foot"><NTag size="small" :bordered="false">P2 开发版</NTag><p>题目、正文和资源默认私有</p></div>
         </aside>
         <div class="main-shell"><header class="topbar"><span>XCPC · 出题与出版</span><div><span>{{ session.user.name }}</span><NTag size="small" :bordered="false">{{ session.user.role === 'ADMIN' ? '系统管理员' : '出题人' }}</NTag><NButton text @click="logout">退出</NButton></div></header><main><RouterView /></main></div>
       </div>

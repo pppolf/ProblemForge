@@ -9,7 +9,7 @@ export type SandboxResult = {
   fileError?: { name: string; type: string; message?: string }[];
 };
 export type SandboxCommand = {
-  args: string[]; env: string[]; files: ({ content: string } | { name: string; max: number; pipe?: boolean } | null)[];
+  args: string[]; env: string[]; files: (SandboxFile | { name: string; max: number; pipe?: boolean } | null)[];
   cpuLimit: number; clockLimit: number; memoryLimit: number; stackLimit: number; procLimit: number;
   copyIn: Record<string, SandboxFile>; copyOut?: string[]; copyOutCached?: string[]; copyOutMax: number;
 };
@@ -28,10 +28,9 @@ export class SandboxClient {
   }
   async health() {
     const response = await this.request('/version');
-    const data = await response.json() as { buildVersion?: string; version?: string; goos?: string; platform?: string };
+    const data = await response.json() as { buildVersion?: string; os?: string; platform?: string };
     // An exact version check prevents accepting a different request/status protocol.
-    const serialized = JSON.stringify(data);
-    if (!serialized.includes(GO_JUDGE_VERSION) || !serialized.includes('linux')) throw new InfrastructureError(`沙箱协议/平台不符，要求 Linux go-judge ${GO_JUDGE_VERSION}`);
+    if (data.buildVersion !== GO_JUDGE_VERSION || data.os !== 'linux') throw new InfrastructureError(`沙箱协议/平台不符，要求 Linux go-judge ${GO_JUDGE_VERSION}`);
     return data;
   }
   async upload(name: string, bytes: Buffer) {
