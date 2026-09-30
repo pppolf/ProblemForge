@@ -66,6 +66,15 @@
 
 本次仅同步源码，未覆盖主目录的本地配置、依赖、数据库或私有存储。前述 P2 与 PDF 实际验证及忽略目录证据仍来自 f054 工作树，运行中的开发服务也尚未切换目录；后续启动主目录服务时需先核对本地配置、安装更新的依赖并按目标数据库状态处理迁移。本次没有重复运行功能测试。
 
+## 下一对话交接（2026-09-30，进入 P3）
+
+- **工作目录与提交：**直接使用 `D:\project\ProblemForge`，当前分支 `master`。P2、样例表格修复和主目录规则已提交为 `550f0c8`；P3 详细步骤见 [PLAN.md](PLAN.md) 的 P3.0—P3.4。本轮按用户要求停在提交与计划，不提前实现 P3，也没有 push。
+- **开始顺序：**先读 AGENTS、任务书第 7/8/10/12/13 节及本交接，再完成 P3.0 运行环境切换，然后实施对拍 → 交互 → 分组评分。现有源码有 INTERACTIVE/PARTIAL 契约字段，但 API 明确拒绝执行，Interactor 仅管理/编译；这些字段不代表 P3 已实现。EXTRA_VALIDATOR 在 P2 已可全局执行，P3 需补组级适用范围。
+- **环境区别：**此前实际 P2 验证在 `C:\Users\Gaoming\.codex\worktrees\f054\ProblemForge`，数据库 `problemforge_f054`、Redis DB 1、该目录自己的私有存储。前端/API 为 5180/3100，PostgreSQL/Redis 为 15432/16379，TeX/Judge 沙箱为 15050/15051。当前开发进程尚未迁往主目录；新对话需重新核对存活进程、任务和配置，不能假定工具会话 ID 可跨对话复用。
+- **本地证据：**P2 的 `.local/verify-p2.json`、`verify-p2-results.json`、`verify-p2-browser.json`、`verify-sample-border.json` 及 PDF/截图仍在上述 f054 目录；主目录只保留自己的 `.local/worktree-import-proof.json`。必要凭据在各自忽略的 `.local` / `.env` 中，核对目标环境后读取，不写入文档或提交。旧工作树含运行数据与证据，迁移核对完成前保留。
+- **可用于接续的页面：**P2 验证题 `cmuo2ghni004wktkgjv9s4p1q`，路径 `/problems/cmuo2ghni004wktkgjv9s4p1q`；题面正文 v3 / 模板 v1 / 样例数据 v2，最新修复构建 `cmuo5c4im0002ktt0sxp20h3f`。该题正式数据已到 v3，但题面显式保留样例 v2，是已验证的版本行为。
+- **本轮新增检查：**环境配置文件中仅 `.env.example` 纳入提交，本地凭据、产物、storage 与 node_modules 未入暂存区；自有代码的暂存差异空白检查通过。上游 testlib 原文件保留尾随空白，磁盘及暂存 blob 的 SHA-256 均与固定来源一致，未为消除提示而修改第三方字节。功能验证复用此前记录，本轮未在主目录重跑 Judge、TeX、E2E 或生产构建。
+
 ## 未实现、未验证及阻塞
 
 P3 对拍/真实交互/分组评分与依赖 DAG；P4 修订审核/协作/比赛冻结/整场资料/题目包/每类第二套模板；P5 正式 Linux 应用镜像、完整 Compose、CI、SSE、缓存/配额/审计强化、失联恢复、生产部署和备份恢复。P2 已做的队列补投、预算/取消和有限基础配额不代表 P5 已完成。完整清单保留在 PLAN。
