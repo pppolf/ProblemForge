@@ -1,12 +1,15 @@
 import { db, Prisma } from '@problemforge/database';
 import { hashObject, sha256 } from '@problemforge/domain';
 import { GO_JUDGE_VERSION } from '@problemforge/judge-adapter';
-import { JUDGE_POLICY, JUDGE_TOOLCHAIN, checkExpectation, compareOutput, solutionRoles, type JudgeSnapshot, type ProgramSnapshot, type BlobRef } from '@problemforge/judge-core';
+import { JUDGE_POLICY, JUDGE_TOOLCHAIN, INTERACTION_POLICY, scoreGroups, scoreExpectation, type ScoreReport, checkExpectation, compareOutput, solutionRoles, type JudgeSnapshot, type ProgramSnapshot, type BlobRef } from '@problemforge/judge-core';
 import { defaultJudgeSettings, type JudgeSettingsValue } from '@problemforge/contracts';
 import { Executor, JudgeFailure, type Captured, type Compiled } from './executor.ts';
+import { stressPipeline } from './stress.ts';
 
 type MatrixCell = { programId: string; programName: string; programRevisionId: string; caseRef: string; number: number; groupName: string; verdict: string; timeMs: number; memoryBytes: number; invocationId: string; diagnostic: string };
-type Report = {
+export type Report = {
+  scores: ScoreReport[];
+  stress?: { outcome: string; completedIterations: number; counterexamples: number; lastSeed: string | null; iterations: { seed: string; verdict: string; inputHash: string; caseId: string | null; reproduced?: boolean }[] };
   warnings: string[];
   compilations: { programId: string; name: string; version: number; verdict: string; invocationId: string; diagnostic: string }[];
   selfTests: { id: string; name: string; expected: string; actual: string; passed: boolean; invocationId?: string; diagnostic: string }[];
@@ -16,22 +19,26 @@ type Report = {
 export async function pipeline(runId: string, input: JudgeSnapshot, executor: Executor, report: Report) {
   const settings = { ...defaultJudgeSettings, ...input.settings } as JudgeSettingsValue;
   if (input.policy !== JUDGE_POLICY || input.toolchain !== JUDGE_TOOLCHAIN || input.sandboxVersion !== GO_JUDGE_VERSION) throw new JudgeFailure('TOOLCHAIN_MISMATCH', '任务策略/工具链已改变，请创建新任务');
+  if (settings.interactionMode === 'INTERACTIVE' && input.interactionPolicy !== INTERACTION_POLICY) throw new JudgeFailure('INTERACTION_POLICY_MISMATCH', '交互策略已改变，请创建新任务');
   for (const p of input.programs) if (sha256(p.source) !== p.sourceHash || hashObject({ language: p.profile.language, config: p.profile.config }) !== p.profile.hash) throw new JudgeFailure('SOURCE_HASH_MISMATCH', '源码或编译 profile 快照哈希不匹配');
   const compiled = new Map<string, Compiled>(), failedCompile = new Map<string, Captured>();
   const casesCount = input.tests.length + input.plans.reduce((n, p) => n + p.count, 0);
   const validators = input.programs.filter(p => p.enabled && ['VALIDATOR', 'EXTRA_VALIDATOR'].includes(p.role));
   const main = input.programs.find(p => p.role === 'MAIN_SOLUTION' && p.enabled);
   const checkerProgram = input.programs.find(p => p.role === 'CHECKER' && p.enabled);
+  const interactor = input.programs.find(p => p.role === 'INTERACTOR' && p.enabled);
+  const directInteraction = settings.interactionMode === 'INTERACTIVE' && (settings.interaction?.verdictMode ?? 'DIRECT') === 'DIRECT';
   const solutions = input.programs.filter(p => p.enabled && solutionRoles.has(p.role));
   let total = input.programs.length + input.tests.length + input.plans.reduce((n, p) => n + p.count + 1, 0);
   if (['VALIDATE', 'ANSWERS', 'ACCEPTANCE'].includes(input.purpose)) total += casesCount * validators.length;
   if (['ANSWERS', 'ACCEPTANCE'].includes(input.purpose)) total += casesCount * (1 + (settings.checkerMode === 'CUSTOM' ? 1 : 0));
   total += input.selfTests.length;
   if (input.purpose === 'ACCEPTANCE') total += casesCount * (solutions.length - 1) * (1 + (settings.checkerMode === 'CUSTOM' ? 1 : 0));
-  await db.testRun.update({ where: { id: runId }, data: { total, stage: '编译固定源码快照' } });
+  if (input.stress) total = input.programs.length + (input.replay ? 1 : input.stress.data.iterations) * (validators.length + 3 + (settings.checkerMode === 'CUSTOM' ? 2 : 0)) + (input.replay?.regenerate ? 1 : 0);
+  await executor.progress({ data: { total, stage: '编译固定源码快照' } });
   const persist = async (stage?: string) => {
     executor.checkCanceled();
-    await db.testRun.update({ where: { id: runId }, data: { report: report as unknown as Prisma.InputJsonValue, ...(stage ? { stage } : {}), log: [
+    await executor.progress({ data: { report: report as unknown as Prisma.InputJsonValue, ...(stage ? { stage } : {}), log: [
       ...report.compilations.map(c => `${c.name} v${c.version}: ${c.verdict}${c.diagnostic ? `\n${c.diagnostic}` : ''}`),
       ...report.warnings.map(w => `提醒：${w}`),
       ...report.selfTests.map(t => `自测 ${t.name}: ${t.actual} / 预期 ${t.expected}`),
@@ -50,6 +57,7 @@ export async function pipeline(runId: string, input: JudgeSnapshot, executor: Ex
   }
   await persist();
   if (input.purpose === 'COMPILE') return { accepted: null };
+  if (input.stress) return stressPipeline(runId, input, executor, compiled, report);
   const caseData: { ref: string; id: string; number: number; groupName: string; input: Buffer; suppliedAnswer: Buffer | null; answer?: Buffer; mainRun?: Captured }[] = [];
   const hashes = new Map<string, string>(), numbers = new Set<number>();
   const duplicates = (hash: string, number: number, ref: string) => {
@@ -59,13 +67,14 @@ export async function pipeline(runId: string, input: JudgeSnapshot, executor: Ex
     numbers.add(number);
   };
   for (const t of input.tests) {
+    const groupName = input.groups?.data.groups.find(g=>g.members.some(m=>m.revisionId===t.revisionId))?.id ?? t.groupName;
     const bytes = await executor.blob(t.input), suppliedAnswer = t.answer ? await executor.blob(t.answer) : null;
-    const c = await db.runCase.create({ data: { runId, ref: t.ref, number: t.number, groupName: t.groupName, isSample: t.isSample,
+    const c = await db.runCase.create({ data: { runId, ref: t.ref, number: t.number, groupName, isSample: t.isSample,
       inputKey: t.input.key, inputHash: t.input.hash, inputBytes: t.input.bytes,
       origin: { type: 'TEST', testId: t.id, testRevisionId: t.revisionId, testVersion: t.version, inputProvenance: t.provenance } as Prisma.InputJsonValue } });
-    caseData.push({ ref: t.ref, id: c.id, number: t.number, groupName: t.groupName, input: bytes, suppliedAnswer });
+    caseData.push({ ref: t.ref, id: c.id, number: t.number, groupName, input: bytes, suppliedAnswer });
     duplicates(t.input.hash, t.number, t.ref);
-    await db.testRun.update({ where: { id: runId }, data: { completed: { increment: 1 }, stage: `收集输入 #${t.number}` } });
+    await executor.progress({ data: { completed: { increment: 1 }, stage: `收集输入 #${t.number}` } });
   }
   for (const plan of input.plans) {
     const generator = compiled.get(plan.programId);
@@ -89,6 +98,7 @@ export async function pipeline(runId: string, input: JudgeSnapshot, executor: Ex
   if (input.purpose === 'GENERATE') return { accepted: null };
   if (['VALIDATE', 'ANSWERS', 'ACCEPTANCE'].includes(input.purpose)) for (const c of caseData) {
     for (const p of validators) {
+      if (p.validatorScope === 'GROUPS' && !input.groups?.data.groups.find(g=>g.id===c.groupName)?.extraValidatorIds.includes(p.id)) continue;
       const checked = await executor.validate(compiled.get(p.id)!, c.input, { caseRef: c.ref });
       if (checked.verdict !== 'ACCEPT') {
         await db.runCase.update({ where: { id: c.id }, data: { validation: checked.verdict } });
@@ -110,10 +120,12 @@ export async function pipeline(runId: string, input: JudgeSnapshot, executor: Ex
   };
   const checker = settings.checkerMode === 'CUSTOM' && checkerProgram ? compiled.get(checkerProgram.id) : undefined;
   if (['ANSWERS', 'ACCEPTANCE'].includes(input.purpose)) for (const c of caseData) {
-    const execution = await executor.solution(compiled.get(main!.id)!, c.input, settings, c.ref, true);
+    const execution = settings.interactionMode === 'INTERACTIVE'
+      ? await executor.interactive(compiled.get(main!.id)!, compiled.get(interactor!.id)!, c.input, c.suppliedAnswer, settings, c.ref, true)
+      : await executor.solution(compiled.get(main!.id)!, c.input, settings, c.ref, true);
     if (execution.verdict !== 'AC' || !execution.outputRef) throw new JudgeFailure('MAIN_EXECUTION_FAILED', `主标程对 #${c.number}: ${execution.verdict}\n${execution.diagnostic}`);
     c.mainRun = execution; c.answer = execution.output!;
-    const judged = await check(c.input, c.suppliedAnswer ?? c.answer, c.answer, { caseRef: c.ref }, checker);
+    const judged = directInteraction ? { verdict: 'AC', diagnostic: execution.diagnostic } : await check(c.input, c.suppliedAnswer ?? c.answer, c.answer, { caseRef: c.ref }, checker);
     if (judged.verdict !== 'AC') throw new JudgeFailure('ANSWER_MISMATCH', `主标程输出未通过 Checker / 上传答案：#${c.number} ${judged.verdict}\n${judged.diagnostic}`);
     await db.runCase.update({ where: { id: c.id }, data: { answerKey: execution.outputRef.key, answerHash: execution.outputRef.hash, answerBytes: execution.outputRef.bytes } });
     await persist(`生成答案 #${c.number}`);
@@ -129,7 +141,7 @@ export async function pipeline(runId: string, input: JudgeSnapshot, executor: Ex
       actual = checked.verdict; diagnostic = checked.diagnostic; invocationId = checked.id;
     } else {
       const checked = compareOutput(answer, output, settings); actual = checked.verdict; diagnostic = checked.diagnostic;
-      await db.testRun.update({ where: { id: runId }, data: { completed: { increment: 1 }, stage: `内置比较器自测 · ${t.name}` } });
+      await executor.progress({ data: { completed: { increment: 1 }, stage: `内置比较器自测 · ${t.name}` } });
     }
     const passed = actual === t.expected;
     report.selfTests.push({ id: t.id, name: t.name, expected: t.expected, actual, passed, ...(invocationId ? { invocationId } : {}), diagnostic });
@@ -148,18 +160,24 @@ export async function pipeline(runId: string, input: JudgeSnapshot, executor: Ex
       if (p.role === 'MAIN_SOLUTION') { report.matrix.push(cell(p, c, c.mainRun!, 'AC', '主标程输出已通过 Checker')); continue; }
       const ce = failedCompile.get(p.id);
       if (ce) { report.matrix.push({ ...cell(p, c, ce, 'CE', ce.diagnostic), timeMs: 0, memoryBytes: 0 }); continue; }
-      const execution = await executor.solution(compiled.get(p.id)!, c.input, settings, c.ref);
+      const execution = settings.interactionMode === 'INTERACTIVE'
+        ? await executor.interactive(compiled.get(p.id)!, compiled.get(interactor!.id)!, c.input, c.answer ?? null, settings, c.ref)
+        : await executor.solution(compiled.get(p.id)!, c.input, settings, c.ref);
       let verdict = execution.verdict, diagnostic = execution.diagnostic;
-      if (verdict === 'AC') {
+      if (verdict === 'AC' && !directInteraction) {
         const checked = await check(c.input, c.answer!, execution.output!, { caseRef: c.ref }, checker);
         verdict = checked.verdict; diagnostic = checked.diagnostic;
-        await db.invocation.update({ where: { id: execution.id }, data: { verdict, diagnostic, detail: { checkerMode: settings.checkerMode, checkerInvocationId: checked.checkerInvocationId, judgedOutput: execution.outputRef } } });
+        const previous = await db.invocation.findUniqueOrThrow({ where: { id: execution.id } });
+        await db.invocation.update({ where: { id: execution.id }, data: { verdict, diagnostic, detail: { ...previous.detail as object, checkerMode: settings.checkerMode, checkerInvocationId: checked.checkerInvocationId, judgedOutput: execution.outputRef } } });
       }
       report.matrix.push(cell(p, c, execution, verdict, diagnostic)); await persist();
     }
-    const expected = checkExpectation(p, report.matrix.filter(c => c.programId === p.id).map(c => c.verdict));
+    const cells = report.matrix.filter(c => c.programId === p.id), verdicts = cells.map(c=>c.verdict);
+    const score = input.groups?.data.groups.length ? scoreGroups(p.id, input.groups.data.groups, cells.map(c=>({revisionId:input.tests.find(t=>t.ref===c.caseRef)!.revisionId,verdict:c.verdict}))) : undefined;
+    if (score) report.scores.push(score);
+    const expected = score && settings.scoringMode === 'PARTIAL' ? scoreExpectation(p, score, verdicts) : checkExpectation(p, verdicts);
     report.expectations.push({ programId: p.id, name: p.name, expected: p.expectedVerdicts, ...expected }); await persist();
   }
   return { accepted: report.expectations.length > 0 && report.expectations.every(e => e.passed) };
 }
-export const emptyReport = (): Report => ({ warnings: [], compilations: [], selfTests: [], matrix: [], expectations: [] });
+export const emptyReport = (): Report => ({ warnings: [], compilations: [], selfTests: [], matrix: [], expectations: [], scores: [] });

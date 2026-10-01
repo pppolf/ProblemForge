@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.11.1",
-  "engines": { "node": ">=22.12.0 <25" },
+  "engines": {
+    "node": ">=22.12.0 <25"
+  },
   "scripts": {
     "dev": "pnpm --parallel --filter @problemforge/api --filter @problemforge/web --filter @problemforge/tex-worker --filter @problemforge/judge-worker dev",
     "dev:api": "pnpm --filter @problemforge/api dev",
@@ -27,9 +29,24 @@
     "build:web": "pnpm --filter @problemforge/web build",
     "infra:up": "docker compose --env-file .env -f infra/compose.dev.yml up -d postgres redis",
     "infra:tex": "docker compose --env-file .env -f infra/compose.dev.yml up -d --build tex-sandbox",
-    "infra:judge": "docker compose --env-file .env -f infra/compose.dev.yml up -d --build judge-sandbox"
+    "infra:judge": "docker compose --env-file .env -f infra/compose.dev.yml up -d --build judge-sandbox",
+    "verify:p3:stress": "tsx scripts/verify-p3-stress.ts",
+    "verify:p3:interaction": "tsx scripts/verify-p3-interaction.ts",
+    "verify:p3:groups": "tsx scripts/verify-p3-groups.ts",
+    "verify:p4:collaboration": "tsx scripts/verify-p4-collaboration.ts",
+    "verify:p4:contest": "tsx scripts/verify-p4-contest.ts",
+    "verify:p4:packages": "tsx scripts/verify-p4-packages.ts",
+    "verify:p4:boundaries": "tsx scripts/verify-p4-boundaries.ts",
+    "verify:p5:runtime": "tsx scripts/verify-p5-runtime.ts",
+    "verify:p5:deployment": "tsx scripts/verify-p5-deployment.ts",
+    "verify:p5:recovery": "tsx scripts/verify-p5-recovery.ts",
+    "verify:p5:restore": "tsx scripts/verify-p5-restore.ts",
+    "ops": "node scripts/ops.mjs",
+    "check:affected": "node scripts/ci.mjs"
   },
   "devDependencies": {
+    "@problemforge/contracts": "workspace:*",
+    "@problemforge/problem-format": "workspace:*",
     "@problemforge/database": "workspace:*",
     "@problemforge/template-engine": "workspace:*",
     "@problemforge/domain": "workspace:*",

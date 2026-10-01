@@ -3,9 +3,10 @@ import { resolve } from 'node:path';
 import { TemplateInput, TemplateDraftInput, ReasonInput, Kind } from '@problemforge/contracts';
 import { db } from '@problemforge/database';
 import { hashObject, HttpError, audit, root } from '@problemforge/domain';
-import { validateTemplate, applyAdminStyle, templateLanguages, type TemplateFiles, POLICY_VERSION, TEX_PROFILE, ContentPolicyError } from '@problemforge/template-engine';
+import { validateTemplate, applyAdminStyle, templateLanguages, type TemplateFiles, POLICY_VERSION, TEX_PROFILE, CONTEST_RENDERER_VERSION, ContentPolicyError } from '@problemforge/template-engine';
 import { GO_JUDGE_VERSION } from '@problemforge/judge-adapter';
 import { admin, authenticate, type Api } from '../app.ts';
+import { taskQuota } from '@problemforge/domain';
 import { scheduleBuild } from './builds.ts';
 
 const Id = Type.Object({ id: Type.String() });
@@ -21,7 +22,7 @@ export async function templateRoutes(app: Api) {
   });
   app.get('/api/templates', { preHandler: authenticate }, async () => (await db.templateVersion.findMany({
     where: { state: 'PUBLISHED' }, select: { id: true, number: true, hash: true, files: true, template: { select: { id: true, name: true, kind: true } } }, orderBy: { publishedAt: 'desc' },
-  })).map(({ files, ...version }) => ({ ...version, languages: templateLanguages(files as TemplateFiles) })));
+  })).map(({ files, ...version }) => ({ ...version, languages: templateLanguages(files as TemplateFiles),contestCapable:!!(files as TemplateFiles)['booklet.tex']?.includes('{{CONTENTS}}')&&!!(files as TemplateFiles)['item.tex'] })));
   app.get('/api/admin/templates', { preHandler: admin }, async () => db.template.findMany({ include: { versions: { orderBy: { number: 'desc' } } }, orderBy: { createdAt: 'desc' } }));
   app.post('/api/admin/templates', { preHandler: admin, schema: { body: TemplateInput, tags: ['管理员模板'] } }, async req => {
     const created = await db.template.create({ data: req.body }); await audit(req.user.id, 'CREATE_TEMPLATE', created.id); return created;
@@ -57,9 +58,17 @@ export async function templateRoutes(app: Api) {
     const version = await db.templateVersion.findUnique({ where: { id: req.params.id }, include: { template: true } });
     if (!version || !['DRAFT', 'VALIDATED'].includes(version.state)) throw new HttpError(409, '只有草稿或待确认版本可以验证');
     const files = version.files as TemplateFiles; checkFiles(files, version.template.kind);
-    const input = { kind: version.template.kind, mode: files['booklet.tex'] ? 'booklet' : 'single', body: files['preview.tex'], metadata: { title: 'A + B', author: 'ProblemForge' }, files,
+    const multi=!!files['booklet.tex']?.includes('{{CONTENTS}}');
+    const input = { kind: version.template.kind, mode: multi?'contest':files['booklet.tex'] ? 'booklet' : 'single', body: files['preview.tex'], metadata: { title: 'A + B', author: 'ProblemForge' }, files,
+      ...(multi?{contestRendererVersion:CONTEST_RENDERER_VERSION,contest:{title:'ProblemForge 比赛预览',author:'ProblemForge',stage:'模板验证',dateHeader:'2026/10/01',dateCover:'2026 年 10 月 1 日',entries:[{namespace:'p1',code:'A',body:files['preview.tex'],metadata:{title:'A + B',author:'ProblemForge'},assetPaths:[],samples:[],timeLimitMs:1000,memoryLimitMb:256,inputFile:'standard input',outputFile:'standard output'}]}}:{}),
       templateHash: version.hash, contentHash: hashObject(files['preview.tex']), policy: POLICY_VERSION, toolchain: TEX_PROFILE, sandboxVersion: GO_JUDGE_VERSION };
-    const build = await db.build.create({ data: { requestedById: req.user.id, templateVersionId: version.id, kind: version.template.kind, purpose: 'TEMPLATE_VALIDATION', input, inputHash: hashObject(input) } });
+    const requestKey=hashObject([req.user.id,'template-validation',version.id,input]);
+    const build=await db.$transaction(async tx=>{
+      await tx.$queryRaw`SELECT id FROM "User" WHERE id=${req.user.id} FOR UPDATE`;
+      const old=await tx.build.findUnique({where:{requestKey}});if(old)return old;
+      await taskQuota(tx,req.user.id,'tex');
+      return tx.build.create({ data: { requestKey,requestedById: req.user.id, templateVersionId: version.id, kind: version.template.kind, purpose: 'TEMPLATE_VALIDATION', input, inputHash: hashObject(input) } });
+    });
     await scheduleBuild(build.id); return build;
   });
   app.post('/api/admin/template-versions/:id/publish', { preHandler: admin, schema: { params: Id, body: Type.Object({ reviewedBuildId: Type.String() }, { additionalProperties: false }) } }, async req => {

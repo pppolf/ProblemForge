@@ -41,4 +41,6 @@ assert.equal(limit.status, 'Time Limit Exceeded', JSON.stringify(limit));
 console.log('PASS CPU limit terminates the sandbox process.');
 await assert.rejects(() => new SandboxClient('http://127.0.0.1:1', judge ? config.judgeSandboxToken! : config.sandboxToken).execute(base), InfrastructureError);
 console.log('PASS unavailable sandbox fails explicitly; no host execution fallback.');
-await writeFile(resolve(root, judge ? '.local/verify-judge-sandbox.json' : '.local/verify-sandbox.json'), JSON.stringify({ checkedAt: new Date().toISOString(), proof, limitStatus: limit.status, unavailable: 'InfrastructureError' }, null, 2));
+const result={ checkedAt: new Date().toISOString(), proof, limitStatus: limit.status, unavailable: 'InfrastructureError' };
+if(process.argv.includes('--stdout'))console.log(JSON.stringify(result));
+else await writeFile(resolve(root, judge ? '.local/verify-judge-sandbox.json' : '.local/verify-sandbox.json'), JSON.stringify(result, null, 2));

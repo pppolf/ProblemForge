@@ -1,7 +1,7 @@
 import { Type } from '@sinclair/typebox';
 import { kinds, ProblemInput, DocumentInput, LanguageInput } from '@problemforge/contracts';
 import { db, Prisma } from '@problemforge/database';
-import { hashObject, HttpError, problemAccess, audit } from '@problemforge/domain';
+import { hashObject, HttpError, problemAccess, problemPermission, documentAccess, audit } from '@problemforge/domain';
 import { validateBody, ContentPolicyError, templateLanguages, type TemplateFiles } from '@problemforge/template-engine';
 import { authenticate, type Api } from '../app.ts';
 import { assetPath } from './assets.ts';
@@ -9,8 +9,8 @@ import { assetPath } from './assets.ts';
 const Id = Type.Object({ id: Type.String() });
 export async function problemRoutes(app: Api) {
   app.get('/api/problems', { preHandler: authenticate }, async req => db.problem.findMany({
-    where: req.user.role === 'ADMIN' ? {} : { members: { some: { userId: req.user.id } } },
-    select: { id: true, title: true, archived: true, updatedAt: true, _count: { select: { documents: true } } }, orderBy: { updatedAt: 'desc' },
+    where: req.user.role === 'ADMIN' ? {} : { OR:[{members:{some:{userId:req.user.id}}},{groupMembers:{some:{group:{members:{some:{userId:req.user.id}}}}}}] },
+    select: { id: true, title: true, tags:true, responsibleId:true, archived: true, updatedAt: true, _count: { select: { documents: true } } }, orderBy: { updatedAt: 'desc' },
   }));
   app.post('/api/problems', { preHandler: authenticate, schema: { body: ProblemInput, tags: ['题目'] } }, async req => {
     const problem = await db.$transaction(async tx => {
@@ -29,8 +29,9 @@ export async function problemRoutes(app: Api) {
     await audit(req.user.id, 'CREATE_PROBLEM', problem.id); return problem;
   });
   app.get('/api/problems/:id', { preHandler: authenticate, schema: { params: Id } }, async req => {
-    const role = await problemAccess(req.user, req.params.id);
+    const permission = await problemPermission(req.user, req.params.id); const {role}=permission;
     const problem = await db.problem.findUniqueOrThrow({ where: { id: req.params.id }, include: { documents: { include: { currentRevision: true, templateVersion: { select: { id: true, number: true, state: true, template: { select: { name: true, kind: true } } } } }, orderBy: { kind: 'asc' } } } });
+    if(role==='TRANSLATOR')return {id:problem.id,title:problem.title,archived:problem.archived,role,languages:permission.languages,documents:problem.documents.filter(d=>permission.languages.includes(d.language))};
     return { ...problem, role };
   });
   app.post('/api/problems/:id/languages', { preHandler: authenticate, schema: { params: Id, body: LanguageInput } }, async req => {
@@ -57,7 +58,8 @@ export async function problemRoutes(app: Api) {
   app.put('/api/documents/:id', { preHandler: authenticate, schema: { params: Id, body: DocumentInput, tags: ['文稿'] } }, async (req, reply) => {
     const document = await db.document.findUnique({ where: { id: req.params.id } });
     if (!document) throw new HttpError(404, '文稿不存在');
-    await problemAccess(req.user, document.problemId, true);
+    const role=await documentAccess(req.user, document.problemId,document.language,true);
+    if(role==='TRANSLATOR'&&(req.body.templateVersionId!==document.templateVersionId||req.body.enabled!==document.enabled))throw new HttpError(403,'翻译成员只能修改授权语言的正文和内容信息');
     if (req.body.templateVersionId) {
       const tv = await db.templateVersion.findUnique({ where: { id: req.body.templateVersionId }, include: { template: true } });
       if (!tv || tv.template.kind !== document.kind || (tv.id !== document.templateVersionId && tv.state !== 'PUBLISHED')) throw new HttpError(422, '只能选择本类型已发布的管理员模板');
@@ -66,6 +68,11 @@ export async function problemRoutes(app: Api) {
     const sampleRevisionIds = req.body.sampleRevisionIds ?? [];
     if (document.kind !== 'STATEMENT' && sampleRevisionIds.length) throw new HttpError(422, '只有题面可以引用测试数据样例');
     const saved = await db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM "Problem" WHERE id=${document.problemId} FOR UPDATE`;
+      if(role==='TRANSLATOR'){
+        const old=await tx.contentRevision.findUniqueOrThrow({where:{id:document.currentRevisionId!}});
+        if(hashObject(sampleRevisionIds)!==hashObject(old.sampleRevisionIds))throw new HttpError(403,'翻译成员不能更换样例数据绑定');
+      }
       if (sampleRevisionIds.length) {
         const samples = await tx.testCaseRevision.findMany({ where: { id: { in: sampleRevisionIds }, testCase: { problemId: document.problemId } } });
         if (samples.length !== sampleRevisionIds.length || samples.some(s => !(s.configuration as { isSample: boolean }).isSample || !s.answerKey)) throw new HttpError(422, '样例必须引用本题标记为样例且已有答案的具体测试数据版本');
@@ -85,11 +92,11 @@ export async function problemRoutes(app: Api) {
   });
   app.get('/api/documents/:id/history', { preHandler: authenticate, schema: { params: Id } }, async req => {
     const doc = await db.document.findUnique({ where: { id: req.params.id } });
-    if (!doc) throw new HttpError(404, '文稿不存在'); await problemAccess(req.user, doc.problemId);
+    if (!doc) throw new HttpError(404, '文稿不存在'); await documentAccess(req.user, doc.problemId,doc.language);
     return db.contentRevision.findMany({ where: { documentId: doc.id }, orderBy: { version: 'desc' }, take: 50 });
   });
   app.get('/api/problems/:id/publications', { preHandler: authenticate, schema: { params: Id } }, async req => {
-    await problemAccess(req.user, req.params.id);
-    return db.publication.findMany({ where: { document: { problemId: req.params.id } }, include: { document: { select: { kind: true, language: true } } }, orderBy: { createdAt: 'desc' } });
+    const permission=await problemPermission(req.user, req.params.id);
+    return db.publication.findMany({ where: { document: { problemId: req.params.id,...(permission.role==='TRANSLATOR'?{language:{in:permission.languages}}:{}) } }, include: { document: { select: { kind: true, language: true } } }, orderBy: { createdAt: 'desc' } });
   });
 }

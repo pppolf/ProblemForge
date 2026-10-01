@@ -1,7 +1,9 @@
-import type { JudgePurpose, JudgeSettingsValue, ProfileConfigValue, ProgramLanguage, ProgramRole, ExpectedVerdict, GeneratorPlanSave } from '@problemforge/contracts';
+import type { JudgePurpose, JudgeSettingsValue, ProfileConfigValue, ProgramLanguage, ProgramRole, ExpectedVerdict, GeneratorPlanSave, StressConfigValue, TestGroupsValue, ScoreExpectation } from '@problemforge/contracts';
 import type { SandboxResult } from '@problemforge/judge-adapter';
 
 export const JUDGE_POLICY = 'problemforge-judge-v1';
+export { interactionVerdict, INTERACTION_POLICY } from './interaction.ts';
+export { scoreGroups, scoreExpectation, groupOrder, GroupError, type ScoreReport, type GroupScore } from './scoring.ts';
 export const TESTLIB_COMMIT = '68f9f300b6abebec82d2a68d8ca04394f2664fb6';
 export const TESTLIB_HASH = '70f74c570f2b45d63086ae6e4c41bbb5c5ffd4428cba9914bbc0396d29be10d8';
 export const JUDGE_TOOLCHAIN = `debian12-gcc12.2.0-14+deb12u1-python3.11.2-6+deb12u8-testlib0.9.41-${TESTLIB_HASH}`;
@@ -9,7 +11,7 @@ export const solutionRoles = new Set<ProgramRole>(['MAIN_SOLUTION', 'CORRECT_SOL
 export const testlibRoles = new Set<ProgramRole>(['VALIDATOR', 'EXTRA_VALIDATOR', 'CHECKER', 'INTERACTOR']);
 export type BlobRef = { key: string; hash: string; bytes: number };
 export type ProfileSnapshot = { id: string; name: string; version: number; language: ProgramLanguage; config: ProfileConfigValue; hash: string; enabled: boolean };
-export type ProgramSnapshot = { id: string; revisionId: string; version: number; name: string; role: ProgramRole; enabled: boolean; source: string; sourceHash: string; expectedVerdicts: ExpectedVerdict[]; profile: ProfileSnapshot };
+export type ProgramSnapshot = { id: string; revisionId: string; version: number; name: string; role: ProgramRole; enabled: boolean; source: string; sourceHash: string; expectedVerdicts: ExpectedVerdict[]; profile: ProfileSnapshot; validatorScope?: 'GROUPS'; expectedScore?: ScoreExpectation };
 export type CaseSnapshot = { ref: string; id: string; revisionId: string; version: number; number: number; groupName: string; isSample: boolean; input: BlobRef; answer: BlobRef | null; provenance: Record<string, unknown> };
 export type PlanSnapshot = GeneratorPlanSave & { id: string; version: number; hash: string };
 export type SelfTestSnapshot = { id: string; version: number; hash: string; name: string; kind: 'VALIDATOR' | 'CHECKER'; programId: string | null; expected: string; input: BlobRef; answer: BlobRef; output: BlobRef };
@@ -17,6 +19,11 @@ export type JudgeSnapshot = {
   problemId: string; purpose: JudgePurpose; programId?: string; budgetMs: number; policy: string; toolchain: string; sandboxVersion: string;
   programs: ProgramSnapshot[]; tests: CaseSnapshot[]; plans: PlanSnapshot[]; selfTests: SelfTestSnapshot[];
   settings: Partial<JudgeSettingsValue>;
+  stress?: { version: number; hash: string; data: StressConfigValue };
+  replay?: { sourceRunId: string; sourceCaseId: string; input: BlobRef; answer: BlobRef; seed: string; verdict: string; regenerate: boolean };
+  interactionPolicy?: string;
+  groups?: { version: number; hash: string; data: TestGroupsValue };
+  stressGroups?: { id: string; extraValidatorIds: string[] }[];
 };
 export type Comparison = { verdict: 'AC' | 'WA'; diagnostic: string };
 const words = (bytes: Buffer) => bytes.toString('latin1').split(/[ \t\n\r\v\f]+/).filter(Boolean);

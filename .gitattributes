@@ -1,5 +1,5 @@
 * text=auto eol=lf
 # Retain the supplied template resources exactly, including original whitespace.
 templates/builtin/** -text -whitespace
-# Already applied migrations must retain their checksum, including blank EOF.
-packages/database/prisma/migrations/**/*.sql whitespace=-blank-at-eof
+# Already applied migrations must retain their checksum, including CRLF and blank EOF.
+packages/database/prisma/migrations/**/*.sql -text whitespace=cr-at-eol,-blank-at-eof

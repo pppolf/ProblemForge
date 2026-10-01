@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<problem short-name="sum" revision="1">
+  <names><name language="english" value="Sum"/></names>
+  <statements><statement language="english" type="application/x-tex" path="statement.tex"/></statements>
+  <judging input-file="" output-file="">
+    <testset name="tests">
+      <time-limit>1000</time-limit><memory-limit>268435456</memory-limit><test-count>2</test-count>
+      <input-path-pattern>tests/%02d</input-path-pattern><answer-path-pattern>tests/%02d.a</answer-path-pattern>
+      <tests><test method="manual" sample="true" group="g20"/><test method="generated" cmd="gen 5" sample="false" group="g80"/></tests>
+      <groups>
+        <group name="g20" points="20" points-policy="complete-group"/>
+        <group name="g80" points="80" points-policy="complete-group"><dependencies><dependency group="g20"/></dependencies></group>
+      </groups>
+    </testset>
+  </judging>
+  <files><executables><executable><source path="files/gen.cpp" type="cpp.g++17"/></executable></executables><resources><file path="external-style.sty"/></resources></files>
+  <assets>
+    <solutions><solution tag="main"><source path="files/sum.cpp" type="cpp.g++17"/></solution><solution tag="wrong-answer"><source path="files/wrong.cpp" type="cpp.g++17"/></solution></solutions>
+    <checker name="std::wcmp.cpp" type="testlib"/>
+    <validator><source path="files/validator.cpp" type="cpp.g++17"/><testset><test-count>2</test-count><input-path-pattern>validator-tests/%02d</input-path-pattern><tests><test verdict="valid"/><test verdict="invalid"/></tests></testset></validator>
+  </assets>
+</problem>

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import {
   JudgeSettingsInput, defaultJudgeSettings, ProfileInput, ProfileUpdateInput, ProgramInput, ProgramUpdateInput,
   TestCaseInput, TestCaseUpdateInput, TestZipInput, GeneratorPlanInput, GeneratorPlanUpdateInput, ToolSelfTestInput, ToolSelfTestUpdateInput,
-  type ProgramSave, type GeneratorPlanSave, type ToolSelfTestSave, type JudgeSettingsValue,
+  type ProgramSave, type GeneratorPlanSave, type ToolSelfTestSave, type JudgeSettingsValue, type TestGroupsValue,
 } from '@problemforge/contracts';
 import { db, Prisma } from '@problemforge/database';
 import { audit, hashObject, HttpError, problemAccess, sha256 } from '@problemforge/domain';
@@ -12,6 +12,7 @@ import { readTestArchive, ArchiveError } from '@problemforge/judge-core/archive'
 import { admin, authenticate, storage, type Api } from '../app.ts';
 import { builtinProfiles } from './judge-snapshot.ts';
 import { appendTest, lockProblem, publicTest, rawBytes, saveBlob, touchProblem } from './judge-data.ts';
+import { validateGroups } from './test-groups.ts';
 
 const Id = Type.Object({ id: Type.String() });
 async function programInput(problemId: string, data: ProgramSave) {
@@ -21,6 +22,14 @@ async function programInput(problemId: string, data: ProgramSave) {
   if (['MAIN_SOLUTION', 'CORRECT_SOLUTION'].includes(data.role) && (data.expectedVerdicts.length !== 1 || data.expectedVerdicts[0] !== 'AC')) throw new HttpError(422, '主标程与正确解必须声明 AC');
   if (data.role === 'TIME_LIMIT_SOLUTION' && (data.expectedVerdicts.length !== 1 || data.expectedVerdicts[0] !== 'TLE')) throw new HttpError(422, '预期超时解必须声明 TLE');
   if (data.role === 'WRONG_SOLUTION' && data.expectedVerdicts.includes('AC')) throw new HttpError(422, '错误解必须声明非 AC 的预期判定');
+  if (data.validatorScope === 'GROUPS' && data.role !== 'EXTRA_VALIDATOR') throw new HttpError(422, '只有额外 Validator 可以设置组级作用范围');
+  if (data.expectedScore) {
+    if (['MAIN_SOLUTION','CORRECT_SOLUTION'].includes(data.role)) throw new HttpError(422, '主标程与正确解的分数预期固定为满分，无需另行声明');
+    const e = data.expectedScore, groups = await db.testGroupConfig.findUnique({ where: { problemId } });
+    if (!['MAIN_SOLUTION','CORRECT_SOLUTION','WRONG_SOLUTION','TIME_LIMIT_SOLUTION','BRUTE_FORCE'].includes(data.role) || (!e.total && !e.groups.length) || e.total && e.total.min > e.total.max || e.groups.some(g => g.min > g.max) || new Set(e.groups.map(g=>g.groupId)).size !== e.groups.length) throw new HttpError(422, '分数预期需要有效的解法角色与非空、递增范围');
+    const configured = (groups?.data as TestGroupsValue | undefined)?.groups ?? [];
+    if (!configured.length || e.groups.some(g => !configured.some(c => c.id === g.groupId))) throw new HttpError(422, '分数预期必须引用本题已保存的数据组');
+  }
   const { source: _source, ...configuration } = data;
   return { configuration, source: data.source, hash: sha256(data.source) };
 }
@@ -69,11 +78,21 @@ export async function judgeRoutes(app: Api) {
   app.put('/api/problems/:id/judge-settings', { preHandler: authenticate, schema: { params: Id, body: JudgeSettingsInput } }, async req => {
     await problemAccess(req.user, req.params.id, true);
     const s = req.body.settings;
-    if (s.interactionMode !== 'BATCH' || s.scoringMode !== 'ACM') throw new HttpError(422, '交互与部分分配置将在 P3 开放；当前执行为普通题 / SPJ');
+    if (s.interactionMode === 'INTERACTIVE' && s.ioMode !== 'STDIO') throw new HttpError(422, '交互执行必须使用标准管道 I/O');
+    if (s.interaction && s.interaction.idleTimeMs > s.interaction.wallTimeMs) throw new HttpError(422, '空闲时限不能大于总墙钟时限');
     const reserved = ['source.cpp', 'source.py', 'program', 'stdout', 'stderr', 'testlib.h', 'checker-input', 'checker-answer', 'checker-output'];
     if (s.ioMode === 'FILES' && (s.inputFile === s.outputFile || reserved.includes(s.inputFile) || reserved.includes(s.outputFile))) throw new HttpError(422, '文件 I/O 需要不同文件名，且不能覆盖执行器的保留文件');
-    const changed = await db.problem.updateMany({ where: { id: req.params.id, judgeVersion: req.body.expectedVersion }, data: { judgeSettings: s, judgeVersion: { increment: 1 } } });
-    if (!changed.count) throw new HttpError(409, '判题配置版本冲突', 'VERSION_CONFLICT');
+    await db.$transaction(async tx => {
+      await lockProblem(tx, req.params.id);
+      if (s.scoringMode === 'PARTIAL') {
+        const groups = await tx.testGroupConfig.findUnique({ where: { problemId: req.params.id } });
+        const data = groups?.data as TestGroupsValue | undefined;
+        if (!data?.groups.some(g=>g.points>0)) throw new HttpError(422, '部分分需要先保存有正分数的数据组');
+        await validateGroups(tx, req.params.id, data);
+      }
+      const changed = await tx.problem.updateMany({ where: { id: req.params.id, judgeVersion: req.body.expectedVersion }, data: { judgeSettings: s, judgeVersion: { increment: 1 } } });
+      if (!changed.count) throw new HttpError(409, '判题配置版本冲突', 'VERSION_CONFLICT');
+    });
     await audit(req.user.id, 'UPDATE_JUDGE_SETTINGS', req.params.id); return { version: req.body.expectedVersion + 1, settings: s };
   });
   app.get('/api/problems/:id/programs', { preHandler: authenticate, schema: { params: Id } }, async req => {
@@ -86,7 +105,7 @@ export async function judgeRoutes(app: Api) {
     const result = await db.$transaction(async tx => {
       await lockProblem(tx, req.params.id);
       if (await tx.program.count({ where: { problemId: req.params.id } }) >= 60) throw new HttpError(422, '本题最多保存 60 个程序');
-      const p = await tx.program.create({ data: { ...revisionData.configuration, problemId: req.params.id } });
+      const p = await tx.program.create({ data: { ...revisionData.configuration, expectedScore: revisionData.configuration.expectedScore ?? Prisma.DbNull, problemId: req.params.id } });
       const revision = await tx.programRevision.create({ data: { ...revisionData, programId: p.id, version: 1 } });
       await touchProblem(tx, req.params.id);
       return tx.program.update({ where: { id: p.id }, data: { currentRevisionId: revision.id }, include: { currentRevision: true, profile: true } });
@@ -99,7 +118,7 @@ export async function judgeRoutes(app: Api) {
     const { expectedVersion, ...data } = req.body, revisionData = await programInput(p.problemId, data);
     const result = await db.$transaction(async tx => {
       await lockProblem(tx, p.problemId);
-      const changed = await tx.program.updateMany({ where: { id: p.id, version: expectedVersion }, data: { ...revisionData.configuration, version: { increment: 1 } } });
+      const changed = await tx.program.updateMany({ where: { id: p.id, version: expectedVersion }, data: { ...revisionData.configuration, validatorScope: data.validatorScope ?? 'GLOBAL', expectedScore: data.expectedScore ?? Prisma.DbNull, version: { increment: 1 } } });
       if (!changed.count) throw new HttpError(409, '程序版本冲突，本地源码保留', 'VERSION_CONFLICT');
       const revision = await tx.programRevision.create({ data: { ...revisionData, programId: p.id, version: expectedVersion + 1 } });
       await touchProblem(tx, p.problemId);

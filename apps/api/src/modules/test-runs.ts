@@ -2,7 +2,7 @@ import { Type } from '@sinclair/typebox';
 import { randomUUID } from 'node:crypto';
 import { TestRunInput } from '@problemforge/contracts';
 import { db, Prisma, type TestRun } from '@problemforge/database';
-import { audit, hashObject, HttpError, judgeQueue, problemAccess, sha256 } from '@problemforge/domain';
+import { audit, hashObject, HttpError, judgeQueue, problemAccess, sha256, taskQuota, recoverTasks, checkRetry } from '@problemforge/domain';
 import type { JudgeSnapshot, BlobRef } from '@problemforge/judge-core';
 import { authenticate, storage, type Api } from '../app.ts';
 import { dependencyHash, judgeSnapshot, validateJudgeSnapshot } from './judge-snapshot.ts';
@@ -10,21 +10,21 @@ import { appendTest, lockProblem, touchProblem } from './judge-data.ts';
 
 const Id = Type.Object({ id: Type.String() });
 const queue = judgeQueue(); queue.on('error', e => console.error('Judge queue:', e.message));
-async function enqueue(id: string) {
+export async function enqueue(id: string) {
   try {
     await queue.add('judge', { runId: id }, { jobId: id });
     await db.testRun.updateMany({ where: { id, state: 'QUEUED' }, data: { queuedAt: new Date() } });
   } catch (e) { await db.testRun.updateMany({ where: { id, state: 'QUEUED' }, data: { log: `入队暂未完成：${(e as Error).message}\n数据库保留任务，后台会重试入队。` } }); }
 }
-async function runAccess(user: { id: string; role: string }, id: string, write = false) {
+export async function runAccess(user: { id: string; role: string }, id: string, write = false) {
   const run = await db.testRun.findUnique({ where: { id } });
   if (!run) throw new HttpError(404, '验收任务不存在'); await problemAccess(user, run.problemId, write); return run;
 }
-async function currentDependency(run: TestRun, tx: Prisma.TransactionClient = db) {
+export async function currentDependency(run: TestRun, tx: Prisma.TransactionClient = db) {
   const input = run.input as unknown as JudgeSnapshot;
   return dependencyHash(await judgeSnapshot(tx, run.problemId, run.purpose, input.programId, input.budgetMs));
 }
-async function view(run: TestRun, includeInput = false) {
+export async function view(run: TestRun, includeInput = false) {
   const stale = await db.$transaction(tx => currentDependency(run, tx).then(hash => hash !== run.dependencyHash), { isolationLevel: 'RepeatableRead' });
   const input = run.input as unknown as JudgeSnapshot;
   return { ...run, input: includeInput ? input : {
@@ -33,22 +33,25 @@ async function view(run: TestRun, includeInput = false) {
     plans: input.plans.map(p => ({ id: p.id, name: p.name, version: p.version, count: p.count, seed: p.seed })), policy: input.policy, toolchain: input.toolchain,
   }, stale, currentValid: !stale && run.state === 'SUCCEEDED' && run.accepted === true };
 }
-async function quota(tx: Prisma.TransactionClient, userId: string) {
-  await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
-  if (await tx.testRun.count({ where: { requestedById: userId, state: { in: ['QUEUED', 'RUNNING'] } } }) >= 3) throw new HttpError(429, '每个用户最多同时排队/执行三个 Judge 任务');
+export async function quota(tx: Prisma.TransactionClient, userId: string) {
+  await taskQuota(tx,userId,'judge');
 }
 function sameSubmission(run: TestRun, problemId: string, request: { purpose: string; programId?: string; budgetMs?: number }) {
   const input = run.input as unknown as JudgeSnapshot;
-  if (run.problemId !== problemId || run.purpose !== request.purpose || input.programId !== request.programId || input.budgetMs !== (request.budgetMs ?? 300000)) throw new HttpError(409, '同一提交键已用于另一个任务');
+  if (run.problemId !== problemId || run.purpose !== request.purpose || input.programId !== request.programId || (request.purpose !== 'STRESS' && input.budgetMs !== (request.budgetMs ?? 300000))) throw new HttpError(409, '同一提交键已用于另一个任务');
   return run;
 }
 export async function testRunRoutes(app: Api) {
+  let reconciling=false;
   const reconcile = setInterval(async () => {
-    try { for (const run of await db.testRun.findMany({ where: { state: 'QUEUED', queuedAt: null }, take: 20 })) await enqueue(run.id); } catch (e) { app.log.error(e); }
+    if(reconciling)return;reconciling=true;
+    try { await recoverTasks('judge',queue); } catch (e) { app.log.error(e); } finally { reconciling=false; }
   }, 5000); reconcile.unref();
   app.addHook('onClose', async () => { clearInterval(reconcile); await queue.close(); });
   app.post('/api/problems/:id/test-runs', { preHandler: authenticate, schema: { params: Id, body: TestRunInput, tags: ['Judge 任务'] } }, async req => {
     await problemAccess(req.user, req.params.id, true);
+    if (req.body.purpose === 'REPLAY') throw new HttpError(422, '请从保存的反例选择复现');
+    if (req.body.purpose === 'STRESS' && req.body.budgetMs !== undefined) throw new HttpError(422, '对拍使用已保存配置中的预算');
     if (req.body.purpose !== 'COMPILE' && req.body.programId) throw new HttpError(422, '仅编译任务接受单个 programId，验收按本题启用程序快照执行');
     const requestKey = sha256(`${req.user.id}:${req.body.requestKey}`);
     const old = await db.testRun.findUnique({ where: { requestKey } });
@@ -89,12 +92,15 @@ export async function testRunRoutes(app: Api) {
     for (const p of input.programs) if (!(await db.compileProfile.findUnique({ where: { id: p.profile.id } }))?.enabled) throw new HttpError(409, '原任务 profile 已停用，请更新配置后新建任务');
     const requestKey = sha256(`${req.user.id}:retry:${req.body.requestKey}`);
     const result = await db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM "TestRun" WHERE id=${old.id} FOR UPDATE`;
       const existing = await tx.testRun.findUnique({ where: { requestKey } });
       if (existing) { if (existing.inputHash !== old.inputHash || existing.problemId !== old.problemId) throw new HttpError(409, '同一提交键已用于另一个重试'); return existing; }
+      const previous=await tx.testRun.findUnique({where:{retryOfId:old.id}});if(previous)return previous;
+      checkRetry(old.retryCount);
       await quota(tx, req.user.id);
-      return tx.testRun.create({ data: { problemId: old.problemId, requestedById: req.user.id, purpose: old.purpose, input: old.input!, inputHash: old.inputHash, dependencyHash: old.dependencyHash, requestKey } });
+      return tx.testRun.create({ data: { retryOfId:old.id,retryCount:old.retryCount+1,problemId: old.problemId, requestedById: req.user.id, purpose: old.purpose, input: old.input!, inputHash: old.inputHash, dependencyHash: old.dependencyHash, requestKey } });
     });
-    await enqueue(result.id); return view(result);
+    await enqueue(result.id); await audit(req.user.id,'RETRY_TEST_RUN',result.id,{from:old.id}); return view(result);
   });
   app.get('/api/test-runs/:id/cases/:caseId/:file', { preHandler: authenticate, schema: { params: Type.Object({ id: Type.String(), caseId: Type.String(), file: Type.Union([Type.Literal('input'), Type.Literal('answer')]) }) } }, async (req, reply) => {
     const run = await runAccess(req.user, req.params.id);
@@ -103,11 +109,11 @@ export async function testRunRoutes(app: Api) {
     if (!key) throw new HttpError(404, '该任务数据/答案不存在');
     return reply.type('application/octet-stream').header('Content-Disposition', `attachment; filename="${c!.number}.${req.params.file === 'input' ? 'in' : 'ans'}"`).send(await storage.get(key));
   });
-  app.get('/api/invocations/:id/:file', { preHandler: authenticate, schema: { params: Type.Object({ id: Type.String(), file: Type.Union([Type.Literal('stdout'), Type.Literal('stderr'), Type.Literal('output')]) }) } }, async (req, reply) => {
+  app.get('/api/invocations/:id/:file', { preHandler: authenticate, schema: { params: Type.Object({ id: Type.String(), file: Type.Union([Type.Literal('stdout'), Type.Literal('stderr'), Type.Literal('output'), Type.Literal('transcript')]) }) } }, async (req, reply) => {
     const invocation = await db.invocation.findUnique({ where: { id: req.params.id }, include: { run: true } });
     if (!invocation) throw new HttpError(404, '执行记录不存在'); await problemAccess(req.user, invocation.run.problemId);
-    const detail = invocation.detail as { output?: { key: string } | null; judgedOutput?: { key: string } | null };
-    const key = req.params.file === 'output' ? (detail.judgedOutput ?? detail.output)?.key : req.params.file === 'stdout' ? invocation.stdoutKey : invocation.stderrKey;
+    const detail = invocation.detail as { output?: { key: string } | null; judgedOutput?: { key: string } | null; transcript?: { key: string } };
+    const key = req.params.file === 'transcript' ? detail.transcript?.key : req.params.file === 'output' ? (detail.judgedOutput ?? detail.output)?.key : req.params.file === 'stdout' ? invocation.stdoutKey : invocation.stderrKey;
     if (!key) throw new HttpError(404, '输出不存在');
     return reply.type('application/octet-stream').header('Content-Disposition', `attachment; filename="${invocation.id}.${req.params.file}.txt"`).send(await storage.get(key));
   });

@@ -9,10 +9,12 @@ export type SandboxResult = {
   fileError?: { name: string; type: string; message?: string }[];
 };
 export type SandboxCommand = {
-  args: string[]; env: string[]; files: (SandboxFile | { name: string; max: number; pipe?: boolean } | null)[];
+  args: string[]; env: string[]; files: (SandboxFile | { name: string; max: number; pipe?: boolean } | { streamOut: true } | null)[];
   cpuLimit: number; clockLimit: number; memoryLimit: number; stackLimit: number; procLimit: number;
   copyIn: Record<string, SandboxFile>; copyOut?: string[]; copyOutCached?: string[]; copyOutMax: number;
 };
+export type SandboxPipe = { in: { index: number; fd: number }; out: { index: number; fd: number }; proxy?: boolean; name?: string; max?: number };
+export type InteractionStop = { kind: 'IDLE' | 'OUTPUT_LIMIT' | 'EOF' | 'WALL' | 'INTERACTOR_EXIT'; direction?: string; exitCode?: number };
 export class InfrastructureError extends Error { readonly code = 'SANDBOX_UNAVAILABLE'; }
 export class SandboxClient {
   constructor(private url: string, private authToken: string) {}
@@ -71,6 +73,51 @@ export class SandboxClient {
       });
       ws.on('error', error => finish(new InfrastructureError(`沙箱连接失败：${error.message}`)));
       ws.on('close', () => { if (!settled) finish(new InfrastructureError('沙箱连接在结果返回前关闭')); });
+    });
+  }
+  // v1.8.5 /stream uses binary frames. Only the trusted Linux relay's control
+  // stream is exposed here; author traffic travels through real pipeMapping fds.
+  async executeInteractive(cmd: SandboxCommand[], pipeMapping: SandboxPipe[], wallMs: number, signal?: AbortSignal): Promise<{ results: SandboxResult[]; stop?: InteractionStop }> {
+    await this.health();
+    return new Promise((resolve, reject) => {
+      const endpoint = new URL('/stream', this.url); endpoint.protocol = endpoint.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(endpoint, { headers: { Authorization: `Bearer ${this.authToken}` }, handshakeTimeout: 10000, maxPayload: 8 * 1024 * 1024 });
+      let settled = false, stop: InteractionStop | undefined, control = '', grace: ReturnType<typeof setTimeout> | undefined;
+      const cancel = () => { if (ws.readyState === WebSocket.OPEN) ws.send(Buffer.from([4])); };
+      const wall = setTimeout(() => { stop ??= { kind: 'WALL' }; cancel(); }, wallMs);
+      const deadline = setTimeout(() => finish(new InfrastructureError('交互沙箱未确认双方终止')), wallMs + 15000);
+      function finish(error?: Error, results?: SandboxResult[]) {
+        if (settled) return; settled = true; clearTimeout(wall); clearTimeout(deadline); clearTimeout(grace); signal?.removeEventListener('abort', cancel); ws.close();
+        if (error) reject(error); else resolve({ results: results!, stop });
+      }
+      signal?.addEventListener('abort', cancel, { once: true });
+      ws.on('open', () => { ws.send(Buffer.concat([Buffer.from([1]), Buffer.from(JSON.stringify({ cmd, pipeMapping }))])); if (signal?.aborted) cancel(); });
+      ws.on('message', raw => {
+        const data = Buffer.from(raw as Buffer);
+        try {
+          if (data[0] === 1) {
+            const response = JSON.parse(data.subarray(1).toString());
+            if (response.error || response.results?.length !== cmd.length) throw new Error(response.error ?? '交互结果数量错误');
+            finish(undefined, response.results);
+          } else if (data[0] === 2 && data[1] === 0x21) {
+            control += data.subarray(2).toString('utf8');
+            if (control.length > 8192) throw new Error('交互控制记录超限');
+            let end: number;
+            while ((end = control.indexOf('\n')) >= 0) {
+              const event = JSON.parse(control.slice(0, end)) as InteractionStop; control = control.slice(end + 1);
+              if (event.kind === 'IDLE' || event.kind === 'OUTPUT_LIMIT') { stop ??= event; cancel(); }
+              else if (event.kind === 'INTERACTOR_EXIT' && Number.isInteger(event.exitCode) && !grace) {
+                // EOF alone is not process termination: the tool may still be
+                // calculating its verdict. The private supervisor confirms exit.
+                stop ??= event;
+                grace = setTimeout(cancel, 50);
+              }
+            }
+          } else throw new Error('未预期的交互控制帧');
+        } catch (e) { cancel(); finish(new InfrastructureError(`交互协议失败：${(e as Error).message}`)); }
+      });
+      ws.on('error', e => finish(new InfrastructureError(`交互连接失败：${e.message}`)));
+      ws.on('close', () => { if (!settled) finish(new InfrastructureError('交互连接在双方结果返回前关闭')); });
     });
   }
 }

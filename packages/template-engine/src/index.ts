@@ -131,8 +131,9 @@ export function applyAdminStyle(files: TemplateFiles, kind: DocumentKind, style:
   const font = `\\setCJKmainfont{${style.cjkFont}}\n\\setCJKsansfont{Noto Sans CJK SC}\n\\setCJKmonofont{Noto Sans CJK SC}\n\\setmonofont{DejaVu Sans Mono}\n`;
   let source = '';
   if (kind === 'EDITORIAL_BEAMER') {
-    source = '\\usetheme{CWNU}\n' + font + '\\setsansfont{DejaVu Sans}\n';
-    if (style.palette === 'BLUE') source += '\\definecolor{cwnuBlue}{RGB}{23,113,161}\n\\definecolor{cwnuDeepBlue}{RGB}{0,82,125}\n\\definecolor{cwnuDark}{RGB}{1,14,19}\n\\definecolor{cwnuNavBg}{RGB}{0,82,125}\n\\definecolor{cwnuNavMuted}{RGB}{132,177,207}\n\\definecolor{cwnuBlockBg}{RGB}{232,239,243}\n';
+    source = `\\usetheme{${files['beamerthemeCWNU.sty']?'CWNU':'Madrid'}}\n` + font + '\\setsansfont{DejaVu Sans}\n';
+    if (files['beamerthemeCWNU.sty']&&style.palette === 'BLUE') source += '\\definecolor{cwnuBlue}{RGB}{23,113,161}\n\\definecolor{cwnuDeepBlue}{RGB}{0,82,125}\n\\definecolor{cwnuDark}{RGB}{1,14,19}\n\\definecolor{cwnuNavBg}{RGB}{0,82,125}\n\\definecolor{cwnuNavMuted}{RGB}{132,177,207}\n\\definecolor{cwnuBlockBg}{RGB}{232,239,243}\n';
+    if(!files['beamerthemeCWNU.sty'])source+=`\\setbeamercolor{structure}{fg=${style.palette==='BLUE'?'blue':'red'}!55!black}\n\\setbeamertemplate{navigation symbols}{}\n`;
   } else {
     source = '\\setlength{\\hoffset}{0pt}\n\\setlength{\\voffset}{0pt}\n' + `\\geometry{a4paper,margin=${style.marginMm}mm,headheight=14mm,headsep=7mm,footskip=9mm}\n` + font + '\\setmainfont{Latin Modern Roman}\n';
     if (kind === 'STATEMENT' && files['preamble.tex']) {
@@ -165,7 +166,7 @@ export function validateTemplate(files: TemplateFiles, kind: DocumentKind) {
   if (schema.type !== 'object' || schema.additionalProperties !== false || !properties || Object.keys(properties).some(k => !['title', 'author'].includes(k)) ||
     Object.values(properties).some(p => p.type !== 'string' || typeof p.maxLength !== 'number' || p.maxLength > 160)) throw new Error('metadata schema 仅允许受限的 title / author 文本信息');
   if (!files['main.tex'].includes('{{BODY}}') && !(files['main.tex'].includes('\\input{problem.tex}') && files['problem.tex']?.includes('{{BODY}}'))) throw new Error('模板缺少受控 {{BODY}} 插槽');
-  const allowed = new Set(['TITLE', 'AUTHOR', 'BODY', 'CONTEST_TITLE', 'CONTEST_STAGE', 'CONTEST_DATE_HEADER', 'CONTEST_DATE_COVER', 'PROBLEM_LIST']);
+  const allowed = new Set(['TITLE', 'AUTHOR', 'BODY', 'CONTEST_TITLE', 'CONTEST_STAGE', 'CONTEST_DATE_HEADER', 'CONTEST_DATE_COVER', 'PROBLEM_LIST','CONTENTS','CODE','TIME_LIMIT','MEMORY_LIMIT','INPUT_FILE','OUTPUT_FILE']);
   for (const [name, value] of Object.entries(files)) if (/\.(tex|sty|cls|def)$/.test(name)) for (const slot of value.matchAll(/\{\{([A-Z_]+)\}\}/g)) if (!allowed.has(slot[1])) throw new Error(`模板包含未知插槽：${slot[1]}`);
   if (files['publication.json']) publicationContext(files);
   validateBody(files['preview.tex'], kind);
@@ -191,6 +192,36 @@ export function printableSample(bytes: Buffer) {
   if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value)) throw new Error('题面样例包含不能显示的控制字节，原始测试数据未改变');
 }
 export type SamplePaths = { inputPath: string; answerPath: string };
+export const CONTEST_RENDERER_VERSION='pf-contest-2';
+export type ContestRenderInput={title:string;author:string;stage:string;dateHeader:string;dateCover:string;entries:{namespace:string;code:string;body:string;metadata:{title:string;author:string};assetPaths:string[];samples:SamplePaths[];timeLimitMs:number;memoryLimitMb:number;inputFile:string;outputFile:string}[]};
+export function renderContest(files:TemplateFiles,kind:DocumentKind,input:ContestRenderInput){
+  validateTemplate(files,kind);
+  if(!files['booklet.tex']?.includes('{{CONTENTS}}')||!files['item.tex']?.includes('{{BODY}}'))throw new Error('整场模板必须提供 booklet.tex 的 CONTENTS 和 item.tex 的 BODY 插槽');
+  if(!input.entries.length||input.entries.length>100||new Set(input.entries.map(e=>e.namespace)).size!==input.entries.length)throw new Error('整场题目清单为空、重复或超额');
+  const result:Record<string,string>={};
+  const context:Record<string,string>={TITLE:escapeTex(input.title),AUTHOR:escapeTex(input.author),CONTEST_TITLE:escapeTex(input.title),CONTEST_STAGE:escapeTex(input.stage),CONTEST_DATE_HEADER:escapeTex(input.dateHeader),CONTEST_DATE_COVER:escapeTex(input.dateCover),BODY:'',CODE:'',TIME_LIMIT:'',MEMORY_LIMIT:'',INPUT_FILE:'',OUTPUT_FILE:'',
+    CONTENTS:input.entries.map(e=>`\\input{${e.namespace}/item.tex}`).join('\n'),
+    PROBLEM_LIST:input.entries.map(e=>`${escapeTex(e.code)} & ${escapeTex(e.metadata.title)} & ${e.timeLimitMs/1000} s & ${e.memoryLimitMb} MB \\\\`).join('\n'),
+  };
+  const fill=(source:string,values:Record<string,string>)=>source.replace(/\{\{([A-Z_]+)\}\}/g,(_,k:string)=>values[k]??context[k]??`{{${k}}}`);
+  for(const [name,source]of Object.entries(files))if(/\.(tex|sty|cls|def)$/.test(name)&&!['preview.tex','item.tex'].includes(name))result[name]=fill(source,context);
+  result['main.tex']=result['booklet.tex'];
+  for(const entry of input.entries){
+    if(!/^p[1-9][0-9]*$/.test(entry.namespace)||!/^[A-Z][A-Z0-9]{0,7}$/.test(entry.code))throw new Error('不合法的比赛题目命名空间或题号');
+    const single=render(files,kind,entry.body,entry.metadata,entry.assetPaths,'single',entry.samples);
+    // Preserve literal code; a label or resource path printed in verbatim is not a reference.
+    const literals:string[]=[];
+    let body=single['content.tex'].replace(/\\begin\{(verbatim|centerverbatim)\}[\s\S]*?\\end\{\1\}|\\verb\*?([^a-zA-Z\s])[^\r\n]*?\2/g,value=>`\u0000${literals.push(value)-1}\u0000`);
+    for(const path of entry.assetPaths)body=body.split(path).join(`${entry.namespace}/${path}`);
+    body=body.replace(/\\input\{samples\.tex\}/g,`\\input{${entry.namespace}/samples.tex}`);
+    // Local labels remain local when several independently authored texts meet.
+    body=body.replace(/\\(label|ref|eqref|pageref)\{([^{}\\]*)\}/g,(_,command:string,key:string)=>`\\${command}{${entry.namespace}:${key}}`);
+    result[`${entry.namespace}/content.tex`]=body.replace(/\u0000([0-9]+)\u0000/g,(_,i:string)=>literals[Number(i)]);
+    if(single['samples.tex'])result[`${entry.namespace}/samples.tex`]=single['samples.tex'].replace(/\{samples\//g,`{${entry.namespace}/samples/`);
+    result[`${entry.namespace}/item.tex`]=fill(files['item.tex'],{TITLE:escapeTex(entry.metadata.title),AUTHOR:escapeTex(entry.metadata.author),BODY:`\\input{${entry.namespace}/content.tex}`,CODE:escapeTex(entry.code),TIME_LIMIT:escapeTex(`${entry.timeLimitMs/1000} s`),MEMORY_LIMIT:escapeTex(`${entry.memoryLimitMb} MB`),INPUT_FILE:escapeTex(entry.inputFile),OUTPUT_FILE:escapeTex(entry.outputFile)});
+  }
+  return result;
+}
 export function render(files: TemplateFiles, kind: DocumentKind, body: string, metadata: { title: string; author: string }, assetPaths: string[] = [], mode: 'single' | 'booklet' = 'single', samples: SamplePaths[] = []) {
   validateTemplate(files, kind);
   validateBody(body, kind, assetPaths);
@@ -200,10 +231,11 @@ export function render(files: TemplateFiles, kind: DocumentKind, body: string, m
   }
   const context = publicationContext(files);
   const values: Record<string, string> = { TITLE: escapeTex(metadata.title), AUTHOR: escapeTex(metadata.author), BODY: '\\input{content.tex}',
+    CONTENTS: '\\input{problem.tex}', CODE: 'A', TIME_LIMIT: '1 s', MEMORY_LIMIT: '256 MB', INPUT_FILE:'standard input', OUTPUT_FILE:'standard output',
     CONTEST_TITLE: escapeTex(context.contestTitle), CONTEST_STAGE: escapeTex(context.contestStage), CONTEST_DATE_HEADER: escapeTex(context.dateHeader), CONTEST_DATE_COVER: escapeTex(context.dateCover),
     PROBLEM_LIST: `A & ${escapeTex(metadata.title)} & 1 s & 256 MB \\\\\n` };
   for (const [name, source] of Object.entries(result)) result[name] = source.replace(/\{\{([A-Z_]+)\}\}/g, (_, k: string) => values[k] ?? `{{${k}}}`);
-  if (mode === 'booklet') { if (!result['booklet.tex']) throw new Error('模板未提供题册入口'); result['main.tex'] = result['booklet.tex']; }
+  if (mode === 'booklet') { if (!result['booklet.tex']) throw new Error('模板未提供题册入口'); result['main.tex'] = result['booklet.tex']; if(result['item.tex'])result['problem.tex']=result['item.tex']; }
   result['content.tex'] = body;
   if (samples.length) {
     if (kind !== 'STATEMENT' || samples.length > 10 || samples.some(s => !/^samples\/sample-[1-9][0-9]*\.in$/.test(s.inputPath) || !/^samples\/sample-[1-9][0-9]*\.ans$/.test(s.answerPath))) throw new Error('样例文件必须使用平台固定的题面命名空间');

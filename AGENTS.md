@@ -4,6 +4,7 @@
 - 新对话先读 docs/PROGRESS.md 的交接记录和 docs/PLAN.md 的当前阶段执行计划，确认开发服务实际运行目录。
 - 完整任务书在 [AGENT_PROMPT.md](AGENT_PROMPT.md)，按 P0 → P5 推进，不删除功能范围。
 - 功能块完成后做定向检查；默认 test/test:quick 仅固定的轻量快查，支持单范围，不隐式执行全量、E2E、真实 TeX 或 Judge。
+- 每个阶段完成后，先完成必要的定向检查并更新 docs/PROGRESS.md，再进行本地 Git 提交，提交成功后才推进下一阶段；不 push。
 - 管理员独占模板维护权限；题面、文档题解、Beamer 独立保存，构建固定不可变版本。
 - 作者代码和 TeX 只经独立 Linux 沙箱执行；不可用时失败，禁止宿主机回退。
 - 不访问或修改其他项目及现有 OJ；不 push，不发布公网。

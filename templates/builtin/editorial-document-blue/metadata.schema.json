@@ -1,0 +1,1 @@
+{"type":"object","additionalProperties":false,"properties":{"title":{"type":"string","maxLength":160},"author":{"type":"string","maxLength":160}},"required":["title","author"]}

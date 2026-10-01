@@ -1,0 +1,10 @@
+name: Explicit Linux image build
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f infra/app.Dockerfile -t problemforge-app:local .

@@ -14,6 +14,7 @@ enum ResourceRole {
   EDITOR
   REVIEWER
   VIEWER
+  TRANSLATOR
 }
 enum DocumentKind {
   STATEMENT
@@ -46,6 +47,8 @@ model User {
   memberships ProblemMember[]
   builds Build[]
   testRuns TestRun[]
+  groupMemberships UserGroupMember[]
+  contestMemberships ContestMember[]
 }
 model Session {
   id String @id
@@ -60,6 +63,10 @@ model Problem {
   id String @id @default(cuid())
   title String
   archived Boolean @default(false)
+  version Int @default(1)
+  tags String[] @default([])
+  notes String @default("") @db.Text
+  responsibleId String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   members ProblemMember[]
@@ -72,6 +79,10 @@ model Problem {
   generatorPlans GeneratorPlan[]
   selfTests ToolSelfTest[]
   testRuns TestRun[]
+  stressConfig StressConfig?
+  testGroupConfig TestGroupConfig?
+  groupMembers ProblemGroupMember[]
+  revisions ProblemRevision[]
 }
 model ProblemMember {
   problemId String
@@ -79,6 +90,7 @@ model ProblemMember {
   userId String
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   role ResourceRole
+  languages String[] @default([])
   @@id([problemId, userId])
 }
 model Document {
@@ -138,9 +150,19 @@ model TemplateVersion {
 }
 model Build {
   id String @id @default(cuid())
+  requestKey String? @unique
+  leaseToken String?
+  heartbeatAt DateTime?
+  retryOfId String? @unique
+  retryCount Int @default(0)
+  cacheSourceId String?
+  updatedAt DateTime @default(now()) @updatedAt
   requestedById String
   requestedBy User @relation(fields: [requestedById], references: [id])
   problemId String?
+  contestId String?
+  contestRevisionId String?
+  bundleId String?
   documentId String?
   revisionId String?
   templateVersionId String
@@ -193,6 +215,29 @@ model Publication {
   revokedAt DateTime?
   createdAt DateTime @default(now())
 }
+model WorkerHeartbeat {
+  id String @id
+  kind String
+  heartbeatAt DateTime @default(now())
+  startedAt DateTime @default(now())
+  @@index([kind, heartbeatAt])
+}
+model StoredObject {
+  key String @id
+  hash String
+  bytes BigInt
+  ready Boolean @default(false)
+  createdAt DateTime @default(now())
+}
+model CompileCache {
+  id String @id
+  problemId String
+  sourceRunId String
+  key String
+  hash String
+  bytes Int
+  createdAt DateTime @default(now())
+}
 model AuditLog {
   id String @id @default(cuid())
   actorId String?
@@ -201,6 +246,136 @@ model AuditLog {
   detail Json?
   createdAt DateTime @default(now())
   @@index([createdAt])
+}
+
+model UserGroup {
+  id String @id @default(cuid())
+  name String @unique
+  version Int @default(1)
+  members UserGroupMember[]
+  problems ProblemGroupMember[]
+  contests ContestGroupMember[]
+}
+model UserGroupMember {
+  groupId String
+  group UserGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([groupId, userId])
+}
+model ProblemGroupMember {
+  problemId String
+  problem Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  groupId String
+  group UserGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  role ResourceRole
+  languages String[] @default([])
+  @@id([problemId, groupId])
+}
+model ProblemRevision {
+  id String @id @default(cuid())
+  problemId String
+  problem Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  number Int
+  label String
+  manifest Json
+  hash String
+  reviewHash String
+  judgeHash String?
+  acceptanceRunId String?
+  state String @default("DRAFT")
+  createdById String
+  createdAt DateTime @default(now())
+  frozenAt DateTime?
+  comments ReviewComment[]
+  decisions ReviewDecision[]
+  @@unique([problemId, number])
+}
+model ReviewComment {
+  id String @id @default(cuid())
+  revisionId String
+  revision ProblemRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  authorId String
+  body String @db.Text
+  anchor String @default("")
+  resolved Boolean @default(false)
+  createdAt DateTime @default(now())
+}
+model ReviewDecision {
+  id String @id @default(cuid())
+  revisionId String
+  revision ProblemRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  authorId String
+  action String
+  message String @db.Text
+  reviewHash String
+  createdAt DateTime @default(now())
+}
+model Contest {
+  id String @id @default(cuid())
+  title String
+  version Int @default(1)
+  archived Boolean @default(false)
+  data Json
+  members ContestMember[]
+  groupMembers ContestGroupMember[]
+  revisions ContestRevision[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+model ContestMember {
+  contestId String
+  contest Contest @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role ResourceRole
+  @@id([contestId, userId])
+}
+model ContestGroupMember {
+  contestId String
+  contest Contest @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  groupId String
+  group UserGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  role ResourceRole
+  @@id([contestId, groupId])
+}
+model ContestRevision {
+  id String @id @default(cuid())
+  contestId String
+  contest Contest @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  number Int
+  data Json
+  hash String
+  createdById String
+  createdAt DateTime @default(now())
+  @@unique([contestId, number])
+}
+model ExportArtifact {
+  id String @id @default(cuid())
+  problemId String?
+  contestId String?
+  revisionId String
+  requestedById String
+  purpose String
+  format String
+  key String @unique
+  hash String
+  bytes Int
+  report Json
+  createdAt DateTime @default(now())
+  publications Release[]
+}
+model Release {
+  id String @id @default(cuid())
+  problemId String?
+  contestId String?
+  purpose String
+  artifactId String?
+  exportId String?
+  exported ExportArtifact? @relation(fields: [exportId], references: [id])
+  token String @unique
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
 }
 enum ProgramRole {
   MAIN_SOLUTION
@@ -226,6 +401,44 @@ enum JudgePurpose {
   ANSWERS
   SELF_TEST
   ACCEPTANCE
+  STRESS
+  REPLAY
+}
+model StressConfig {
+  problemId String @id
+  problem Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  version Int
+  data Json
+  hash String
+  revisions StressConfigRevision[]
+}
+model StressConfigRevision {
+  id String @id @default(cuid())
+  problemId String
+  config StressConfig @relation(fields: [problemId], references: [problemId], onDelete: Cascade)
+  version Int
+  data Json
+  hash String
+  createdAt DateTime @default(now())
+  @@unique([problemId, version])
+}
+model TestGroupConfig {
+  problemId String @id
+  problem Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  version Int
+  data Json
+  hash String
+  revisions TestGroupConfigRevision[]
+}
+model TestGroupConfigRevision {
+  id String @id @default(cuid())
+  problemId String
+  config TestGroupConfig @relation(fields: [problemId], references: [problemId], onDelete: Cascade)
+  version Int
+  data Json
+  hash String
+  createdAt DateTime @default(now())
+  @@unique([problemId, version])
 }
 model CompileProfile {
   id String @id
@@ -247,6 +460,8 @@ model Program {
   profileId String
   profile CompileProfile @relation(fields: [profileId], references: [id])
   expectedVerdicts Json
+  expectedScore Json?
+  validatorScope String @default("GLOBAL")
   notes String @default("")
   enabled Boolean @default(true)
   version Int @default(1)
@@ -358,6 +573,11 @@ model ToolSelfTestRevision {
 }
 model TestRun {
   id String @id @default(cuid())
+  leaseToken String?
+  heartbeatAt DateTime?
+  retryOfId String? @unique
+  retryCount Int @default(0)
+  updatedAt DateTime @default(now()) @updatedAt
   problemId String
   problem Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
   requestedById String

@@ -5,3 +5,5 @@
 - EDITORIAL_DOCUMENT：独立 CTeX 书面题解外壳，正文独立保存，不由 Beamer 转换。
 
 olymp.sty 的源文件保留作者与 [上游许可证](https://github.com/GassaFM/olymp.sty/blob/master/LICENSE) 注记。原始参考保存在 Git 忽略的 `.local/references/`，不执行其中脚本或自带编译命令。平台只使用固定的隔离编译 profile。管理员可编辑和发布版本，普通用户只能选择具体已发布版本。
+
+P4（2026-10-01）为三类模板增加 `booklet.tex` / `item.tex` 的多题组装插槽，比赛信息由冻结清单提供；原 CWNU 题面导言、参考图片和主办方页不变。题号使用选定比赛代码，禁用 olymp 的重复自动前缀。新增简洁蓝色题面（复用原样 olymp.sty，单独定义边距与页眉）、蓝色书面题解和 Madrid 16:9 宽屏讲解三套管理员样式；宽屏为既有批准的 `cwnublock` 正文提供标准 block 适配。新源码只生成新草稿版本，现有绑定保持原模板版本。六套代表样稿均经真实隔离编译及逐页渲染检查后，在本地验证环境发布。

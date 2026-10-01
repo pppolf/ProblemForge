@@ -1,7 +1,7 @@
 import { Type } from '@sinclair/typebox';
 import { BuildInput, PublishInput } from '@problemforge/contracts';
 import { db, type Build } from '@problemforge/database';
-import { config, hashObject, HttpError, problemAccess, texQueue, token, audit } from '@problemforge/domain';
+import { config, hashObject, HttpError, problemAccess, problemPermission, documentAccess, contestAccess, texQueue, token, audit, taskQuota, recoverTasks, checkRetry } from '@problemforge/domain';
 import { validateBody, templateLanguages, printableSample, POLICY_VERSION, TEX_PROFILE, SAMPLE_RENDERER_VERSION, type TemplateFiles } from '@problemforge/template-engine';
 import { GO_JUDGE_VERSION } from '@problemforge/judge-adapter';
 import { admin, authenticate, storage, type Api } from '../app.ts';
@@ -19,22 +19,37 @@ export async function scheduleBuild(id: string) {
     await db.build.updateMany({ where: { id, state: 'QUEUED' }, data: { log: `入队暂未完成：${(error as Error).message}\n后台将重试入队。` } });
   }
 }
-async function access(req: { user: { id: string; role: string } }, build: Build) {
+export async function buildAccess(req: { user: { id: string; role: string } }, build: Build) {
   if (build.purpose === 'TEMPLATE_VALIDATION') {
     if (req.user.role !== 'ADMIN') throw new HttpError(404, '构建不存在或无访问权限');
-  } else if (build.problemId) await problemAccess(req.user, build.problemId);
+  } else if(build.contestId) await contestAccess(req.user,build.contestId);
+  else if(build.documentId){const doc=await db.document.findUnique({where:{id:build.documentId}});if(!doc)throw new HttpError(404,'文稿不存在');await documentAccess(req.user,doc.problemId,doc.language);}
+  else if (build.problemId) await problemAccess(req.user, build.problemId);
   else throw new HttpError(404, '构建不存在');
 }
+const access = buildAccess;
+async function writeAccess(req:{user:{id:string;role:string}},build:Build){
+  if(build.contestId)await contestAccess(req.user,build.contestId,true);
+  else if(build.documentId){const doc=await db.document.findUniqueOrThrow({where:{id:build.documentId}});await documentAccess(req.user,doc.problemId,doc.language,true);}
+  else if(build.problemId)await problemAccess(req.user,build.problemId,true);
+}
+async function staleBuild(build:Build){
+  if(build.contestId){const [contest,revision]=await Promise.all([db.contest.findUnique({where:{id:build.contestId}}),build.contestRevisionId?db.contestRevision.findUnique({where:{id:build.contestRevisionId}}):null]);return !contest||!revision||hashObject((revision.data as unknown as {selection:unknown}).selection)!==hashObject(contest.data);}
+  const doc=build.documentId?await db.document.findUnique({where:{id:build.documentId}}):null;
+  return !!doc&&(doc.currentRevisionId!==build.revisionId||doc.templateVersionId!==build.templateVersionId||!doc.enabled);
+}
 export async function buildRoutes(app: Api) {
+  let reconciling = false;
   const reconciliation = setInterval(async () => {
-    try { for (const b of await db.build.findMany({ where: { state: 'QUEUED', queuedAt: null }, take: 25 })) await scheduleBuild(b.id); }
-    catch (e) { app.log.error(e); }
+    if (reconciling) return; reconciling = true;
+    try { await recoverTasks('tex', queue); }
+    catch (e) { app.log.error(e); } finally { reconciling = false; }
   }, 5000);
   reconciliation.unref();
   app.addHook('onClose', async () => { clearInterval(reconciliation); await queue.close(); });
   app.post('/api/builds', { preHandler: authenticate, schema: { body: BuildInput, tags: ['构建'] } }, async req => {
     const doc = await db.document.findUnique({ where: { id: req.body.documentId }, include: { currentRevision: true, templateVersion: { include: { template: true } } } });
-    if (!doc) throw new HttpError(404, '文稿不存在'); await problemAccess(req.user, doc.problemId, true);
+    if (!doc) throw new HttpError(404, '文稿不存在'); await documentAccess(req.user, doc.problemId,doc.language,true);
     if (!doc.enabled || !doc.currentRevision || !doc.templateVersion) throw new HttpError(422, '文稿必须启用、有正文且已选择模板');
     if (!['PUBLISHED', 'ARCHIVED'].includes(doc.templateVersion.state)) throw new HttpError(422, `模板版本不可构建：${doc.templateVersion.reason ?? doc.templateVersion.state}`);
     if (!templateLanguages(doc.templateVersion.files as TemplateFiles).includes(doc.language)) throw new HttpError(422, '模板没有声明支持本语言');
@@ -53,47 +68,56 @@ export async function buildRoutes(app: Api) {
       revisionId: doc.currentRevision.id, contentVersion: doc.version, templateNumber: doc.templateVersion.number, assets: assetSnapshot, samples,
       ...(samples.length ? { sampleRendererVersion: SAMPLE_RENDERER_VERSION } : {}),
       policy: POLICY_VERSION, toolchain: TEX_PROFILE, sandboxVersion: GO_JUDGE_VERSION };
-    const active = await db.build.count({ where: { requestedById: req.user.id, state: { in: ['QUEUED', 'RUNNING'] } } });
-    if (active >= 6) throw new HttpError(429, '每个用户最多同时排队/执行六个文档构建');
-    const build = await db.build.create({ data: { requestedById: req.user.id, problemId: doc.problemId, documentId: doc.id, revisionId: doc.currentRevision.id,
-      templateVersionId: doc.templateVersion.id, kind: doc.kind, input, inputHash: hashObject(input) } });
-    await scheduleBuild(build.id); return build;
+    const inputHash = hashObject(input), requestKey = req.body.requestKey ? hashObject([req.user.id, 'build', req.body.requestKey]) : hashObject([req.user.id, 'build', doc.id, inputHash]);
+    const build = await db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM "User" WHERE id=${req.user.id} FOR UPDATE`;
+      const old = await tx.build.findUnique({where:{requestKey}});
+      if (old) { if(old.inputHash!==inputHash||old.documentId!==doc.id)throw new HttpError(409,'提交键已用于另一个构建'); return old; }
+      await taskQuota(tx,req.user.id,'tex');
+      return tx.build.create({ data: { requestKey, requestedById: req.user.id, problemId: doc.problemId, documentId: doc.id, revisionId: doc.currentRevision!.id,
+        templateVersionId: doc.templateVersion!.id, kind: doc.kind, input, inputHash } });
+    });
+    await scheduleBuild(build.id); await audit(req.user.id,'CREATE_BUILD',build.id); return build;
   });
   app.get('/api/builds', { preHandler: authenticate, schema: { querystring: Type.Object({ problemId: Type.Optional(Type.String()) }, { additionalProperties: false }) } }, async req => {
-    if (req.query.problemId) await problemAccess(req.user, req.query.problemId);
+    if (req.query.problemId) await problemPermission(req.user, req.query.problemId);
     const builds = await db.build.findMany({
-      where: req.query.problemId ? { problemId: req.query.problemId } : { requestedById: req.user.id, ...(req.user.role !== 'ADMIN' ? { purpose: 'DOCUMENT' } : {}) },
+      where: req.query.problemId ? { problemId: req.query.problemId } : { requestedById: req.user.id, ...(req.user.role !== 'ADMIN' ? { purpose: {in:['DOCUMENT','CONTEST']} } : {}) },
       include: { artifacts: true }, orderBy: { createdAt: 'desc' }, take: 50,
     });
     const visible: (Build & { artifacts: unknown[]; stale: boolean })[] = [];
     for (const build of builds) {
       try { await access(req, build); } catch { continue; }
-      const doc = build.documentId ? await db.document.findUnique({ where: { id: build.documentId } }) : null;
-      visible.push({ ...build, input: { contentVersion: (build.input as Record<string, unknown>).contentVersion, templateNumber: (build.input as Record<string, unknown>).templateNumber } as Build['input'], stale: !!doc && (doc.currentRevisionId !== build.revisionId || doc.templateVersionId !== build.templateVersionId || !doc.enabled) });
+      visible.push({ ...build, input: { contentVersion: (build.input as Record<string, unknown>).contentVersion, templateNumber: (build.input as Record<string, unknown>).templateNumber } as Build['input'], stale: await staleBuild(build) });
     }
     return visible;
   });
   app.get('/api/builds/:id', { preHandler: authenticate, schema: { params: Id } }, async req => {
     const build = await db.build.findUnique({ where: { id: req.params.id }, include: { artifacts: true } });
     if (!build) throw new HttpError(404, '构建不存在'); await access(req, build);
-    const doc = build.documentId ? await db.document.findUnique({ where: { id: build.documentId } }) : null;
-    return { ...build, stale: !!doc && (doc.currentRevisionId !== build.revisionId || doc.templateVersionId !== build.templateVersionId || !doc.enabled) };
+    return { ...build, stale: await staleBuild(build) };
   });
   app.post('/api/builds/:id/cancel', { preHandler: authenticate, schema: { params: Id } }, async req => {
     const build = await db.build.findUnique({ where: { id: req.params.id } });
     if (!build) throw new HttpError(404, '构建不存在'); await access(req, build);
-    if (build.problemId) await problemAccess(req.user, build.problemId, true);
-    await db.build.updateMany({ where: { id: build.id, state: { in: ['QUEUED', 'RUNNING'] } }, data: { cancelRequested: true } }); return { ok: true };
+    await writeAccess(req,build);
+    await db.build.updateMany({ where: { id: build.id, state: 'QUEUED' }, data: { cancelRequested: true, state:'CANCELED',finishedAt:new Date() } });
+    await db.build.updateMany({ where: { id: build.id, state: 'RUNNING' }, data: { cancelRequested: true } }); await audit(req.user.id,'CANCEL_BUILD',build.id); return { ok: true };
   });
   app.post('/api/builds/:id/retry', { preHandler: authenticate, schema: { params: Id } }, async req => {
     const old = await db.build.findUnique({ where: { id: req.params.id } });
     if (!old) throw new HttpError(404, '构建不存在'); await access(req, old);
-    if (old.problemId) await problemAccess(req.user, old.problemId, true);
+    await writeAccess(req,old);
     if (!['FAILED', 'CANCELED'].includes(old.state)) throw new HttpError(409, '只有失败或取消的任务可以单独重试');
     const version = await db.templateVersion.findUnique({ where: { id: old.templateVersionId } });
     if (!version || version.state === 'REVOKED' || (old.purpose === 'TEMPLATE_VALIDATION' && (version.hash !== (old.input as Record<string, unknown>).templateHash || !['DRAFT', 'VALIDATED'].includes(version.state)))) throw new HttpError(409, '模板已撤回或草稿已改变，请新建构建');
-    const result = await db.build.create({ data: { requestedById: req.user.id, problemId: old.problemId, documentId: old.documentId, revisionId: old.revisionId,
-      templateVersionId: old.templateVersionId, kind: old.kind, purpose: old.purpose, input: old.input!, inputHash: old.inputHash } });
+    const result = await db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM "Build" WHERE id=${old.id} FOR UPDATE`;
+      const previous=await tx.build.findUnique({where:{retryOfId:old.id}});if(previous)return previous;
+      checkRetry(old.retryCount);await taskQuota(tx,req.user.id,'tex');
+      return tx.build.create({ data: { retryOfId:old.id,retryCount:old.retryCount+1,requestedById: req.user.id, problemId: old.problemId, documentId: old.documentId, revisionId: old.revisionId,contestId:old.contestId,contestRevisionId:old.contestRevisionId,bundleId:old.bundleId,
+        templateVersionId: old.templateVersionId, kind: old.kind, purpose: old.purpose, input: old.input!, inputHash: old.inputHash } });
+    });await audit(req.user.id,'RETRY_BUILD',result.id,{from:old.id});
     await scheduleBuild(result.id); return result;
   });
   app.get('/api/artifacts/:id/pdf', { preHandler: authenticate, schema: { params: Id } }, async (req, reply) => {

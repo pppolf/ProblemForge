@@ -5,8 +5,9 @@ import { config, root } from '@problemforge/domain';
 
 export class Client {
   cookie = ''; csrf = '';
+  constructor(private base=`http://127.0.0.1:${config.port}`,private origin=config.origin){}
   async request(path: string, method = 'GET', data?: object) {
-    return fetch(`http://127.0.0.1:${config.port}/api${path}`, { method, headers: { Origin: config.origin, ...(data ? { 'Content-Type': 'application/json' } : {}), Cookie: this.cookie, 'X-CSRF-Token': this.csrf }, body: data ? JSON.stringify(data) : undefined });
+    return fetch(`${this.base}/api${path}`, { method, headers: { Origin: this.origin, ...(data ? { 'Content-Type': 'application/json' } : {}), Cookie: this.cookie, 'X-CSRF-Token': this.csrf }, body: data ? JSON.stringify(data) : undefined });
   }
   async call(path: string, method = 'GET', data?: object, expected = 200) {
     const response = await this.request(path, method, data), result = await response.json();

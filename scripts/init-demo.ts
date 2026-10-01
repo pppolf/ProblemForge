@@ -8,6 +8,9 @@ const builtins = [
   { folder: 'statement', name: 'CWNU 比赛题面', kind: 'STATEMENT' as const },
   { folder: 'editorial-document', name: '经典书面题解', kind: 'EDITORIAL_DOCUMENT' as const },
   { folder: 'editorial-beamer', name: 'CWNU 讲解 · 4:3', kind: 'EDITORIAL_BEAMER' as const },
+  { folder: 'statement-compact', name: '简洁蓝色题面', kind: 'STATEMENT' as const },
+  { folder: 'editorial-document-blue', name: '蓝色书面题解', kind: 'EDITORIAL_DOCUMENT' as const },
+  { folder: 'editorial-beamer-wide', name: '宽屏讲解 · 16:9', kind: 'EDITORIAL_BEAMER' as const },
 ];
 try {
   for (const builtin of builtins) {

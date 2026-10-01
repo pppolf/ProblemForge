@@ -2,5 +2,5 @@
   "name": "@problemforge/domain", "version": "0.1.0", "private": true, "type": "module",
   "exports": { ".": "./src/index.ts" },
   "scripts": { "check": "tsc -p tsconfig.json" },
-  "dependencies": { "@problemforge/database": "workspace:*", "dotenv": "16.6.1", "bullmq": "5.61.2" }
+  "dependencies": { "@problemforge/database": "workspace:*", "@problemforge/storage": "workspace:*", "dotenv": "16.6.1", "bullmq": "5.61.2" }
 }

@@ -6,11 +6,15 @@
 
 管理员上传 JSON 的 `files` 为相对文件名到字符串的映射：tex / sty / cls / def 为 UTF-8 文本，PNG / JPEG 为规范 Base64；支持中文相对图片名，禁止绝对路径、父目录、空路径段及符号链接。限 40 个文件、10MB，总图片单项限 1.5MB；图片字节验证类型，Worker 保留原字节后复制到任务沙箱。模板文件不以业务静态资源公开。
 
-必含 manifest.yaml、metadata.schema.json、main.tex、preview.tex。manifest 声明类型 STATEMENT / EDITORIAL_DOCUMENT / EDITORIAL_BEAMER、语言列表、single / contest、固定入口与 `xelatex-2022-bookworm-v1`；本阶段含 zh-CN。声明 contest 时需 bookletEntry: booklet.tex。该能力声明目前支持题册样稿，正式多题出版在 P4 实现。
+必含 manifest.yaml、metadata.schema.json、main.tex、preview.tex。manifest 声明类型 STATEMENT / EDITORIAL_DOCUMENT / EDITORIAL_BEAMER、语言列表、single / contest、固定入口与 `xelatex-2022-bookworm-v1`。声明 contest 时需 bookletEntry: booklet.tex；P4 正式多题还要求 booklet.tex 的 CONTENTS 插槽与 item.tex 的 BODY 插槽。旧已发布模板可继续单题使用，补齐入口需新建管理员版本。
 
-metadata.schema.json 为不执行代码的声明子集：type: object、additionalProperties: false，properties 仅 title / author 字符串，长度不超过 160。TeX 插槽仅 TITLE、AUTHOR、BODY、CONTEST_TITLE、CONTEST_STAGE、CONTEST_DATE_HEADER、CONTEST_DATE_COVER、PROBLEM_LIST。普通元信息转义后插入，BODY 固定生成 input{content.tex}，内容与入口分别保存。
+metadata.schema.json 为不执行代码的声明子集：type: object、additionalProperties: false，properties 仅 title / author 字符串，长度不超过 160。TeX 插槽含 TITLE、AUTHOR、BODY、CONTEST_TITLE、CONTEST_STAGE、CONTEST_DATE_HEADER、CONTEST_DATE_COVER、PROBLEM_LIST，以及 P4 的 CONTENTS、CODE、TIME_LIMIT、MEMORY_LIMIT、INPUT_FILE、OUTPUT_FILE。普通元信息转义后插入，BODY 为平台生成的 input，作者正文与入口分别保存。
 
-题面 main.tex 通过 problem.tex 的 BODY 插槽容纳普通用户正文；booklet.tex 使用同一 preamble.tex 和 problem.tex。publication.json 仅含四项受限预览文字，比赛信息来自独立模型的正式快照接口将在 P4 增加。配置表单是管理员可选覆盖，未修改时保留上传源码；一旦覆盖也必须重新编译并发布新版本。
+题面 main.tex 通过 problem.tex 的 BODY 插槽容纳普通用户正文；多题 booklet.tex 使用同一导言与各题 item.tex。publication.json 仅含四项受限预览文字，正式比赛信息来自 ContestRevision。配置表单是管理员可选覆盖，未修改时保留上传源码；一旦覆盖也必须重新编译并发布新版本。
+
+`pf-contest-2` 将每题源码、图片、样例和 label/ref/eqref/pageref 放进 p1、p2 等独立命名空间，字面代码保持原样。题面/文档题解按题册顺序，Beamer 按独立 lectureOrder，CODE 始终保留比赛题号。资源/样例文件由 Worker 校验固定字节与哈希后复制，不能拼接私有宿主路径。渲染版本进入任务输入哈希，旧版本重试不偷偷改用新组装器。
+
+内置六套模板：CWNU 题面与简洁蓝色题面、经典/蓝色书面题解、CWNU 4:3 与宽屏 16:9 Beamer。P4 全部经真实沙箱编译及逐页预览；新套件仍只通过 ADMIN 新建草稿、验证、确认预览、发布的流程进入目录。
 
 ## 普通内容
 

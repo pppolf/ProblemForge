@@ -6,8 +6,7 @@ import swaggerUI from '@fastify/swagger-ui';
 import type { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import { Redis } from 'ioredis';
 import { db } from '@problemforge/database';
-import { config, sha256, HttpError } from '@problemforge/domain';
-import { PrivateFileStorage } from '@problemforge/storage';
+import { config, sha256, HttpError, ManagedStorage } from '@problemforge/domain';
 import { ContentPolicyError } from '@problemforge/template-engine';
 import type { UserView } from '@problemforge/contracts';
 import { authRoutes } from './modules/auth.ts';
@@ -17,6 +16,18 @@ import { buildRoutes } from './modules/builds.ts';
 import { assetRoutes } from './modules/assets.ts';
 import { judgeRoutes } from './modules/judge.ts';
 import { testRunRoutes } from './modules/test-runs.ts';
+import { stressRoutes } from './modules/stress.ts';
+import { counterexampleRoutes } from './modules/counterexamples.ts';
+import { groupRoutes } from './modules/test-groups.ts';
+import { memberRoutes } from './modules/members.ts';
+import { revisionRoutes } from './modules/revisions.ts';
+import { contestRoutes } from './modules/contests.ts';
+import { contestBuildRoutes } from './modules/contest-builds.ts';
+import { releaseRoutes } from './modules/releases.ts';
+import { packageRoutes } from './modules/packages.ts';
+import { PackageError } from '@problemforge/problem-format';
+import { operationsRoutes } from './modules/operations.ts';
+import { staticRoutes } from './modules/static.ts';
 
 declare module 'fastify' {
   interface FastifyRequest { user: UserView; sessionId: string; csrfToken: string; }
@@ -27,7 +38,7 @@ function createTypedApp(logging: boolean) {
     bodyLimit: 2_500_000, ajv: { customOptions: { removeAdditional: false, coerceTypes: false } },
   }).withTypeProvider<TypeBoxTypeProvider>();
 }
-export const storage = new PrivateFileStorage(config.storageRoot);
+export const storage = new ManagedStorage(config.storageRoot);
 export async function authenticate(req: FastifyRequest) {
   const raw = req.cookies.pf_session;
   if (!raw) throw new HttpError(401, '请先登录', 'AUTH_REQUIRED');
@@ -54,16 +65,18 @@ export async function createApp(logging = true) {
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers.origin !== config.origin) throw new HttpError(403, '请求来源不被允许', 'ORIGIN_FAILED');
   });
   app.setErrorHandler((error, req, reply) => {
+    if (error instanceof PackageError) return reply.code(422).send({code:'PACKAGE_ERROR',message:error.message});
     if (error instanceof ContentPolicyError) return reply.code(422).send({ code: 'CONTENT_POLICY', message: error.message, details: error.issues });
     if (error instanceof HttpError) return reply.code(error.statusCode).send({ code: error.code, message: error.message, details: error.details });
     const fastifyError = error as FastifyError;
     if (fastifyError.validation) return reply.code(400).send({ code: 'VALIDATION_ERROR', message: '请求字段不符合接口约束', details: fastifyError.validation });
     if ((error as { code?: string }).code === 'P2002') return reply.code(409).send({ code: 'CONFLICT', message: '记录已存在或版本冲突' });
+    if ((error as { code?: string }).code === 'P2034') return reply.code(409).send({ code: 'VERSION_CONFLICT', message: '并发更新冲突，请刷新后合并修改' });
     if (fastifyError.statusCode && fastifyError.statusCode < 500) return reply.code(fastifyError.statusCode).send({ code: 'REQUEST_ERROR', message: fastifyError.message });
     req.log.error(error);
     return reply.code(500).send({ code: 'INTERNAL_ERROR', message: '后端处理失败，请查看服务日志' });
   });
-  app.get('/api/health', async () => { await db.$queryRaw`SELECT 1`; await redis.ping(); return { status: 'ok', appName: config.appName }; });
+  await operationsRoutes(app,redis);
   await authRoutes(app);
   await problemRoutes(app);
   await templateRoutes(app);
@@ -71,6 +84,16 @@ export async function createApp(logging = true) {
   await assetRoutes(app);
   await judgeRoutes(app);
   await testRunRoutes(app);
+  await stressRoutes(app);
+  await counterexampleRoutes(app);
+  await groupRoutes(app);
+  await memberRoutes(app);
+  await revisionRoutes(app);
+  await contestRoutes(app);
+  await contestBuildRoutes(app);
+  await releaseRoutes(app);
+  await packageRoutes(app);
+  await staticRoutes(app);
   app.addHook('onClose', async () => { redis.disconnect(); });
   return app;
 }

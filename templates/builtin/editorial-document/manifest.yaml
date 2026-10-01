@@ -4,4 +4,5 @@ entry: main.tex
 profile: xelatex-2022-bookworm-v1
 languages: [zh-CN]
 single: true
-contest: false
+contest: true
+bookletEntry: booklet.tex

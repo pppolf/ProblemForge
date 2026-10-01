@@ -1,0 +1,9 @@
+<script setup lang="ts">
+import{ref,onMounted}from'vue';import{NButton,NInput,NSelect,NModal,NFormItem,useMessage}from'naive-ui';import{api}from'../api';
+const groups=ref<any[]>([]),users=ref<any[]>([]),editing=ref<any>(),show=ref(false),message=useMessage();
+async function load(){try{groups.value=await api('/admin/groups');users.value=await api('/admin/users');}catch(e){message.error((e as Error).message);}}
+function edit(g?:any){editing.value=g?{id:g.id,name:g.name,userIds:g.members.map((m:any)=>m.userId),expectedVersion:g.version}:{id:crypto.randomUUID(),name:'',userIds:[],expectedVersion:0};show.value=true;}
+async function save(){try{const {id,...body}=editing.value;await api(`/admin/groups/${id}`,{method:'PUT',body:JSON.stringify(body)});show.value=false;await load();message.success('用户组已保存，关联题目和比赛权限同步生效');}catch(e){message.error((e as Error).message);}}
+onMounted(load);
+</script>
+<template><div class="page-heading"><div><h1>用户组</h1><p>管理员维护成员集合；负责人为用户组授予题目或比赛角色</p></div><NButton type="primary" @click="edit()">新建用户组</NButton></div><div class="panel"><table class="data-table"><thead><tr><th>名称</th><th>成员</th><th>版本</th><th></th></tr></thead><tbody><tr v-for="g in groups" :key="g.id"><td>{{g.name}}</td><td>{{g.members.map((m:any)=>m.user.name).join('、')||'空组'}}</td><td>v{{g.version}}</td><td><NButton size="small" @click="edit(g)">编辑成员</NButton></td></tr></tbody></table></div><NModal v-model:show="show" preset="card" title="编辑用户组" style="width:580px"><template v-if="editing"><NFormItem label="组名称"><NInput v-model:value="editing.name"/></NFormItem><NFormItem label="成员"><NSelect v-model:value="editing.userIds" multiple filterable :options="users.filter(u=>!u.disabled).map(u=>({label:u.name+' · '+u.email,value:u.id}))"/></NFormItem><NButton type="primary" :disabled="!editing.name.trim()" @click="save">保存用户组</NButton></template></NModal></template>

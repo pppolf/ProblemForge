@@ -1,0 +1,152 @@
+name: ${COMPOSE_PROJECT_NAME:-problemforge-prod}
+x-app: &app
+  image: ${PF_APP_IMAGE:-problemforge-app:p5}
+  build:
+    context: ..
+    dockerfile: infra/app.Dockerfile
+  environment: &app-env
+    NODE_ENV: production
+    APP_ORIGIN: ${APP_ORIGIN:?configure APP_ORIGIN}
+    API_HOST: 0.0.0.0
+    API_PORT: 3100
+    DATABASE_URL: postgresql://problemforge:${POSTGRES_PASSWORD:?configure POSTGRES_PASSWORD}@postgres:5432/problemforge
+    REDIS_URL: redis://:${REDIS_PASSWORD:?configure REDIS_PASSWORD}@redis:6379/0
+    STORAGE_ROOT: /data
+    STORAGE_QUOTA_BYTES: ${STORAGE_QUOTA_BYTES:-10000000000}
+    TASK_LEASE_MS: ${TASK_LEASE_MS:-45000}
+    TASK_MAX_ATTEMPTS: ${TASK_MAX_ATTEMPTS:-3}
+    BUILD_QUOTA: ${BUILD_QUOTA:-6}
+    JUDGE_QUOTA: ${JUDGE_QUOTA:-3}
+    TEX_SANDBOX_URL: http://tex-sandbox:5050
+    TEX_SANDBOX_TOKEN: ${TEX_SANDBOX_TOKEN:?configure TEX_SANDBOX_TOKEN}
+    JUDGE_SANDBOX_URL: http://judge-sandbox:5050
+    JUDGE_SANDBOX_TOKEN: ${JUDGE_SANDBOX_TOKEN:?configure JUDGE_SANDBOX_TOKEN}
+  user: "10001:10001"
+  init: true
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs: ["/tmp:size=64m,mode=1777"]
+  volumes: [private:/data]
+  networks: [backend]
+  pids_limit: 128
+  mem_limit: 768m
+  cpus: 2
+  restart: unless-stopped
+  stop_grace_period: 30s
+services:
+  postgres:
+    image: postgres:16-alpine@sha256:20edbde7749f822887a1a022ad526fde0a47d6b2be9a8364433605cf65099416
+    environment:
+      POSTGRES_USER: problemforge
+      POSTGRES_DB: problemforge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes: [database:/var/lib/postgresql/data]
+    networks: [backend]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U problemforge -d problemforge"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  redis:
+    image: redis:7-alpine@sha256:8b81dd37ff027bec4e516d41acfbe9fe2460070dc6d4a4570a2ac5b9d59df065
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    command: [sh, -c, 'exec redis-server --appendonly yes --maxmemory-policy noeviction --requirepass "$$REDIS_PASSWORD"']
+    volumes: [redis:/data]
+    networks: [backend]
+    healthcheck:
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  storage-init:
+    <<: *app
+    user: "0:0"
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    command: [sh, -c, 'chown 10001:10001 /data && chmod 700 /data']
+    restart: "no"
+  migrate:
+    <<: *app
+    command: [node, --import, tsx, scripts/database.ts, migrate]
+    depends_on:
+      postgres: {condition: service_healthy}
+      storage-init: {condition: service_completed_successfully}
+    restart: "no"
+  api:
+    <<: *app
+    networks: [backend, ingress]
+    ports: ["127.0.0.1:${PF_HTTP_PORT:-5181}:3100"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3100/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 12s
+      start_period: 40s
+      retries: 4
+  tex-worker:
+    <<: *app
+    command: [node, --import, tsx, workers/tex/src/index.ts]
+    environment:
+      <<: *app-env
+      TEX_CONCURRENCY: ${TEX_CONCURRENCY:-1}
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+      tex-sandbox: {condition: service_started}
+    healthcheck:
+      test: [CMD, node, --import, tsx, scripts/worker-health.ts, tex]
+      interval: 15s
+      timeout: 12s
+      start_period: 20s
+      retries: 4
+  judge-worker:
+    <<: *app
+    command: [node, --import, tsx, workers/judge/src/index.ts]
+    environment:
+      <<: *app-env
+      JUDGE_CONCURRENCY: ${JUDGE_CONCURRENCY:-1}
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+      judge-sandbox: {condition: service_started}
+    healthcheck:
+      test: [CMD, node, --import, tsx, scripts/worker-health.ts, judge]
+      interval: 15s
+      timeout: 12s
+      start_period: 20s
+      retries: 4
+  tex-sandbox:
+    image: ${PF_TEX_IMAGE:-problemforge-tex-sandbox:latest}
+    build: {context: .., dockerfile: infra/tex-sandbox.Dockerfile}
+    environment: {ES_AUTH_TOKEN: "${TEX_SANDBOX_TOKEN}"}
+    privileged: true
+    shm_size: 256mb
+    networks: [backend]
+    command: [-http-addr, ':5050', -mount-conf, /opt/tex-mount.yaml, -parallelism, '1', -pre-fork, '1', -container-cred-start, '20000', -tmp-fs-param, 'size=128m,nr_inodes=4096', -output-limit, 32m, -copy-out-limit, 16m, -file-timeout, 10m]
+    restart: unless-stopped
+  judge-sandbox:
+    image: ${PF_JUDGE_IMAGE:-problemforge-judge-sandbox:latest}
+    build: {context: .., dockerfile: infra/judge-sandbox.Dockerfile}
+    environment: {ES_AUTH_TOKEN: "${JUDGE_SANDBOX_TOKEN}"}
+    privileged: true
+    shm_size: 256mb
+    networks: [backend]
+    command: [-http-addr, ':5050', -mount-conf, /opt/judge-mount.yaml, -parallelism, '2', -pre-fork, '2', -container-cred-start, '21000', -tmp-fs-param, 'size=128m,nr_inodes=4096', -output-limit, 8m, -copy-out-limit, 8m, -file-timeout, 1h]
+    restart: unless-stopped
+  toolbox:
+    <<: *app
+    profiles: [ops]
+    restart: "no"
+    command: [node, --version]
+networks:
+  backend: {internal: true}
+  ingress: {}
+volumes:
+  database:
+  redis:
+  private:

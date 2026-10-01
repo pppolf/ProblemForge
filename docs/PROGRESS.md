@@ -1,14 +1,14 @@
 # 开发进度
 
-2026-09-30：P0 工程与登录、P1 单题出版、P2 普通题与 SPJ 主链路已实现并实际验证。当前仍是开发版，P3—P5 未完成。以下 P0/P1 验证事实保留自前轮工作；本轮 P2 使用独立验证数据库，旧本地证据没有复制到本工作区。
+2026-10-01：P0—P5 计划主链路已实现并按阶段实际验证。P5 已完成 Linux 生产镜像、独立私网部署、真实故障恢复及备份到空实例恢复；本次没有公网发布。最新实现、证据、限制和运行交接见本文末尾“本轮 P5”，提交安排见“阶段提交规则与补交”；历史记录保留。开发与验证均在主目录 D:\project\ProblemForge。
 
 ## 已实现
 
-- pnpm workspace / 固定版本与 lockfile；Fastify 模块化 API；Vue / Naive UI 工作台；Monaco、PDF.js。PostgreSQL / Prisma 四个实际部署迁移，独立 Redis / BullMQ 调度，私有持久文件存储及适配器接口。
+- pnpm workspace / 固定版本与 lockfile；Fastify 模块化 API；Vue / Naive UI 工作台；Monaco、PDF.js。PostgreSQL / Prisma 八个实际部署迁移，独立 Redis / BullMQ 调度，私有持久文件存储及适配器接口。
 - 管理员初始化、登录/会话/CSRF/限流/用户创建；按当前数据库权限鉴权题目、任务、日志、资源和产物。普通用户没有模板维护接口，目录也不返回模板源码和全局配置。
 - 题目创建与按语言区分的三类独立稿件；不可变正文版本、启用开关、原子并发保存及 409 冲突、本地未保存编辑保护；私有 PNG/JPEG 资源与受限路径引用。
 - 三类管理员模板包、递归模板资源、源码/配置编辑、JSON 上传、不可变发布、归档与撤回；发布要求匹配当前模板哈希的真实成功构建及预览确认。
-- 真实独立 TeX Worker / Linux go-judge 1.8.5 / 固定 XeLaTeX+latexmk；内容 AST 子集和执行隔离分别检查，沙箱不可用时失败。数据库任务快照、队列补投、租约、取消/显式重试、真实编译日志、私有 PDF 与分类型发布/撤回。P5 仍需完善恢复和并发配额。
+- 真实独立 TeX Worker / Linux go-judge 1.8.5 / 固定 XeLaTeX+latexmk；内容 AST 子集和执行隔离分别检查，沙箱不可用时失败。数据库任务快照、补投/失联恢复、独占租约、取消/有限显式重试、真实日志、私有 PDF 与分类型发布/撤回；P5 补齐原子并发/存储配额、缓存、SSE 和管理员运行审计。
 
 ## 本轮题面模板纠正
 
@@ -66,7 +66,7 @@
 
 本次仅同步源码，未覆盖主目录的本地配置、依赖、数据库或私有存储。前述 P2 与 PDF 实际验证及忽略目录证据仍来自 f054 工作树，运行中的开发服务也尚未切换目录；后续启动主目录服务时需先核对本地配置、安装更新的依赖并按目标数据库状态处理迁移。本次没有重复运行功能测试。
 
-## 下一对话交接（2026-09-30，进入 P3）
+## 历史交接（2026-09-30，进入 P3）
 
 - **工作目录与提交：**直接使用 `D:\project\ProblemForge`，当前分支 `master`。P2、样例表格修复和主目录规则已提交为 `550f0c8`；P3 详细步骤见 [PLAN.md](PLAN.md) 的 P3.0—P3.4。本轮按用户要求停在提交与计划，不提前实现 P3，也没有 push。
 - **开始顺序：**先读 AGENTS、任务书第 7/8/10/12/13 节及本交接，再完成 P3.0 运行环境切换，然后实施对拍 → 交互 → 分组评分。现有源码有 INTERACTIVE/PARTIAL 契约字段，但 API 明确拒绝执行，Interactor 仅管理/编译；这些字段不代表 P3 已实现。EXTRA_VALIDATOR 在 P2 已可全局执行，P3 需补组级适用范围。
@@ -75,10 +75,123 @@
 - **可用于接续的页面：**P2 验证题 `cmuo2ghni004wktkgjv9s4p1q`，路径 `/problems/cmuo2ghni004wktkgjv9s4p1q`；题面正文 v3 / 模板 v1 / 样例数据 v2，最新修复构建 `cmuo5c4im0002ktt0sxp20h3f`。该题正式数据已到 v3，但题面显式保留样例 v2，是已验证的版本行为。
 - **本轮新增检查：**环境配置文件中仅 `.env.example` 纳入提交，本地凭据、产物、storage 与 node_modules 未入暂存区；自有代码的暂存差异空白检查通过。上游 testlib 原文件保留尾随空白，磁盘及暂存 blob 的 SHA-256 均与固定来源一致，未为消除提示而修改第三方字节。功能验证复用此前记录，本轮未在主目录重跑 Judge、TeX、E2E 或生产构建。
 
-## 未实现、未验证及阻塞
+## 本轮 P3 实现与环境接续（2026-09-30）
 
-P3 对拍/真实交互/分组评分与依赖 DAG；P4 修订审核/协作/比赛冻结/整场资料/题目包/每类第二套模板；P5 正式 Linux 应用镜像、完整 Compose、CI、SSE、缓存/配额/审计强化、失联恢复、生产部署和备份恢复。P2 已做的队列补投、预算/取消和有限基础配额不代表 P5 已完成。完整清单保留在 PLAN。
+- **P3.0：**所有开发直接在 D:\project\ProblemForge，未创建工作树。确认 f054 的 Build/TestRun 无进行中任务后停止该目录的 API/Vite/两个 Worker。先备份主目录配置和管理员本地凭据，再延续 problemforge_f054 数据库、Redis DB 1；168 个私有文件复制到主目录 .local/p3-storage 并逐文件 SHA-256 校验。原主目录 storage、原数据库及 f054 文件均保留。pnpm install --frozen-lockfile、Prisma 生成及迁移检查实际通过，四个服务已加载主目录源码。
+- **P3.1：**版本化/CAS 对拍配置、固定程序/profile/Validator/Checker 快照，生成→校验→参考→被测→比较，预算与停止策略、每轮实际种子和完成次数。持久反例、私有输入/两方输出/日志/源码来源、按保存输入复现（附加生成只检查确定性）、显式加入新正式数据版本及重复/过期检查。复用数据库任务、幂等提交、取消、队列补投和历史有效性；界面保留编辑、刷新查询和当前/历史区分。
+- **P3.2：**核对固定 go-judge v1.8.5 和本地 testlib，新增一次请求内真实 Linux pipeMapping。两个作者执行环境、受限可信中继、Interactor 内可信监督程序，隐藏输入只交给 Interactor。支持直接判定与 tout 交 Checker；各方 CPU/内存/进程/输出及总墙钟/空闲限制，有方向/顺序/截断标记的有界原始字节记录及私有下载，保存双方 Invocation。EOF 只关闭管道，监督程序确认作者真实退出后才清理对端；有效 WA 保留，工具/基础设施错误另行归因。可信辅助脚本组合哈希进入执行快照，仍无宿主机作者代码执行。
+- **P3.3：**数据组配置和不可变修订、固定成员数据版本/权重、组级额外 Validator、同题完整成员集合及依赖 DAG 检查。旧标签只能显式映射为草稿。ACM 全部必需测试 AC；部分分支持 ALL / WEIGHTED，每组按整数千分之一分向下取整，再施加依赖阻断并汇总。报告含原始组分、最终组分、阻断原因与总分；解法支持组/总分范围预期，正确解仍要求满分，CE/工具/基础设施错误不能命中预期。
+- **P3.4：**新增三个独立真实验证入口及 p3 纯逻辑快查范围，默认 test/test:quick 的固定清单未改变。更新工作区、Judge 协议、README 和 PLAN；P4/P5 全部范围保留。
 
-没有运行全部 E2E、压力/模糊测试、全部角色/资源超限/模板语言字体组合、生产构建/部署或备份恢复，不宣称这些通过。浮点比较做了定向语义快查，未开展所有语言的真实浮点题矩阵；预期超时解和暴力解角色已接入，未逐一跑全部组合。生成器不确定性提示、重试/失联恢复和配额耗尽尚未做全面故障注入。
+新增数据库迁移为 20260930150000_stress 与 20260930160000_test_groups，已在目标数据库部署；未重写前四个迁移。收尾逐一确认六个本地迁移文件的 SHA-256 与数据库记录相同，迁移命令确认无待执行项。迁移 SQL 明确禁用 Git 换行转换，避免跨平台 checkout 改变已部署字节的校验和。Windows 第一次生成 Prisma 时遇到正在运行的进程占用 DLL，停止主目录服务后重新生成成功，没有使用未经确认的数据库或重置历史数据。
 
-当前 Linux Judge 与 TeX 环境可用，没有阻塞 P2 主链路的待办。下一阶段按 P3 接入有预算的对拍、反例复现与显式入库，再推进双向交互和分组计分；不省略 P4/P5 范围。
+## 本轮 P3 实际验证
+
+- **环境：**主目录登录成功，可读取原 P2 验收报告及样例修复 Build cmuo5c4im0002ktt0sxp20h3f 的 34,725 字节 PDF，哈希与原 Artifact 一致。迁移/文件证据 .local/p3-migration/proof.json；旧 P2 证据完整备份到 .local/p3-migration/p2-evidence。服务及沙箱仍仅使用本项目的 5180/3100、15432/16379、15050/15051，没有 push 或公网发布。
+- **类型与轻量检查：**按功能块实际运行受影响 contracts / database / judge-core / judge-adapter / api / web / judge-worker 的类型检查并通过；后续交互归因和 UI 修改后重查相关包。pnpm test:quick p3 的两个固定场景通过（整数计分、DAG、CE 不命中分数预期、真实判错与清理/超限归因）；pnpm test:quick judge 的三个 P2 逻辑/ZIP 场景也通过。未将真实服务或新套件加入默认测试。
+- **pnpm verify:p3:stress：**真实找到 WA，输入字节/哈希一致地复现同判定，显式生成 TestCaseRevision；重复、CAS 冲突、未登录下载、依赖过期入库拒绝通过。取消前已产生的反例和 CANCELED Invocation 保留，后续任务可执行。附加多解 SPJ 的两份不同合法输出被指定 Checker 接受；1000 ms 总预算任务明确预算耗尽且不产生假反例。证据 .local/verify-p3-stress.json。
+- **pnpm verify:p3:interaction：**真实双向 AC、答错后仍等待的选手得到 WA 并被清理、未 flush 空闲 TLE、双方运行中取消和后续任务执行通过。选手脚本实际断言隐藏输入/答案/Interactor 输出文件不存在；私有记录最多 1024 个原始字节、有连续 seq 与 TRUNCATED，未授权下载 401。Interactor 输出交 Checker 实际判错。补充了关闭 stdout 后继续 400 ms 才退出的 Interactor，证明 EOF 不被误当完成。证据 .local/verify-p3-interaction.json。
+- **pnpm verify:p3:groups：**20/30/50 组配置实测主标程 100 分、加权半过且后续组被阻断为 35 分、首组失败后传递阻断为 0 分。循环依赖返回 422，组级额外 Validator 仅对指定组执行，改为大数据组时真实 REJECT / INVALID_INPUT，修改组配置使旧报告过期，恢复后新报告当前有效。证据 .local/verify-p3-groups.json。
+- **浏览器：**普通出题人实际将中间组权重保存为 2/2（组配置 v4）、提交验收并看到 100/35/0 和原始/依赖后分数，刷新后权重/版本保留。对拍配置 v5 从浏览器保存、启动、找到 WA、下载 6 字节私有输入、显式入库为 #2、复现保存输入并刷新；下载哈希与新正式数据版本一致。实际点击交互 WA 单元查看沙箱 Signalled/exit=9 与最终 WA 的分离诊断，并下载授权通信记录；下载内容与 API 持久文件一致。证据 .local/verify-p3-browser.json、p3-groups-browser.png、p3-stress-browser.png、p3-interaction-browser.png。
+
+浏览器收尾另将交互空闲时限保存为 1200 ms（判题配置 v5），新任务 cmuo80bq40002ktmouzs3jdfv 成功，AC/WA 均符合预期且报告当前有效；两次 Interactor 作者子进程退出码为 0，清理状态未误记为工具失败。最终任务清单没有未结束的 Judge 任务。Git 差异空白检查通过，.env 与所有 .local 证据均确认被忽略。
+
+真实失败、取消和历史快照均保留，没有为获得绿色结果而删除数据或伪造任务状态。本轮对拍/交互取消的测量约为半秒级，仅描述本机这些次运行，不作为性能承诺。
+
+## 下一对话交接（2026-09-30，进入 P4）
+
+- 继续使用 D:\project\ProblemForge，当前分支 master，基线提交仍为 550f0c8；本轮 P3 修改尚未提交。不要新建工作树，不 push、不发布公网。
+- 前端使用 http://localhost:5180（匹配 APP_ORIGIN），API 为 127.0.0.1:3100。API/TeX/Judge 在主目录以 tsx watch 运行，Vite 也来自主目录；父进程记录在 .local/p3-services.json，下一次仍需重新核对存活进程，不能直接复用工具会话 ID。勿启动另一套 Worker 消费同一队列。
+- 本地 .env 已与 problemforge_f054 / Redis DB 1 / .local/p3-storage 配套；.local/bootstrap-admin.txt 和 verify-p2-fixture.json 也与该数据库匹配。迁移前的主目录配置与管理员凭据在 .local/p3-migration 备份，原 storage 和 f054 运行数据保留。所有凭据/产物/验证 JSON/截图都在忽略范围，不写入提交。
+- 浏览器可接续的分组题 cmuo79h820001ktxk0d4tdqwk，浏览器验收 cmuo7efu90004ktvogtu8xykw；对拍题 cmuo6n6bm0001ktwczlul56vo，浏览器反例 cmuo7jgsp001wkt8wzkvqfwl9、复现 cmuo7kgib0024kt8w2f02bn53；交互题 cmuo7pgja0001ktsk76q6yqcg，最新浏览器验收 cmuo80bq40002ktmouzs3jdfv。各完整报告固定自己的快照；后来编辑过的示范题可能有历史过期任务，按界面标记判断。
+- 按 PLAN 的 P4 开始题目组织/协作权限、不可变修订与审核，再推进比赛冻结、第二套模板、整场资料与包导出；不要把模板三页预览当成已实现多题比赛。P3 的配置修订只是各功能独立版本，不代替 P4 的整题修订清单/审核。
+
+## 未实现、未验证及阻塞（P3 收尾历史记录）
+
+P4 修订审核/协作/比赛冻结/整场资料/题目包/每类第二套模板；P5 正式 Linux 应用镜像、完整 Compose、CI、SSE、缓存/配额/审计强化、失联恢复、生产部署和备份恢复仍未完成。已有数据库任务、补投、有限配额和取消不代表 P5 已完成。
+
+本轮没有重跑全套 P0/P1/P2/TeX/E2E、全部语言×交互×计分×Checker 组合、压力/模糊测试、完整资源超限与故障注入、生产构建/部署或备份恢复。Interactor/可信中继的故障归因有纯逻辑检查，未全面实测所有信号、内存/输出/墙钟极限与网络中断时机。对拍不确定性警告已实现，未系统覆盖任意非确定性程序。交互与分组部分分的组合已接入同一执行/评分链，但本轮代表交互题为 ACM，代表部分分题为批处理，不宣称所有组合已验证。
+
+当前没有阻塞 P3 主链路的环境问题；P3.0—P3.4 的完成条件已具备，后续进入 P4。
+
+## 本轮 P4 实现（2026-10-01）
+
+- **P4.0：**题目标签/负责人/备注/归档/检索/复制；用户组及题目/比赛直接或组授权，保留直接 OWNER。TRANSLATOR 限定语言，允许相应稿件和本题共享图片，不能读写程序、测试、整题修订或包。聚合 ProblemRevision 固定各功能具体版本、清单/审核/Judge 哈希；CAS、差异、版本评论和解决状态、提交/要求修改/批准/冻结。恢复追加新内容/程序/数据版本和新 DRAFT 修订，保留旧冻结与历史。纯模板绑定改变可以沿用审核，内容或判题依赖改变使审核过期。
+- **P4.1：**独立 Contest 成员、比赛信息/语言/题号/顺序/讲解顺序、三类模板与已冻结题目选择、完整性检查。冻结核对固定题目及成功验收，保存完整 ContestRevision；源题继续编辑不会漂移既有比赛版本。比赛权限不授予源题编辑或直接访问权。
+- **P4.2：**每类新增第二套管理员样式，现有样式也增加多题入口。六类单题/整场出版沿用三种独立内容，整场由统一源码生成，资源/样例/局部引用按题命名空间隔离；保留 Beamer 原比赛题号和独立讲解顺序。缺稿先返回题号和类型，显式子集才跳过；两类题解独立子任务允许 PARTIAL_FAILED。单材料 PDF/用途包分别发布与撤回，发布事务核对当前选择，拒绝过期或带判题语义阻塞项的包。
+- **P4.3：**新增 problem-format Exporter 包和原生 v1；六种用途从空清单白名单挑选，原生 FULL 可导入新私有题，保留字节与版本引用，不继承成员/审批/发布/验收，模板仅引用。跨实例缺模板保持未绑定并提示重选，profile 不匹配需显式映射。Polygon problem.xml 子集的内容/程序/测试/生成计划/工具/组与兼容报告，原包隔离、未知语义阻塞、有界 ZIP/XML/资源校验。导入检查和原包持久化，刷新可重开，确认同一报告幂等创建题目。详情见 PACKAGES.md。
+- **P4.4：**题目组织/修订/协作、比赛编排/构建/PDF、用途包与离线导入页面；用户组管理入口。新增四个显式真实验证脚本和独立 contest 快查范围，默认 test/test:quick 固定清单保持不变。README、架构、模板、包协议与阶段计划同步更新。
+
+新增迁移 `20261001010000_collaboration` 已部署。迁移前确认没有正在执行的任务，停止已确认属于主目录的 API/两个 Worker 后生成 Prisma 并重启，避免 Windows DLL 占用；没有重置数据库、覆盖旧配置或创建工作树。依赖锁新增 problem-format、固定 yazl/saxes；旧迁移 SQL 和上游样式原文件不被重新格式化。
+
+## 本轮 P4 实际验证
+
+- **类型/快查：**contracts、database、domain、template-engine、problem-format、api、web、tex-worker 按修改范围检查通过；每块必要修正后仅重查相关包。`pnpm test:quick template` 四项通过；`pnpm test:quick contest` 检查多题同名 label/ref、图片和样例路径隔离、讲解次序和原题号、实际时间/内存插槽，并保留 verbatim 字面代码，通过。默认范围未扩大，未隐式运行全仓/E2E/真实沙箱。
+- **协作脚本 `verify:p4:collaboration`：**实际复制验证题、语言 TRANSLATOR 对应语言读写和越权拒绝、用户组 REVIEWER 审批、版本评论/解决、审核冻结、草稿修改使审核过期但旧清单不漂移、CAS 409、回滚新版本和原冻结保留、撤销组成员后 404。复制后及回滚后真实 Judge 验收通过。证据 `.local/verify-p4-collaboration.json`。
+- **六套模板：**每套实际 Linux XeLaTeX 验证、所有页渲染检查后由 ADMIN 发布。初次简洁题面缺 fancyhdr 的真实失败得到修复；逐页复查还修复了页首裁切及重复题号。新草稿单独发布，旧版本不变。证据 `.local/p4-templates/validation.json`、该目录 PDF 与 qa/contact 图片。
+- **比赛脚本 `verify:p4:contest`：**分组求和、交互翻倍、文件 I/O 求和三道不同样例分别真实 Judge 通过后审阅冻结；生成统一源码题册、书面题解集和 Beamer。源题修改不漂移；讲解按 C/B/A 排序而题号不改。题面匿名 PDF 下载成功，题解仍私有，撤回后 404。故意制造合法内容策略但不能编译的 Beamer 源码，验证书面题解成功/Beamer 失败的 PARTIAL_FAILED；修复并重新冻结后各类型独立成功。旧选择的正式发布 409。证据 `.local/verify-p4-contest.json`，三份最终 PDF 在 `.local/p4-contest`，4 页题册、4 页书面题解、11 页 Beamer 全部逐页检查。
+- **题包脚本 `verify:p4:packages`：**原生 FULL 源码/正文/字节哈希/组配置往返一致，导入无旧审批或成功验收，同一检查幂等；新题实际 Linux 验收通过。题面、两种题解、数据、参考解用途逐项隔离，DATA 从冻结验收取得固定答案；比赛包逐题 ZIP；题面包独立匿名下载/撤回，完整包私有。自建 Polygon ZIP 真正解析导入，程序验收与 Validator 接受/拒绝自测通过，生成计划 argv/末尾整数种子及组依赖对应，外部样式留隔离。导出 XML 可解析，未知评分策略阻塞确认，DTD/外部实体与 ZIP 路径穿越 422。证据 `.local/verify-p4-packages.json` 及 `.local/p4-packages`。
+- **边界脚本 `verify:p4:boundaries`：**停用某题 Beamer 后先明确返回缺稿且不产生子任务，显式只选 B 题真实编译成功并保留题号；比赛 VIEWER 不能写比赛或直接访问源题，撤销后旧包与 Build 下载/读取 404。纯模板变更保持相同 Judge 哈希/run，产生带 CARRY_APPROVAL 的新修订。原生 NUL/非法 UTF-8/CRLF/尾空格字节哈希保持，导入后实际下载逐字节一致；缺失跨实例模板明确警告并保持未绑定。证据 `.local/verify-p4-boundaries.json`。收尾定向复核 Polygon 的两类题解单独作为附件、XML 仅列题面，带绑定样例的题面用途包输入/答案哈希一致且无题解和程序泄漏，证据 `.local/verify-p4-final-packages.json`；未重复真实 Judge 或全量验收。
+- **浏览器：**普通作者真实保存比赛场次并刷新、冻结 #4、从页面发起题册及双题解任务并看到三份 SUCCEEDED、PDF.js 翻至 C/B/A 讲解目录。实际保存标签备注、建立修订 #3、评论并解决、提交/批准/冻结；生成题面用途包并实际下载；上传完整原生 ZIP、检查报告、明确确认创建新题，刷新后源码/数据与 DRAFT 状态保留，没有旧成功验收。历史导入检查可重开且原包只允许请求者访问。修复浏览器发现的 reactive 数据不能 structuredClone 问题。证据 `.local/verify-p4-browser.json`、p4-contest-browser.png、p4-collaboration-browser.png、p4-package-browser.png、p4-import-browser.png。
+
+最终核对七个迁移 SQL 的 SHA-256 与数据库一致，所有 Build/TestRun 均无排队或运行任务；API/Vite/TeX/Judge 实际命令行均加载主目录源码，证据 `.local/p4-final-state.json`。修改仍未提交，没有 push 或公网发布。验证账户、凭据、私有包、PDF 和截图全部在忽略的本地数据中；历史失败和取消记录保留。
+
+## P4 未验证范围与限制
+
+Polygon 测试用的是按已记录字段自行构造的实际离线 ZIP，未下载带认证的外部题包、未向 Polygon 或其他 OJ 上传验证，不能宣称完整兼容。未知字段和不等价判题语义报告/隔离，详见 PACKAGES 的进出方向边界。没有覆盖全部语言×计分×交互×模板/资源组合、任意非标准 XML/压缩实现、模糊或并发压力、完整故障注入，也没有重跑全部 P0—P3、生产构建、生产部署或备份恢复。三个示范 PDF 和六套模板的逐页检查不代表所有作者内容均可排版成功。
+
+P4 的计划主链路没有环境阻塞。生产运行保障、完整配额/缓存/SSE/审计强化/恢复和生产部署仍属 P5；当前已有任务清单/补投/取消不代表 P5 已实现。
+
+## 历史交接（2026-10-01，进入 P5）
+
+- 继续直接在 `D:\project\ProblemForge`；分支 master、基线 `550f0c8`，P3 与 P4 改动均未提交。先读 AGENTS、本文及 PLAN，按完整 P5 范围推进，不新建工作树，不 push，不发布公网，不访问现有 OJ。
+- 前端 `http://localhost:5180`，API `127.0.0.1:3100`；数据库 problemforge_f054、Redis DB 1、私有存储 `.local/p3-storage`，容器端口仍为 15432/16379/15050/15051。主目录父进程记录 `.local/p3-services.json`：API 16724、Judge 78604、TeX 62140；Vite 本次 PID 74548。后续须重新核对存活命令行与队列，不盲用旧 PID 或启动第二组消费者。作者与管理员登录凭据仍分别在 `.local/verify-p2-fixture.json`、`.local/bootstrap-admin.txt`，禁止写进提交。
+- 推荐打开比赛 `cmuoh0dm7006bktjk0bgeq57w`，当前冻结 #4 为 `cmuoi5ay7003uktdocwi3oj0t`，三类成功 Build / Artifact 见 `.local/verify-p4-browser.json`。原脚本记录的 #3 已成为历史清单，这是后续浏览器编辑场次产生的正常版本行为。
+- 协作示例题 `cmuogcz7p0008ktc81l3k3pm2`，浏览器已冻结修订 `cmuoi9oie0002kthw80cw5sh0`；Polygon 导入示例 `cmuoi33z10028ktdok35j34a7` 已真实验收，需显式选择本地题面模板。浏览器新导入题 `cmuoidkui0002kt6cjolfphqy` 故意保留 DRAFT 且尚无新验收，不能当作已冻结题。
+- P4 模板使用每类两套共六套已验证版本，数据表里仍保留旧草稿与失败记录。后续修改内置文件不自动更新已发布模板，必须新建草稿并真实验证。比赛渲染器现为 pf-contest-2，历史 pf-contest-1 产物保留，旧快照不能用新渲染器静默重试。
+- 下一步先盘点现有 Build/TestRun 的租约、幂等、补投和恢复缺口，再实施 P5 的可靠调度/SSE/缓存配额/审计、Linux 应用镜像与完整私网 Compose、备份恢复和一次实际部署迁移验证。继续使用定向检查，默认快查不扩大；生产环境应选本项目隔离目标，不能覆盖当前开发证据或复用其他 OJ。
+
+## 本轮 P5 实现（2026-10-01）
+
+- **P5.0：**Build / TestRun 数据库租约及心跳、原子领取、进度/终态所有权检查，过期记为 WORKER_INTERRUPTED 并保留部分证据。已投递但 Redis 丢失的 QUEUED 记录仍可补投；重复配送不能抢占 RUNNING。单题/比赛/模板构建幂等，前端保留未确认请求键，取消排队任务立即终止；显式重试唯一子项、默认三次尝试上限。
+- **P5.1：**同题编译缓存覆盖源码/profile/工具链/testlib/执行策略，固定对象 PDF 缓存覆盖完整快照和渲染版本。实际字节校验、来源标记、缓存不冒充新执行，私有下载继续检查当前权限。用户行锁序列化任务配额，ManagedStorage 在数据库全局锁下预留容量后写文件；迁移旧文件的离线登记工具核对不可变哈希，保留未完成预留。SSE 有界连接、按当前会话/对象重新鉴权、最新状态重连及断线低频回查。健康检查、Worker 心跳、业务/拒绝/失联审计与管理员界面。
+- **P5.2：**Linux Node 应用镜像内实际生成 Prisma Client、构建 Vue 静态资源，以 Node 运行 API/Worker。完整 Compose 隔离数据库/Redis/两类沙箱和私有卷，API 仅回环端口，应用非 root、只读根目录、无 Docker socket，Linux 沙箱仍为独立特权组件。默认 CI 只按变更及下游依赖选类型/固定快查，范围失败不回退全仓；生产构建是独立手动工作流，不推送镜像。
+- **P5.3—P5.4：**生成独立配置、部署/管理员初始化、清单核对、停止写入的一致备份与不同 project 空实例恢复工具。校验实际镜像 ID、dump/tar 摘要、安全成员路径/类型、SQL 迁移字节及私有文件后才启动恢复实例；不复制 Redis。新增显式 P5 验证入口及 DEPLOYMENT 说明，README/架构/PLAN 同步；P0—P4 未变化证据继续有效。
+
+第八个迁移 `20261001020000_runtime` 已在开发库部署，也在全新 Linux 生产实例从零应用；旧迁移 SQL 未改写。停止已确认的主目录 API/两个 Worker 后生成 Windows Prisma，再以主目录源码重启；未建立工作树或重置旧库。升级时登记开发私有文件 509 个、2,643,431 字节，后续新增文件由 ManagedStorage 计量。
+
+## 本轮 P5 实际验证
+
+- **类型/构建与范围选择：**按功能块检查 contracts、database、domain、api、web、judge-worker、tex-worker 并通过；后续 TeX 中断分类及缓存文案修正后重查 tex-worker/web。`pnpm install --offline --frozen-lockfile` 成功。Linux 镜像实际 `pnpm install --frozen-lockfile`、Prisma 生成和 Vue 类型检查/Vite 生产构建成功，实际 Node 22.23.3。存在前端 3.42 MB 主块的体积提示，没有包装为无警告构建。CI 选择器验证文档空范围、仅 TeX Worker、共享 contracts 下游和删除脚本路径；空范围明确未执行，默认快查未扩大。没有重跑全套 P0—P4 或默认全范围测试。
+- **`verify:p5:runtime`：**真实并发幂等、首编 PDF 与后续同字节缓存、Python 编译缓存及源码修改后实际重编；新增 C++ 正确解首次实际编译，第二次缓存二进制参与完整验收并全部 AC（run `cmuowm2md00a2ktqwf8wqcap7`）。SSE 连接有状态事件，授权撤销后收到关闭事件，缓存 PDF 下载转为 404；普通用户运行管理 403。并发提交配额与同时预留存储字节只有合法数量成功。非空 queuedAt 的缺失 Redis 记录补投成功；注入过期租约后失败，重复领取/旧 token 续租/旧终态提交均拒绝；并发重试同一子任务、重试链达到上限拒绝。证据 `.local/verify-p5-runtime.json`、`.local/p5-final-state.json`。
+- **独立生产部署：**`problemforge-p5` 从空卷部署，八个迁移、Linux API/两个 Worker 与健康检查通过。修复了首次部署的 Worker 健康脚本包路径、Compose tmpfs 参数和内部网络端口映射；API 加入独立入口网络，其他服务保持 internal 且无宿主机端口。实际应用镜像 ID `sha256:bb5a8f046fe5f7af4b7d41db3553a6009a4d1ee7f3c6056322f71de0509c3449`。凭据与开发环境分开，没有访问其他项目或 OJ。
+- **`verify:p5:deployment`：**三套第二样式在新实例真实验证，全部样稿页预览后发布。P4 的分组求和/交互翻倍/文件 I/O 三题原生 FULL 包导入新私有题，显式重绑模板，重新执行三次真实 Linux 验收、审核冻结和比赛冻结。实际生成 4 页题册、4 页书面题解、11 页 Beamer，逐页渲染检查；讲解 C/B/A 而题号不变。题面匿名下载、题解私有 401、撤回后 404。证据 `.local/verify-p5-deployment.json`、`.local/p5-deployment` PDF 及 qa 图片。
+- **真实故障恢复：**对专用生产实例在生成器执行后实际 `SIGKILL` Judge Worker。旧任务 `cmuoxa11r006do707btfxszm9` 最后心跳 02:36:07.183 UTC、02:36:54.282 UTC 记为 FAILED / WORKER_INTERRUPTED，8 条已有 Invocation 保留，readiness 返回 503。重启后显式重试 `cmuoxb6d9006lo707t6ipl2qw` 完成全部 30 轮。随后停止该 Worker，提交 COMPILE，再真实删除对应 Redis job；API 补投后重启 Worker，任务 `cmuoxdtay006vo7079bqfo0h2` 成功。修正验收子进程继承开发 `.env` 的问题后从已完成中断阶段接续队列演练，没有伪造或删除历史任务。证据 `.local/verify-p5-recovery.json`、`.local/p5-deployment/crash-checkpoint.json`。
+- **执行隔离：**在生产 toolbox 分别实际调用两类沙箱，作者 uid 20000/21000，业务文件不可见、工具链只读、执行网络隔离、CPU 超限终止，不可用端口明确 InfrastructureError。Docker inspect 确认 API/Worker uid/gid 10001、只读根、ALL capability drop、非 privileged、仅私有 `/data` 挂载；沙箱无业务卷/端口映射，后端网络 internal。证据 `.local/verify-p5-isolation.json`。
+- **备份/恢复：**浏览器在停止的 Judge Worker 下提交真实排队任务 `cmuoxfjux006zo707dq59f974`。备份 `.local/backups/p5-proof` 包含 2 用户、8 题（含保留的演练准备记录）、1 比赛、6 Build、10 TestRun、6 Artifact、81 个登记文件共 2,494,083 字节及八个迁移。恢复到全新 `problemforge-p5-restore` / 独立卷，先逐项确认数据库计数、迁移与文件清单哈希相同，再健康启动；修正独立 storage-init 一次性容器被 `--wait` 误判的问题，未覆盖源库。恢复后的原账号可登录，冻结比赛和三份 PDF 原哈希/三次成功验收保留，备份内排队任务由空 Redis 自动补投成功，新建 PDF 缓存任务也成功。恢复后离线登记最新源码工具成功核对 82 个对象、2,540,559 字节，随后全部服务健康启动。证据 `.local/verify-p5-restore.json`、备份 manifest/state。
+- **浏览器：**从生产静态入口登录管理员，查看健康/配额、筛选真实 TASK_LEASE_EXPIRED 审计；在题目工作区点击编译，任务中心显示 QUEUED 与“实时连接”。备份重启原 API/Worker 后未点击刷新，页面自动重连并显示 SUCCEEDED。编译日志明确“已复用编译缓存 · 本次未重新编译”，没有不存在的 stdout/stderr 下载；刷新页面后成功任务仍在。证据 `.local/verify-p5-browser.json`、`p5-operations-browser.png`、`p5-tasks-browser.png`、`p5-cache-browser.png`。
+- **取消时序收尾修正：**取消到达续租前不再被误认为 LEASE_LOST；Judge 提交终态时读到取消也明确按 USER_CANCEL 归因。domain / api / 两个 Worker 重新定向类型检查通过，确定性取消/续租时序注入保留原持有者且拒绝错误 token。新版生产镜像中实际运行对拍后取消，得到 CANCELED、无错误码、保留已有执行证据；后续编译成功。证据 `.local/verify-p5-cancel.json`，小型时序回归已保留在显式 runtime 验证脚本。当前 5181 镜像 ID 为 `sha256:38fa5cb6fbb6aa860cdb8fd85312af0a1e05e38f41c8fa590f066afecb86addd`；上述备份原镜像另标 `problemforge-app:p5-backup-20261001` 并保留，5182 恢复实例继续固定该原镜像，未伪称重新做过第二次恢复。
+
+收尾核对开发库八个迁移 SHA-256 与本地 SQL 一致，Build/TestRun 无排队或运行任务；四个开发进程命令行仍指向主目录。所有凭据、私有数据、PDF、截图和备份都在 Git 忽略目录；P5 验证收尾时 P3—P5 改动尚未提交，随后按用户新增要求补交，见文末。没有 push 或公网发布。
+
+## P5 未验证范围与运行限制
+
+已完成的是 Docker Desktop Linux 引擎中的单机生产镜像/私网部署演练。未在另一台原生 Linux 主机、域名 HTTPS/反向代理、公开网络、集群/多 API 副本、网络分区、数据库断电、磁盘损坏或并发压力下全面验证；没有覆盖所有租约故障时刻/资源上限组合。SSE 返回最新数据库状态，不提供独立历史事件日志；连接配额按单 API 进程计数。备份有短暂业务停机，未内置加密、异地上传或自动排程；必须保管原镜像 ID 与配置。崩溃文件预留保守占容量，不自动删历史或释放无文件记录。生产镜像体积和前端拆包仍有优化空间。GitHub 工作流没有在远端运行（本轮不 push）。这些边界不冒充已测试的高可用交付。
+
+P4 的外部 Polygon 兼容、全部语言/模板/交互/评分组合和完整模糊/压力边界仍仅按原记录，不因本轮部署自动变成已验证。P0—P5 计划主链路没有环境阻塞。
+
+## 当前运行交接（2026-10-01，P0—P5 完成）
+
+- 继续在 `D:\project\ProblemForge`，分支 master，不新建工作树，不推送。P3—P5 补交前的实际 HEAD 为 `cc1e309`（P3 计划与交接），其父提交 `550f0c8` 为 P2 功能基线；历史交接中的“基线”指后者，当前提交以 `git log` 为准。先核对当前服务/队列，不启动重复消费者。后续按具体用户反馈、维护或部署目标处理，既定 P0—P5 已满足阶段交付条件。
+- 开发入口 `http://localhost:5180`，API `127.0.0.1:3100`，原 problemforge_f054 / Redis DB 1 / `.local/p3-storage`；主目录父进程 `.local/p5-services.json`：API 72472、Judge 31912、TeX 15392，Vite 74548。下一次重新核实存活命令行，不盲用 PID。原开发凭据继续在 bootstrap-admin.txt / verify-p2-fixture.json。
+- 生产演练入口 `http://localhost:5181`，Compose project `problemforge-p5`，配置 `.local/p5-prod.env`；恢复入口 `http://localhost:5182`，project `problemforge-p5-restore`，配置 `.local/p5-restore.env`。两套都使用本项目独立卷/私网，当前保留运行；恢复实例账号密码沿用原数据库，不是 restore.env 随机初始化密码。演练作者凭据在 `.local/p5-deployment/author.json`。
+- 部署示范比赛 `cmuowvtou007unq07ome47k89`，固定修订 `cmuowvtpo007ynq071eywug0z`；三题/成功运行/三份 PDF 见 `.local/verify-p5-deployment.json`。备份及原镜像 ID 保存在 `.local/backups/p5-proof/manifest.json`，恢复验证见 verify-p5-restore.json。不要清理这些卷或覆盖配置来复跑演练；新演练使用新的 project/备份目录。
+- 操作流程见 [DEPLOYMENT.md](DEPLOYMENT.md)。故障脚本可用 `--resume-queue` 从成功的 crash-checkpoint 接续队列阶段；只对指定演练 project 使用。真实检查仍是显式入口，默认 test/test:quick 不扩大。
+
+## 阶段提交规则与补交（2026-10-01）
+
+用户要求每个阶段完成后先提交，再推进下一阶段。已同步到 AGENTS 与 PLAN：完成阶段实现、必要定向检查及交接记录后，创建本地 Git 提交，成功后才继续；不 push。
+
+此前 P3—P5 的代码已经在共享文件中连续演进，尚无独立阶段提交；本次将已验证的完整成果补为一次 `feat: complete P3-P5 authoring and deployment` 提交。各阶段的实现、真实验证与未验证范围仍按上文保留，不将本次整理记为重新执行全部验收。既定 P0—P5 已完成，没有新增 P6 范围。本次仅修改规则和交接文档，复用已记录的功能检查，不重启服务、不改动数据库或私有运行数据。
+
+提交前核对 168 个暂存文件，未纳入私有目录或本地凭据；8 个迁移及 58 个内置模板文件的暂存字节与工作区逐一相同。两份已部署迁移保留原始 CRLF，Git 迁移属性显式接受 CRLF/空白文件尾，不修改 SQL 字节或部署校验和。

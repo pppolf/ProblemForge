@@ -1,5 +1,7 @@
 import { Type, type Static } from '@sinclair/typebox';
 export * from './judge.ts';
+export * from './collaboration.ts';
+export * from './manifest.ts';
 
 export const kinds = ['STATEMENT', 'EDITORIAL_DOCUMENT', 'EDITORIAL_BEAMER'] as const;
 export type DocumentKind = typeof kinds[number];
@@ -33,7 +35,7 @@ export const TemplateDraftInput = Type.Object({
   files: Type.Record(Type.String({ maxLength: 160 }), Type.String({ maxLength: 2_000_000 }), { maxProperties: 40 }),
   styleConfig: Type.Optional(TemplateStyle),
 }, strict);
-export const BuildInput = Type.Object({ documentId: Type.String({ maxLength: 80 }) }, strict);
+export const BuildInput = Type.Object({ documentId: Type.String({ maxLength: 80 }), requestKey: Type.Optional(Type.String({minLength:8,maxLength:100})) }, strict);
 export const ReasonInput = Type.Object({ reason: Type.String({ minLength: 1, maxLength: 1000 }) }, strict);
 export const PublishInput = Type.Object({ buildId: Type.String({ maxLength: 80 }) }, strict);
 export const UserInput = Type.Object({
