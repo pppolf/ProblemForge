@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useRoute, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router';
 import { NButton, NTabs, NTab, NSelect, NInput, NSwitch, NTag, NAlert, NEmpty, NSpin, useMessage, useDialog } from 'naive-ui';
 import { kindLabels, type DocumentKind } from '@problemforge/contracts';
@@ -7,13 +7,16 @@ import { useTaskEvents } from '../task-events';
 import { api, type Draft, type Build } from '../api';
 import SourceEditor from '../components/SourceEditor.vue';
 import PdfPreview from '../components/PdfPreview.vue';
-import JudgeWorkspace from '../components/JudgeWorkspace.vue';
-import ProblemManagement from '../components/ProblemManagement.vue';
+import DeferredPanel from '../components/DeferredPanel.vue';
+const loadJudge = () => import('../components/JudgeWorkspace.vue');
+const loadManagement = () => import('../components/ProblemManagement.vue');
 const route = useRoute(); const message = useMessage(); const dialog = useDialog();
 const problem = ref<any>(); const drafts = ref<Draft[]>([]); const templates = ref<any[]>([]); const builds = ref<Build[]>([]); const publications = ref<any[]>([]);
 const kind = ref<DocumentKind>('STATEMENT'); const rightTab = ref('preview'); const selectedBuildId = ref(''); const building = ref(false);
 const language = ref('zh-CN'); const newLanguage = ref(''); const addingLanguage = ref(false);
 const section = ref('documents'); const judgeDirty = ref(false);const managementDirty=ref(false);
+const visited = ref(new Set(['documents']));
+watch(section, value => { visited.value.add(value); });
 const sampleTests = ref<any[]>([]);
 const fixedSamples = ref<any[]>([]);
 const sampleOptions = computed(() => {
@@ -47,7 +50,7 @@ const unsaved = computed(() => drafts.value.some(d => d.dirty) || judgeDirty.val
 
 async function refreshResults() { try { builds.value = await api(`/builds?problemId=${route.params.id}`); publications.value = await api(`/problems/${route.params.id}/publications`); } catch (e) { message.error((e as Error).message); } }
 async function load() { try { problem.value = await api(`/problems/${route.params.id}`); drafts.value = problem.value.documents.map((d: Draft) => ({ ...d, dirty: false, saving: false })); language.value = drafts.value.some(d => d.language === 'zh-CN') ? 'zh-CN' : drafts.value[0]?.language ?? 'zh-CN'; templates.value = await api('/templates'); assets.value = await api(`/problems/${route.params.id}/assets`); await refreshResults(); } catch (e) { message.error((e as Error).message); } }
-onMounted(async () => { await load(); await refreshSamples(); window.addEventListener('beforeunload', beforeUnload); });
+onMounted(async () => { window.addEventListener('beforeunload', beforeUnload); await load(); await refreshSamples(); });
 onBeforeUnmount(() => {  window.removeEventListener('beforeunload', beforeUnload); });
 useTaskEvents(refreshResults,{problemId:String(route.params.id)});
 function beforeUnload(event: BeforeUnloadEvent) { if (unsaved.value) { event.preventDefault(); event.returnValue = ''; } }
@@ -89,7 +92,7 @@ function insertAsset(path: string) { if (!current.value) return; current.value.c
 <template>
   <NSpin :show="!problem"><template v-if="problem"><div class="workspace-heading"><div><div class="breadcrumb"><RouterLink to="/problems">题目</RouterLink> / 工作区</div><h1>{{ problem.title }}</h1></div><div class="toolbar-left"><NSelect v-model:value="language" :options="languages" style="width: 130px" @update:value="selectedBuildId = ''"/><NTag :bordered="false">{{ problem.role }} · 默认私有</NTag></div></div>
   <NTabs v-model:value="section" type="segment" class="workspace-sections"><NTab name="documents">题面与双题解出版</NTab><NTab v-if="problem.role!=='TRANSLATOR'" name="judge">程序、数据与验收</NTab><NTab v-if="problem.role!=='TRANSLATOR'" name="manage">组织、修订与协作</NTab></NTabs>
-  <ProblemManagement v-if="problem.role!=='TRANSLATOR'" v-show="section==='manage'" :problem="problem" :has-unsaved="unsaved" @dirty="v=>managementDirty=v" @metadata="v=>Object.assign(problem,v)" @restored="load();refreshSamples()"/><JudgeWorkspace v-if="problem.role!=='TRANSLATOR'" :problem-id="problem.id" :writable="writable" v-show="section === 'judge'" @dirty="v => judgeDirty = v" @data-changed="refreshSamples"/>
+  <DeferredPanel v-if="problem.role!=='TRANSLATOR' && visited.has('manage')" v-show="section==='manage'" :load="loadManagement" label="组织、修订与协作" :problem="problem" :has-unsaved="unsaved" @dirty="(v: boolean)=>managementDirty=v" @metadata="(v: Record<string, unknown>)=>Object.assign(problem,v)" @restored="load();refreshSamples()"/><DeferredPanel v-if="problem.role!=='TRANSLATOR' && visited.has('judge')" :load="loadJudge" label="程序、数据与验收" :problem-id="problem.id" :writable="writable" v-show="section === 'judge'" @dirty="(v: boolean) => judgeDirty = v" @data-changed="refreshSamples"/>
   <div v-show="section === 'documents'">
   <div class="workspace-extra"><NButton size="small" @click="showAssets = !showAssets">图片资源 · {{ assets.length }}</NButton><template v-if="writable"><NInput v-model:value="newLanguage" placeholder="语言代码，如 en" size="small" style="width: 150px"/><NButton size="small" :loading="addingLanguage" :disabled="!newLanguage" @click="addLanguage">添加语言</NButton></template></div><section v-if="showAssets" class="panel asset-panel"><div class="panel-toolbar"><span>私有 PNG / JPEG · 引用路径固定，构建按哈希保存资源清单</span><NButton v-if="writable" size="small" :loading="uploading" @click="uploadInput?.click()">上传图片</NButton><input ref="uploadInput" type="file" accept="image/png,image/jpeg" hidden @change="uploadAsset"/></div><div v-for="a in assets" :key="a.id" class="asset-row"><img :src="`/api/assets/${a.id}/file`" :alt="a.name"/><div><strong>{{ a.name }}</strong><code>{{ a.path }}</code><small>{{ a.bytes }} bytes</small></div><NButton v-if="writable" size="small" @click="insertAsset(a.path)">插入当前稿件</NButton></div><p v-if="!assets.length" class="muted">尚无图片资源；上传后可以插入正文。</p></section><div class="panel workspace"><NTabs v-model:value="kind" type="line" @update:value="selectedBuildId = ''"><NTab v-for="d in drafts.filter(d => d.language === language)" :key="d.id" :name="d.kind">{{ kindLabels[d.kind] }} <span v-if="d.dirty" class="dirty-dot">●</span></NTab></NTabs>
     <template v-if="current"><div class="document-toolbar"><div class="toolbar-left"><NSelect v-model:value="current.templateVersionId" :options="templateOptions" :disabled="!writable" placeholder="选择管理员已发布模板" style="min-width: 250px; width: 310px" @update:value="dirty"/><NSwitch v-model:value="current.enabled" :disabled="!writable" @update:value="dirty"/><span>{{ current.enabled ? '已启用' : '已停用，稿件保留' }}</span></div><div class="toolbar-right"><span class="save-state">{{ current.saving ? '保存中…' : current.dirty ? '未保存' : `已保存 v${current.version}` }}</span><NButton :disabled="!documentWritable" :loading="current.saving" @click="save">保存</NButton><NButton type="primary" :disabled="!documentWritable || !current.enabled" :loading="building" @click="build">构建 PDF</NButton></div></div>

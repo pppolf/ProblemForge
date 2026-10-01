@@ -2,12 +2,14 @@
 import { NConfigProvider, NMessageProvider, NDialogProvider, NButton, NTag, zhCN, dateZhCN } from 'naive-ui';
 import { useRouter } from 'vue-router';
 import { session, api } from './api';
+import NavigationStatus from './components/NavigationStatus.vue';
 const router = useRouter();
 async function logout() { await api('/auth/logout', { method: 'POST' }); session.user = null; session.csrfToken = ''; router.push('/login'); }
 </script>
 <template>
   <NConfigProvider :locale="zhCN" :date-locale="dateZhCN" :theme-overrides="{ common: { primaryColor: '#2563eb', primaryColorHover: '#1d4ed8', primaryColorPressed: '#1e40af', borderRadius: '5px', fontFamily: 'Inter, Segoe UI, Microsoft YaHei, sans-serif' } }">
     <NMessageProvider><NDialogProvider>
+      <NavigationStatus />
       <div v-if="session.user" class="app-shell">
         <aside class="sidebar">
           <RouterLink to="/problems" class="brand"><span class="brand-mark">P</span>{{ session.appName }}</RouterLink>
