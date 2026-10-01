@@ -2,7 +2,7 @@ import { Type } from '@sinclair/typebox';
 import { randomUUID } from 'node:crypto';
 import {
   JudgeSettingsInput, defaultJudgeSettings, ProfileInput, ProfileUpdateInput, ProgramInput, ProgramUpdateInput,
-  TestCaseInput, TestCaseUpdateInput, TestZipInput, GeneratorPlanInput, GeneratorPlanUpdateInput, ToolSelfTestInput, ToolSelfTestUpdateInput, generatorPlanCommands, generatorPlanProgramIds,
+  TestCaseInput, TestCaseUpdateInput, TestCasesDeleteInput, TestZipInput, GeneratorPlanInput, GeneratorPlanUpdateInput, ToolSelfTestInput, ToolSelfTestUpdateInput, generatorPlanCommands, generatorPlanProgramIds,
   type ProgramSave, type GeneratorPlanSave, type ToolSelfTestSave, type JudgeSettingsValue, type TestGroupsValue,
 } from '@problemforge/contracts';
 import { db, Prisma } from '@problemforge/database';
@@ -13,6 +13,7 @@ import { admin, authenticate, storage, type Api } from '../app.ts';
 import { builtinProfiles } from './judge-snapshot.ts';
 import { appendTest, lockProblem, publicTest, rawBytes, saveBlob, touchProblem } from './judge-data.ts';
 import { validateGroups } from './test-groups.ts';
+import { deleteTestCases } from './test-deletion.ts';
 
 const Id = Type.Object({ id: Type.String() });
 async function programInput(problemId: string, data: ProgramSave) {
@@ -35,7 +36,7 @@ async function programInput(problemId: string, data: ProgramSave) {
 }
 async function testView(id: string) {
   const view = await publicTest(id);
-  const duplicates = await db.testCase.findMany({ where: { problemId: view.problemId, id: { not: id }, currentRevision: { inputHash: view.currentRevision.inputHash } }, select: { id: true, number: true } });
+  const duplicates = await db.testCase.findMany({ where: { problemId: view.problemId, deletedAt: null, id: { not: id }, currentRevision: { inputHash: view.currentRevision.inputHash } }, select: { id: true, number: true } });
   return { ...view, duplicates };
 }
 async function checkPlan(problemId: string, data: GeneratorPlanSave) {
@@ -133,8 +134,15 @@ export async function judgeRoutes(app: Api) {
   });
   app.get('/api/problems/:id/tests', { preHandler: authenticate, schema: { params: Id } }, async req => {
     await problemAccess(req.user, req.params.id);
-    const tests = await db.testCase.findMany({ where: { problemId: req.params.id }, select: { id: true }, orderBy: { number: 'asc' } });
-    return Promise.all(tests.map(t => testView(t.id)));
+    const tests = await db.testCase.findMany({ where: { problemId: req.params.id, deletedAt: null }, select: { id: true }, orderBy: { number: 'asc' } });
+    return (await Promise.all(tests.map(t => testView(t.id)))).filter(test => !test.deletedAt);
+  });
+  app.post('/api/problems/:id/tests/delete', { preHandler: authenticate, schema: { params: Id, body: TestCasesDeleteInput } }, async req => {
+    await problemAccess(req.user, req.params.id, true);
+    return db.$transaction(async tx => {
+      await lockProblem(tx, req.params.id);
+      return deleteTestCases(tx, req.params.id, req.body.tests, req.user.id);
+    });
   });
   app.post('/api/problems/:id/tests', { preHandler: authenticate, bodyLimit: 3_000_000, schema: { params: Id, body: TestCaseInput } }, async req => {
     await problemAccess(req.user, req.params.id, true);
@@ -145,7 +153,7 @@ export async function judgeRoutes(app: Api) {
   });
   app.put('/api/tests/:id', { preHandler: authenticate, bodyLimit: 3_000_000, schema: { params: Id, body: TestCaseUpdateInput } }, async req => {
     const t = await db.testCase.findUnique({ where: { id: req.params.id } });
-    if (!t) throw new HttpError(404, '测试数据不存在'); await problemAccess(req.user, t.problemId, true);
+    if (!t || t.deletedAt) throw new HttpError(404, '测试数据不存在或已删除'); await problemAccess(req.user, t.problemId, true);
     const { inputBase64, answerBase64, expectedVersion, ...data } = req.body;
     const input = await saveBlob(t.problemId, rawBytes(inputBase64)), answer = answerBase64 === null ? null : await saveBlob(t.problemId, rawBytes(answerBase64));
     const id = await db.$transaction(async tx => { await lockProblem(tx, t.problemId); return appendTest(tx, t.problemId, data, input, answer, { type: 'MANUAL_OR_UPLOAD' }, { id: t.id, version: expectedVersion }); });
@@ -154,7 +162,7 @@ export async function judgeRoutes(app: Api) {
   app.get('/api/test-revisions/:id', { preHandler: authenticate, schema: { params: Id } }, async req => {
     const revision = await db.testCaseRevision.findUnique({ where: { id: req.params.id }, include: { testCase: true } });
     if (!revision) throw new HttpError(404, '数据版本不存在'); await problemAccess(req.user, revision.testCase.problemId);
-    return { id: revision.id, version: revision.version, configuration: revision.configuration, inputHash: revision.inputHash, answerHash: revision.answerHash, inputBytes: revision.inputBytes, answerBytes: revision.answerBytes, current: revision.testCase.currentRevisionId === revision.id };
+    return { id: revision.id, version: revision.version, configuration: revision.configuration, inputHash: revision.inputHash, answerHash: revision.answerHash, inputBytes: revision.inputBytes, answerBytes: revision.answerBytes, deleted: !!revision.testCase.deletedAt, current: !revision.testCase.deletedAt && revision.testCase.currentRevisionId === revision.id };
   });
   app.get('/api/test-revisions/:id/:file', { preHandler: authenticate, schema: { params: Type.Object({ id: Type.String(), file: Type.Union([Type.Literal('input'), Type.Literal('answer')]) }) } }, async (req, reply) => {
     const revision = await db.testCaseRevision.findUnique({ where: { id: req.params.id }, include: { testCase: true } });

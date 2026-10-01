@@ -36,7 +36,7 @@ export async function counterexampleRoutes(app: Api) {
     const id = await db.$transaction(async tx => {
       await lockProblem(tx, run.problemId);
       if (await currentDependency(run, tx) !== run.dependencyHash) throw new HttpError(409, '反例相关程序或判题配置已改变；请按当前版本重新对拍');
-      const duplicates = await tx.testCase.findMany({ where: { problemId: run.problemId, currentRevision: { inputHash: c.inputHash } }, select: { number: true } });
+      const duplicates = await tx.testCase.findMany({ where: { problemId: run.problemId, deletedAt: null, currentRevision: { inputHash: c.inputHash } }, select: { number: true } });
       if (duplicates.length && !req.body.allowDuplicate) throw new HttpError(409, '输入与正式数据重复，确认后可保留重复数据', 'DUPLICATE_INPUT', duplicates);
       return appendTest(tx, run.problemId, { number: req.body.number, groupName: req.body.groupName, isSample: false, enabled: true, notes: '由对拍反例显式加入' }, { key: c.inputKey, hash: c.inputHash, bytes: c.inputBytes }, { key: c.answerKey!, hash: c.answerHash!, bytes: c.answerBytes! }, { ...c.origin as object, runId: run.id, sourceCaseId: c.id, inputHash: run.inputHash });
     });

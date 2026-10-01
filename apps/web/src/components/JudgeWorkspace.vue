@@ -12,6 +12,7 @@ import GroupPanel from './GroupPanel.vue';
 import ScoreExpectationEditor from './ScoreExpectationEditor.vue';
 import InteractionSettingsPanel from './InteractionSettingsPanel.vue';
 import GeneratorPlanFields from './GeneratorPlanFields.vue';
+import TestDataTable from './TestDataTable.vue';
 import EditorFeedback from './EditorFeedback.vue';
 import { snapshot, mergeSaved, downloadDraft, draftSignature } from '../draft-state';
 import { rememberedChoice } from '../editor-navigation';
@@ -27,6 +28,8 @@ const settings = ref({ ...defaultJudgeSettings }), settingsVersion = ref(1), set
 const programDraft = ref<any>(), programSaved = ref('');
 const modal = ref<'test' | 'plan' | 'selftest' | ''>(''), form = ref<any>({}), formSaved = ref('');
 const zipInput = ref<HTMLInputElement>();
+const pendingTestDelete = ref<{ id: string; expectedVersion: number; number: number }[]>([]);
+const deleteAffectedGroups = computed(() => groupConfig.value.data.groups.filter((group: any) => group.members.some((member: any) => pendingTestDelete.value.some(test => test.id === member.testId))).map((group: any) => group.id));
 const settingsDirty = computed(() => loaded.value && JSON.stringify(settings.value) !== settingsSaved.value);
 const programDirty = computed(() => !!programDraft.value && draftSignature(programDraft.value) !== programSaved.value);
 const formDirty = computed(() => !!modal.value && JSON.stringify(form.value) !== formSaved.value);
@@ -109,6 +112,33 @@ async function editTest(t?: any) {
     modal.value = 'test'; formSaved.value = JSON.stringify(form.value);
   } catch (e) { message.error((e as Error).message); } finally { busy.value = false; }
 }
+function requestTestDeletion(selected: any[]) {
+  if (!props.writable || busy.value) return;
+  pendingTestDelete.value = selected.map(test => ({ id: test.id, expectedVersion: test.version, number: test.number }));
+}
+async function refreshTestData() {
+  busy.value = true;
+  try { await catalog(); await refreshRuns(); emit('dataChanged'); }
+  catch (e) { message.error((e as Error).message); } finally { busy.value = false; }
+}
+async function deleteTests() {
+  if (!props.writable || busy.value || !pendingTestDelete.value.length) return;
+  busy.value = true;
+  let deleted = false;
+  try {
+    const result = await api<{ deletedIds: string[]; affectedGroups: string[] }>(`/problems/${props.problemId}/tests/delete`, {
+      method: 'POST', body: JSON.stringify({ tests: pendingTestDelete.value.map(({ id, expectedVersion }) => ({ id, expectedVersion })) }),
+    });
+    deleted = true; pendingTestDelete.value = [];
+    tests.value = tests.value.filter(test => !result.deletedIds.includes(test.id));
+    emit('dataChanged');
+    message.success(`已删除 ${result.deletedIds.length} 组数据，编号可重新使用`);
+    if (result.affectedGroups.length) message.warning(`请在「数据组与评分」重选成员并保存：${result.affectedGroups.join('、')}`, { duration: 7000 });
+    await catalog(); await refreshRuns();
+  } catch (e) {
+    message.error(deleted ? `删除已完成，刷新失败：${(e as Error).message}。请刷新数据列表。` : (e as Error).message);
+  } finally { busy.value = false; }
+}
 function editPlan(p?: any) {
   form.value = p ? { ...p.data, id: p.id, version: p.version, argvText: JSON.stringify(p.data.argv), mode: p.data.commands ? 'commands' : 'repeat', commandText: p.data.commands ? formatGeneratorCommands(programs.value, p.data.commands, p.programId) : '' }
     : { name: '', programId: generatorOptions.value[0]?.value ?? '', enabled: true, argvText: '[]', seed: '1', count: 1, numberStart: Math.max(0, ...tests.value.map(t => t.number), ...plans.value.filter(plan => plan.enabled).map(plan => plan.data.numberStart + plan.data.count - 1)) + 1, groupName: 'main', isSample: false, mode: 'commands', commandText: '' };
@@ -151,7 +181,8 @@ async function importZip(event: Event) {
 </script>
 <template><NSpin :show="!loaded"><div class="panel judge-workspace"><NTabs v-model:value="tab" type="line"><NTab name="programs">程序</NTab><NTab name="data">测试数据 / 生成计划</NTab><NTab name="selftests">工具自测</NTab><NTab name="acceptance">验收与日志</NTab><NTab name="groups">数据组与评分</NTab><NTab name="stress">对拍与反例</NTab><NTab name="settings">判题配置</NTab></NTabs>
   <div v-if="tab === 'programs'" class="program-layout"><aside class="program-list"><NButton v-if="writable" block @click="selectProgram()">新建程序</NButton><button v-for="p in programs" :key="p.id" class="program-link" :class="{ selected: p.id === programDraft?.id }" @click="selectProgram(p.id)"><strong>{{ p.name }}</strong><small>{{ programRoleLabels[p.role as ProgramRole] }} · v{{ p.version }} · {{ p.profile.name }}{{ p.enabled ? '' : ' · 已停用' }}</small></button><NEmpty v-if="!programs.length" description="尚无程序" class="empty"/></aside><section v-if="programDraft" class="program-editor"><EditorFeedback :dirty="programDirty" :saving="busy" :error="programError" :version="programDraft.version" label="程序" @export="downloadDraft(`program-${programDraft.id ?? 'new'}`,programDraft)"/><div class="document-toolbar"><span class="save-state">{{ programDirty ? '未保存，离开会提醒' : `已保存 v${programDraft.version}` }}</span><div class="toolbar-right"><NButton :disabled="!writable" :loading="busy" @click="saveProgram">保存程序</NButton><NButton type="primary" :disabled="!writable" :loading="busy" @click="submit('COMPILE')">编译当前源码</NButton></div></div><div class="judge-form-grid"><NFormItem label="名称"><NInput v-model:value="programDraft.name" :disabled="!writable"/></NFormItem><NFormItem label="角色"><NSelect v-model:value="programDraft.role" :options="roleOptions" :disabled="!writable" @update:value="roleChanged"/></NFormItem><NFormItem label="管理员编译 profile"><NSelect v-model:value="programDraft.profileId" :options="profiles.map(p => ({ label: `${p.name} · v${p.version}`, value: p.id, disabled: !p.enabled }))" :disabled="!writable"/></NFormItem><NFormItem v-if="solution" label="预期判定"><NSelect v-model:value="programDraft.expectedVerdicts" multiple :options="verdicts.map(v => ({ label: v, value: v }))" :disabled="!writable || ['MAIN_SOLUTION', 'CORRECT_SOLUTION', 'TIME_LIMIT_SOLUTION'].includes(programDraft.role)"/></NFormItem><NFormItem v-if="programDraft.role === 'EXTRA_VALIDATOR'" label="校验适用范围"><NSelect v-model:value="programDraft.validatorScope" :options="[{label:'全部数据',value:'GLOBAL'},{label:'仅指定数据组',value:'GROUPS'}]" :disabled="!writable"/></NFormItem><NFormItem label="备注"><NInput v-model:value="programDraft.notes" :disabled="!writable"/></NFormItem><NFormItem label="任务选择"><NCheckbox v-model:checked="programDraft.enabled" :disabled="!writable">启用此程序</NCheckbox></NFormItem></div><ScoreExpectationEditor v-if="solution && !['MAIN_SOLUTION', 'CORRECT_SOLUTION'].includes(programDraft.role)" v-model="programDraft.expectedScore" :groups="groupConfig.data.groups.map((g: any) => g.id)" :disabled="!writable"/><SourceEditor :key="programDraft.id ?? 'new'" v-model="programDraft.source" :language="editorLanguage" :readonly="!writable"/></section><NEmpty v-else description="选择或新建程序，保存后独立编译" class="empty"/></div>
-  <div v-else-if="tab === 'data'"><div class="panel-toolbar"><span>输入与答案保留原始字节、换行及哈希</span><div class="toolbar-right"><NButton v-if="writable" :loading="busy" @click="zipInput?.click()">导入 ZIP</NButton><input ref="zipInput" type="file" accept=".zip" hidden @change="importZip"/><NButton v-if="writable" type="primary" @click="editTest()">添加数据</NButton></div></div><p class="judge-hint">ZIP 使用 [tests/]编号.in 与 编号.ans；同编号导入冲突会整批拒绝。重复输入会提示并保留。</p><div class="table-scroll"><table class="data-table"><thead><tr><th>编号 / 分组</th><th>输入 / 答案</th><th>版本与重复提醒</th><th>操作</th></tr></thead><tbody><tr v-for="t in tests" :key="t.id"><td>#{{ t.number }} · {{ t.groupName }}<small>{{ t.isSample ? '题面样例' : '私有测试' }}{{ t.enabled ? '' : ' · 已停用' }}</small></td><td><a :href="`/api/test-revisions/${t.currentRevision.id}/input`">输入 · {{ t.currentRevision.inputBytes }} bytes</a><small><a v-if="t.currentRevision.answerHash" :href="`/api/test-revisions/${t.currentRevision.id}/answer`">答案 · {{ t.currentRevision.answerBytes }} bytes</a><span v-else>尚无答案，运行主标程后显式收集</span></small></td><td>v{{ t.version }} · {{ t.currentRevision.inputHash.slice(0, 12) }}<small v-if="t.duplicates.length" class="duplicate-warning">重复：{{ t.duplicates.map((d: any) => `#${d.number}`).join('、') }}</small></td><td><NButton v-if="writable" size="small" @click="editTest(t)">编辑</NButton></td></tr></tbody></table></div><NEmpty v-if="!tests.length" description="尚无正式数据" class="empty"/>
+  <div v-else-if="tab === 'data'"><div class="panel-toolbar"><span>输入与答案保留原始字节、换行及哈希</span><div class="toolbar-right"><NButton v-if="writable" :disabled="busy" @click="zipInput?.click()">导入 ZIP</NButton><input ref="zipInput" type="file" accept=".zip" hidden @change="importZip"/><NButton v-if="writable" type="primary" :disabled="busy" @click="editTest()">添加数据</NButton></div></div><p class="judge-hint">ZIP 使用 [tests/]编号.in 与 编号.ans；同编号导入冲突会整批拒绝。重复输入会提示并保留。生成错误时，可单条删除或勾选后批量删除，再重新生成。</p>
+    <TestDataTable :tests="tests" :writable="writable" :busy="busy" @edit="editTest" @delete="requestTestDeletion" @refresh="refreshTestData"/>
     <div class="panel-toolbar"><strong>数据生成计划</strong><div class="toolbar-right"><NButton v-if="writable" :loading="busy" @click="submit('GENERATE')">执行生成计划</NButton><NButton v-if="writable" @click="editPlan()">添加计划</NButton></div></div><p class="judge-hint">点击「添加计划」，直接粘贴生成命令，每行一组，例如 gen 1 10001。收集为正式数据后，编辑对应计划并取消「启用」，避免后续任务再次生成同编号数据。</p><table class="data-table"><thead><tr><th>计划</th><th>参数与种子</th><th>数据范围</th><th></th></tr></thead><tbody><tr v-for="p in plans" :key="p.id"><td>{{ p.name }}<small>v{{ p.version }}{{ p.enabled ? '' : ' · 已停用' }}</small></td><td><template v-if="p.data.commands"><span>逐行命令 · {{ p.data.commands.length }} 行</span><small>参数与种子按各行保存</small></template><template v-else><code>{{ JSON.stringify(p.data.argv) }}</code><small>seed={{ p.data.seed }} 起递增</small></template></td><td>#{{ p.data.numberStart }} 起 · {{ p.data.count }} 组 · {{ p.data.groupName }}</td><td><NButton v-if="writable" size="small" @click="editPlan(p)">编辑</NButton></td></tr></tbody></table>
   </div>
   <div v-else-if="tab === 'selftests'"><div class="panel-toolbar"><span>Validator 合法 / 非法输入；Checker 接受 / 拒绝输出</span><div class="toolbar-right"><NButton v-if="writable" :loading="busy" @click="submit('SELF_TEST')">运行自测</NButton><NButton v-if="writable" type="primary" @click="editSelfTest()">添加自测</NButton></div></div><table class="data-table"><thead><tr><th>名称</th><th>工具</th><th>预期</th><th></th></tr></thead><tbody><tr v-for="t in selfTests" :key="t.id"><td>{{ t.name }}<small>v{{ t.version }}{{ t.enabled ? '' : ' · 已停用' }}</small></td><td>{{ t.kind }} · {{ programs.find(p => p.id === t.programId)?.name ?? '当前内置比较器' }}</td><td><NTag>{{ t.expected }}</NTag></td><td><NButton v-if="writable" size="small" @click="editSelfTest(t)">编辑</NButton></td></tr></tbody></table><NEmpty v-if="!selfTests.length" description="按题目需要添加代表性自测，不要求固定边界清单" class="empty"/></div>
@@ -160,4 +191,12 @@ async function importZip(event: Event) {
   <StressPanel v-if="loaded" v-show="tab === 'stress'" :problem-id="problemId" :programs="programs" :group-ids="groupConfig.data.groups.map((g: any) => g.id)" :writable="writable" :default-number="Math.max(0, ...tests.map(t => t.number)) + 1" @dirty="stressDirty = $event" @data-changed="catalog(); refreshRuns(); emit('dataChanged')"/>
   <GroupPanel v-if="loaded" v-show="tab === 'groups'" :problem-id="problemId" :tests="tests" :programs="programs" :writable="writable" @dirty="groupsDirty = $event" @saved="catalog(); refreshRuns()"/>
   <NModal :show="!!modal" preset="card" :title="modal === 'test' ? '测试数据 · 原始字节' : modal === 'plan' ? '生成计划' : '工具自测'" :mask-closable="false" :close-on-esc="false" :closable="false" class="judge-modal" style="width: min(850px, 95vw)"><div class="judge-form-grid"><template v-if="modal === 'test'"><NFormItem label="编号"><NInputNumber v-model:value="form.number" :min="1" :max="100000"/></NFormItem><NFormItem label="分组"><NInput v-model:value="form.groupName"/></NFormItem><NFormItem label="用途"><NCheckbox v-model:checked="form.isSample">题面样例</NCheckbox></NFormItem><NFormItem label="备注"><NInput v-model:value="form.notes"/></NFormItem></template><template v-else><NFormItem label="名称"><NInput v-model:value="form.name" :placeholder="modal === 'plan' ? '可留空，按命令自动命名' : ''"/></NFormItem><GeneratorPlanFields v-if="modal === 'plan'" v-model="form" :programs="programs" :plans="plans" :tests="tests"/><template v-else><NFormItem label="类型"><NSelect v-model:value="form.kind" :options="[{ label: 'Validator', value: 'VALIDATOR' }, { label: 'Checker', value: 'CHECKER' }]" @update:value="selfKindChanged"/></NFormItem><NFormItem label="被测工具"><NSelect v-model:value="form.programId" :options="selfToolOptions"/></NFormItem><NFormItem label="预期判定"><NSelect v-model:value="form.expected" :options="selfExpectedOptions"/></NFormItem></template></template><NFormItem label="任务选择"><NCheckbox v-model:checked="form.enabled">启用</NCheckbox></NFormItem></div><template v-if="modal === 'test'"><BinaryInput v-model="form.inputBase64" label="输入"/><NCheckbox :checked="form.answerBase64 !== null" @update:checked="v => form.answerBase64 = v ? '' : null">保存指定答案（也可由主标程生成）</NCheckbox><BinaryInput v-if="form.answerBase64 !== null" v-model="form.answerBase64" label="指定答案"/></template><template v-else-if="modal === 'selftest'"><BinaryInput v-model="form.inputBase64" label="输入"/><template v-if="form.kind === 'CHECKER'"><BinaryInput v-model="form.answerBase64" label="参考答案"/><BinaryInput v-model="form.outputBase64" label="待检输出"/></template></template><template #footer><div class="toolbar-right"><NButton @click="closeModal">取消</NButton><NButton type="primary" :loading="busy" @click="saveForm">保存版本</NButton></div></template></NModal>
+  <NModal :show="pendingTestDelete.length > 0" preset="card" title="删除测试数据" :mask-closable="false" :close-on-esc="false" :closable="false" style="width: min(600px, 95vw)">
+    <p>确认删除这 {{ pendingTestDelete.length }} 组数据的输入与答案？删除后编号可重新使用。</p>
+    <p style="max-height: 160px; overflow: auto">{{ pendingTestDelete.map(test => `#${test.number}`).join('、') }}</p>
+    <p class="judge-hint">历史任务和冻结版本会保留。题面已引用的样例仍使用固定版本，需要在题面中取消或替换引用。</p>
+    <p class="judge-hint">生成计划会保留；如不再需要这些数据，请停用对应计划。</p>
+    <NAlert v-if="deleteAffectedGroups.length" type="warning" :show-icon="false">影响评分组：{{ deleteAffectedGroups.join('、') }}。删除后请在「数据组与评分」重选成员并保存。</NAlert>
+    <template #footer><div class="toolbar-right"><NButton :disabled="busy" @click="pendingTestDelete = []">取消</NButton><NButton type="error" :loading="busy" @click="deleteTests">确认删除 {{ pendingTestDelete.length }} 组</NButton></div></template>
+  </NModal>
 </div></NSpin></template>

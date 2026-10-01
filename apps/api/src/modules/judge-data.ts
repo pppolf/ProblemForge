@@ -21,11 +21,11 @@ export async function touchProblem(tx: Prisma.TransactionClient, id: string) { a
 export async function appendTest(tx: Prisma.TransactionClient, problemId: string, data: Omit<TestCaseSave, 'inputBase64' | 'answerBase64'>, input: BlobRef, answer: BlobRef | null, provenance: Prisma.InputJsonValue, existing?: { id: string; version: number }) {
   let testId: string, version: number;
   if (existing) {
-    const updated = await tx.testCase.updateMany({ where: { id: existing.id, version: existing.version }, data: { number: data.number, groupName: data.groupName, isSample: data.isSample, enabled: data.enabled, notes: data.notes, version: { increment: 1 } } });
+    const updated = await tx.testCase.updateMany({ where: { id: existing.id, problemId, deletedAt: null, version: existing.version }, data: { number: data.number, groupName: data.groupName, isSample: data.isSample, enabled: data.enabled, notes: data.notes, version: { increment: 1 } } });
     if (!updated.count) throw new HttpError(409, '测试数据版本冲突，本地内容未被覆盖', 'VERSION_CONFLICT');
     testId = existing.id; version = existing.version + 1;
   } else {
-    if (await tx.testCase.count({ where: { problemId } }) >= 500) throw new HttpError(422, '本题最多保存 500 组测试数据');
+    if (await tx.testCase.count({ where: { problemId, deletedAt: null } }) >= 500) throw new HttpError(422, '本题最多保存 500 组测试数据');
     const created = await tx.testCase.create({ data: { problemId, ...data } });
     testId = created.id; version = 1;
   }

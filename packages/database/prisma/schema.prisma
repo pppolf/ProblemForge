@@ -515,7 +515,9 @@ model TestCase {
   currentRevision TestCaseRevision? @relation("CurrentTestRevision", fields: [currentRevisionId], references: [id], onDelete: SetNull)
   revisions TestCaseRevision[] @relation("TestHistory")
   createdAt DateTime @default(now())
-  @@unique([problemId, number])
+  deletedAt DateTime?
+  // Live numbers are unique via the partial index in 20261001050000_test_deletion.
+  @@index([problemId, deletedAt, number])
 }
 model TestCaseRevision {
   id String @id @default(cuid())

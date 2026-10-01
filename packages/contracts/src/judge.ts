@@ -65,6 +65,10 @@ const testProperties = {
 export const TestCaseInput = Type.Object(testProperties, strict);
 export const TestCaseUpdateInput = Type.Object({ ...testProperties, expectedVersion: Type.Integer({ minimum: 1 }) }, strict);
 export type TestCaseSave = Static<typeof TestCaseInput>;
+export const TestCasesDeleteInput = Type.Object({
+  tests: Type.Array(Type.Object({ id: Type.String({ minLength: 1, maxLength: 80 }), expectedVersion: Type.Integer({ minimum: 1 }) }, strict), { minItems: 1, maxItems: 500 }),
+}, strict);
+export type TestCasesDelete = Static<typeof TestCasesDeleteInput>;
 export const TestGroupsInput = Type.Object({ groups: Type.Array(Type.Object({
   id: testProperties.groupName, points: Type.Integer({ minimum: 0, maximum: 10000 }), aggregation: literalUnion(['ALL', 'WEIGHTED']),
   members: Type.Array(Type.Object({ testId: Type.String({ minLength: 1 }), revisionId: Type.String({ minLength: 1 }), weight: Type.Integer({ minimum: 1, maximum: 1000000 }) }, strict), { minItems: 1, maxItems: 200 }),

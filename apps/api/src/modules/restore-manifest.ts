@@ -9,7 +9,7 @@ import { storage } from '../app.ts';
 export async function restoreManifest(tx:Prisma.TransactionClient,problemId:string,m:ProblemManifest,copy:boolean) {
   const programIds=new Map<string,string>(),testIds=new Map<string,string>(),revisionIds=new Map<string,string>(),assetPaths=new Map<string,string>();
   const oldPrograms=await tx.program.findMany({where:{problemId},include:{currentRevision:true}});
-  const oldTests=await tx.testCase.findMany({where:{problemId},include:{currentRevision:true}});
+  const oldTests=await tx.testCase.findMany({where:{problemId,deletedAt:null},include:{currentRevision:true}});
   const oldDocs=await tx.document.findMany({where:{problemId},include:{currentRevision:true}});
   // Reserve test numbers transactionally so rollback can reverse renumberings.
   for(const [i,t] of oldTests.entries())await tx.testCase.update({where:{id:t.id},data:{number:-i-1}});

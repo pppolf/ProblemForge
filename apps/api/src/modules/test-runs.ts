@@ -132,7 +132,7 @@ export async function testRunRoutes(app: Api) {
         const answer: BlobRef | null = c.answerKey ? { key: c.answerKey, hash: c.answerHash!, bytes: c.answerBytes! } : null;
         if (origin.type === 'TEST') {
           const current = await tx.testCase.findUnique({ where: { id: origin.testId! } });
-          if (!current || current.currentRevisionId !== origin.testRevisionId || !answer) throw new HttpError(409, '原始数据版本已改变或此任务未生成答案');
+          if (!current || current.deletedAt || current.currentRevisionId !== origin.testRevisionId || !answer) throw new HttpError(409, '原始数据已删除、版本已改变或此任务未生成答案');
           result.push(await appendTest(tx, run.problemId, { number: current.number, groupName: current.groupName, isSample: current.isSample, enabled: current.enabled, notes: current.notes }, input, answer, { ...c.origin as object, answerRunId: run.id }, { id: current.id, version: current.version }));
         } else if (origin.type === 'GENERATOR') {
           result.push(await appendTest(tx, run.problemId, { number: c.number, groupName: c.groupName, isSample: c.isSample, enabled: true, notes: '从生成快照显式收集' }, input, answer, { ...c.origin as object, runId: run.id }));

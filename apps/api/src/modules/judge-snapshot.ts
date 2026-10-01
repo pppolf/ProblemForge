@@ -20,7 +20,7 @@ export async function judgeSnapshot(tx: Prisma.TransactionClient, problemId: str
   const selfTests = ['SELF_TEST', 'ACCEPTANCE'].includes(purpose)
     ? await tx.toolSelfTest.findMany({ where: { problemId, enabled: true }, orderBy: { id: 'asc' } }) : [];
   const tests = ['VALIDATE', 'ANSWERS', 'ACCEPTANCE'].includes(purpose)
-    ? await tx.testCase.findMany({ where: { problemId, enabled: true }, include: { currentRevision: true }, orderBy: [{ number: 'asc' }, { id: 'asc' }] }) : [];
+    ? await tx.testCase.findMany({ where: { problemId, enabled: true, deletedAt: null }, include: { currentRevision: true }, orderBy: [{ number: 'asc' }, { id: 'asc' }] }) : [];
   const include = (p: typeof allPrograms[number]) => {
     if (['STRESS', 'REPLAY'].includes(purpose)) return !!stressData && ([stressData.generatorId, stressData.referenceId, stressData.candidateId, stressData.checkerId].includes(p.id) || (p.enabled && (p.role === 'VALIDATOR' || p.role === 'EXTRA_VALIDATOR' && (p.validatorScope !== 'GROUPS' || extraIds.has(p.id)))));
     if (purpose === 'COMPILE') return p.id === programId;

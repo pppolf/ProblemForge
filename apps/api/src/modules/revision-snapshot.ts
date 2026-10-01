@@ -7,7 +7,7 @@ import { assetPath } from './assets.ts';
 export async function problemSnapshot(tx:Prisma.TransactionClient,problemId:string) {
   const p=await tx.problem.findUniqueOrThrow({where:{id:problemId},include:{
     documents:{include:{currentRevision:true,templateVersion:{include:{template:true}}},orderBy:[{language:'asc'},{kind:'asc'}]},
-    programs:{include:{currentRevision:true,profile:true},orderBy:{id:'asc'}},tests:{include:{currentRevision:true},orderBy:{number:'asc'}},
+    programs:{include:{currentRevision:true,profile:true},orderBy:{id:'asc'}},tests:{where:{deletedAt:null},include:{currentRevision:true},orderBy:{number:'asc'}},
     assets:{orderBy:{id:'asc'}},generatorPlans:{orderBy:{id:'asc'}},selfTests:{orderBy:{id:'asc'}},testGroupConfig:true,stressConfig:true,
   }});
   const test=(id:string,r:NonNullable<typeof p.tests[number]['currentRevision']>):ManifestTest=>{

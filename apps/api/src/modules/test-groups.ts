@@ -8,9 +8,9 @@ import { lockProblem, touchProblem } from './judge-data.ts';
 export async function validateGroups(tx: Prisma.TransactionClient, problemId: string, data: TestGroupsValue) {
   try { groupOrder(data.groups); } catch (e) { if (e instanceof GroupError) throw new HttpError(422,e.message); throw e; }
   if (!data.groups.length) return;
-  const tests = await tx.testCase.findMany({where:{problemId,enabled:true}});
+  const tests = await tx.testCase.findMany({where:{problemId,enabled:true,deletedAt:null}});
   const members = data.groups.flatMap(g=>g.members);
-  if (tests.length !== members.length || tests.some(t=>!members.some(m=>m.testId===t.id&&m.revisionId===t.currentRevisionId))) throw new HttpError(422,'组成员必须恰好覆盖本题所有启用数据的当前版本；停用或更新数据后需显式重选成员');
+  if (tests.length !== members.length || tests.some(t=>!members.some(m=>m.testId===t.id&&m.revisionId===t.currentRevisionId))) throw new HttpError(422,'组成员必须恰好覆盖本题所有启用数据的当前版本；删除、停用或更新数据后需显式重选成员');
   for(const id of new Set(data.groups.flatMap(g=>g.extraValidatorIds))) {
     const p=await tx.program.findUnique({where:{id}});
     if(!p||p.problemId!==problemId||p.role!=='EXTRA_VALIDATOR'||!p.enabled||p.validatorScope!=='GROUPS') throw new HttpError(422,'组级 Validator 必须选择本题启用且作用范围为数据组的额外 Validator');
