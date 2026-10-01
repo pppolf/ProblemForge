@@ -287,3 +287,19 @@ P7.0 完成记录已提交 `ba2d95c`。新增配置式加密备份/恢复、逐�
 为使实际维护镜像可对应确定提交，先提交已检查实现；**P7.1 真实加密备份的空实例恢复和生产离线盘点仍待执行**。后续从此提交构建新版本，在现有独立 P7 演练实例验证，再提交收尾；P7.2/P8 继续暂缓。
 
 P7.1 真实演练中发现并修正：导入隔离报告保留原 ZIP 的 `blobs/...` 成员路径，不属于私有存储键。盘点改为在 ExportArtifact.report 中只保守匹配已登记/已存在的真实键，隔离 ZIP 本身仍按记录的 key 保留；其他历史修订与任务字段继续检查缺失键。`verify:p7:maintenance --references-only` 定向检查通过。首轮盘点的 12 条误报保留作诊断；81 个实际文件哈希均一致，77 个有明确引用，另外 4 个因未到宽限期而未列候选。首个加密备份已成功空实例恢复，但仍需用修正后的镜像完成最终盘点和备份恢复，不将误报写成真实文件丢失。
+
+## P7.1 加密恢复与容量维护完成（2026-10-01）
+
+**最终版本：**维护功能实现 `9b44638`，真实盘点中发现的导入 ZIP 路径误报修正为 `05375832fd9232732772b6e8d0a9c223bd282a43`。最终镜像 `problemforge-app:p71-20261001-r2`，ID `sha256:3ce3eff4fffd699a07554d476bf866a998fc8c06044da21b9dab8c02717c399b`，清单 `.local/releases/p71-20261001-r2.json`。没有新增数据库迁移，仍为十个迁移。两次实际生产构建均通过 Vue 类型检查；原大 Monaco 分块警告保留。
+
+**实际演练：**升级前另保存 `.local/backups/p7-before-maintenance`，原 P5/P7 备份、镜像和卷均保留。在 `problemforge-p7-upgrade`（5183）停止写入并盘点：81 个文件 / 2,494,083 字节全部与登记哈希一致，无异常和未完成预留；77 个文件被当前数据库中的历史/冻结/发布/缓存引用保护，其余 4 个未到宽限期，没有清理候选，未删除任何文件或记录。最终报告 `.local/maintenance/p71-storage-final.json`；首轮误报报告保留用于说明修复。
+
+按 `.local/p71-backup-policy.json` 创建实际 AES-256-GCM 备份。错误随机密钥和改动过密文的副本均在目标容器/数据库/卷创建前失败，生成 FAILED 记录；原密文不变，失败后临时明文被清除。第一份备份在独立 5185 空实例恢复并通过原账号、冻结比赛、三份 PDF 哈希、验收报告和 P6 接口核对，验证后停止其容器、保留全部卷。修正盘点后的最终版本再创建 `backup-20261001085800840-65ac789e`，在新的 `problemforge-p71-final-restore` / 5186 空实例恢复成功，逐项比较来源/恢复实例的十迁移校验和、业务计数、81 文件字节及 inventoryHash 完全一致。两个实例的运行镜像 ID、提交号、构建号、迁移一致性和按需生产 JS 均通过，全部服务健康，无新 Judge/TeX 任务或清理操作。
+
+备份/恢复/失败/保留预览结果在 `.local/maintenance-results`；密钥 `.local/keys/p71-backup.key` 不输出、不提交。当前 `.local/maintenance-temp` 和 `.local/ops-locks` 均为空，正常清理及释放锁已核对。保留预览仅输出 keep/review，不删除。证据 `.local/verify-p71-negative.json`、`verify-p7-encrypted-restore.json`、`verify-p7-maintenance-final.json`、`verify-p7-encrypted-final-restore.json`、`verify-p71-final.json`。
+
+**浏览器补验：**浏览器恢复可用后，实际核对已选「35 分解法」和 Judge 功能区在刷新后恢复；多语言示例切到 en/文档题解再刷新，语言及类型仍保留；没有改动稿件/程序。实际以演练管理员进入 5183 生产运行页，显示最终 `p71-20261001-r2`、Git `0537583`、十迁移一致、全部依赖可用、81 文件、0 预留、24 个缓存文件及 UTC 新增登记量，任务数为 0/0。截图 `.local/p71-final-operations-browser.png`。这补齐 P6.2 记录中导航恢复的浏览器验收；草稿文件下载、原生离开弹窗/401 编辑保留和全部表单组合仍仅按原限制，不因本次走查记为全量已测。
+
+**最终交接：**主目录 master，代码和每阶段交接均本地提交，不 push、不发布公网。开发服务仍为主目录 Vite 2156、API watch 48816、Judge watch 64348、TeX watch 12500，实际命令行存于 `.local/p71-dev-processes.json`；开发库 problemforge_f054 / Redis DB 1 / `.local/p3-storage`，Build/TestRun 活动数 0/0。5183 `.local/p7-upgrade.env` 和 5186 `.local/p71-final-restore.env` 保持最终镜像运行；5184 `.local/p7-old-restore.env`、5185 `.local/p71-encrypted-restore.env` 保留停止的恢复现场。原 5181/5182 P5 两实例未升级或删除。下次先核对进程与配置，不盲用 PID。
+
+P6.0—P6.2、P7.0—P7.1 本轮范围完成。按用户明确要求，P7.2 独立 Linux/HTTPS、P8.0 真实 Polygon 样包、P8.1 代表规模验证继续暂缓；未创建定时任务或外部备份/通知连接。容量历史为新增登记量，盘点是停写全量只读检查，不是在线 GC 或压力测试；跨主机维护锁、断电后自动清理等未宣称已实现。操作和密钥保管见 MAINTENANCE，阶段证据与浏览器限制按本文保留。
