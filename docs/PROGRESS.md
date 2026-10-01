@@ -353,3 +353,13 @@ P6.0—P6.2、P7.0—P7.1 本轮范围完成。按用户明确要求，P7.2 独�
 **恢复原入口与实际读取：**原主目录 API、Judge、TeX 和 Vite 后台进程已恢复，启动记录 `.local/main-fresh-services.json`，对应 watch PID 为 34648 / 18868 / 52732、Vite PID 76512；日志 `.local/main-fresh-{api,judge,tex,web}.out.log` 及 `.err.log`。下次仍先核对实际命令行，不盲用这些 PID。5180 网页、其代理健康接口及 3100 健康接口均 HTTP 200。经 5180 以原管理员与原 P2 出题人登录，题目（含归档）、比赛与 Judge 历史列表均为空，7 个模板发布版本和 3 套 profile 可读取；管理员逐版本下载原 7 份模板样稿 PDF，均与登记哈希一致。运行管理 status ok、模式 development，活动任务 0/0；核对后仅退出本次新建会话，原保留数据指纹再次一致。证据 `.local/clear-main-api-verification.json`。
 
 **收尾与边界：**USER_GUIDE、PLAN、README 同步改为从空列表创建，移除已删除示例的直达链接，补充当前日志和备份位置。仅执行清理结果与服务/原模板的读取核对，没有运行测试套件、构建、浏览器走查或新 Judge/TeX，没有创建新题或比赛；模板分类交互仍由用户手动测试。P7.2/P8 暂缓状态不变。文档差异检查后单独本地提交，不 push；后续不得自动补回旧测试数据。
+
+## 用户新建题目的生成计划使用诊断（2026-10-01）
+
+用户已在原 5180 从头建题，本轮要求查看「交互 Easy」`cmuplnkvz001kktd8oppq13ki` 的生成计划用法及问题。确认服务仍运行于主目录、原 5180/3100 和 `problemforge_f054`；只读取该题保存的配置、源码、任务及产物，不修改用户正在手动操作的内容。
+
+**实际发现：**生成器 `gen` v1 接收 `<n> <seed>` 并输出二者。计划 `gen` v2 的 argv 为 `["1"]`、seed 为 `10001`、count 为 10、起始编号为 1；生成任务 `cmupm16ck004dktd8nx9xk100` 已成功，10 组输入已由用户收集到正式数据。经原 5180 API 下载首尾输入，分别为 `1 10001\n`、`1 10010\n`。计划仍启用，后续 VALIDATE 和 ANSWERS 各执行了 20 组（10 组正式数据 + 10 组再次生成），因此报告有重复输入/编号提示；正式 TestCase 仍只有 10 条。
+
+**交互配置问题：**该题实际保存的执行方式为 BATCH。答案任务 `cmupm2jwr005nktd8sh5uiygj` 的快照未包含 Interactor，首组答案下载内容为 `? 0\n? 1\n! 10001 10001\n`，执行成功不能用作交互验收证据。当前 Interactor v3 两处向选手发送消息使用 `tout`；根据本仓库 testlib 的 `registerInteraction` 实现与 Worker 管道配置，`tout` 写入 interaction-output 文件，实际通信应使用 stdout（例如 `cout << ... << endl`）。此外 Validator 允许 n 到 30，而当前生成器只允许 1～9、Interactor/主标程用 long long 阶乘运算；若本题预期 n≤9，应同步 Validator 范围，若要支持更大范围则需另行修改数值实现，未替用户决定范围。
+
+**交付与边界：**USER_GUIDE 补充参数逐项解释、生成与收集的区别、收集后停用计划、编号避让、NOT_RUN 含义及交互 stdout/tout 协议。证据 `.local/generator-plan-diagnosis.json`、`.local/generator-plan-api-diagnosis.json` 均在 Git 忽略目录，仅临时登录原管理员读取并退出本次会话。未修改题目源码/计划/判题配置/测试数据，没有执行新的编译、Judge、TeX、测试套件或浏览器验证；交互修正后的运行结果未验证。文档差异检查后本地提交，不 push，后续由用户继续手动操作。
