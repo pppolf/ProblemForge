@@ -7,9 +7,11 @@ import { fileURLToPath } from 'node:url';
 import { db } from '@problemforge/database';
 import { config, sha256, token } from '@problemforge/domain';
 import { capacityStatus, storageMetrics } from '../apps/api/src/storage-metrics.ts';
-import { inspectStorage } from './storage-inspection.ts';
+import { inspectStorage, collectReferences } from './storage-inspection.ts';
 import { backupFiles, encryptBackup, decryptBackup, retentionPreview } from './backup-crypto.mjs';
 if(!process.argv.includes('--isolated')) {
+  const refs=new Map<string,Set<string>>();collectReferences({key:'imports/package',report:{manifest:{blob:{key:'blobs/archive-member'},known:{key:'imports/known'}}}},new Set(['imports/known']),refs,'ExportArtifact');assert(refs.has('imports/package'));assert(refs.has('imports/known'));assert(!refs.has('blobs/archive-member'));
+  if(process.argv.includes('--references-only')){console.log('PASS archive-member namespace distinct from stored objects; known references retained');process.exit(0);}
   const url=new URL(process.env.DATABASE_URL!),database=`problemforge_p71_verify_${randomUUID().replaceAll('-','').slice(0,12)}`,storage=resolve('.local/p71-verify',database,'storage');await mkdir(storage,{recursive:true});
   await db.$executeRawUnsafe(`CREATE DATABASE "${database}"`);await db.$disconnect();url.pathname='/'+database;
   for(const args of [['scripts/database.ts','migrate'],[fileURLToPath(import.meta.url),'--isolated']]) {const r=spawnSync(process.execPath,['node_modules/tsx/dist/cli.mjs',...args],{env:{...process.env,DATABASE_URL:url.toString(),STORAGE_ROOT:storage,STORAGE_QUOTA_BYTES:'10000',STORAGE_WARNING_PERCENT:'1'},stdio:'inherit'});if(r.status!==0)process.exit(r.status??1);}process.exit(0);

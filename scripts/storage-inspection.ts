@@ -6,11 +6,14 @@ import { db, Prisma } from '@problemforge/database';
 import { config } from '@problemforge/domain';
 
 const keyShape=(s:string)=>/^[A-Za-z0-9][A-Za-z0-9/_.-]*$/.test(s)&&s.includes('/')&&!s.split('/').some(p=>!p||p==='..'||p==='.');
-export function collectReferences(value:unknown,known:Set<string>,refs:Map<string,Set<string>>,source:string,field='') {
+export function collectReferences(value:unknown,known:Set<string>,refs:Map<string,Set<string>>,source:string,field='',inferKeys=true) {
   if(typeof value==='string') {
-    if(known.has(value)||((field==='key'||field.endsWith('Key'))&&keyShape(value))) {const reasons=refs.get(value)??new Set<string>();reasons.add(source);refs.set(value,reasons);}
-  } else if(Array.isArray(value)) for(const v of value)collectReferences(v,known,refs,source,field);
-  else if(value&&typeof value==='object')for(const [k,v]of Object.entries(value))collectReferences(v,known,refs,source,k);
+    if(known.has(value)||(inferKeys&&(field==='key'||field.endsWith('Key'))&&keyShape(value))) {const reasons=refs.get(value)??new Set<string>();reasons.add(source);refs.set(value,reasons);}
+  } else if(Array.isArray(value)) for(const v of value)collectReferences(v,known,refs,source,field,inferKeys);
+  // Import reports retain the original ZIP's namespace. Their archive members
+  // aren't storage paths; the record's own key still protects the quarantined ZIP.
+  // Exact matches to registered/on-disk keys remain conservatively retained.
+  else if(value&&typeof value==='object')for(const [k,v]of Object.entries(value))collectReferences(v,known,refs,source,k,inferKeys&&!(source==='ExportArtifact'&&k==='report'));
 }
 export function cleanupDecision(o:{ready:boolean;createdAt:Date},referenced:boolean,intact:boolean,now:Date,graceDays:number) {
   return o.ready&&!referenced&&intact&&o.createdAt.getTime()<now.getTime()-graceDays*86400000;
