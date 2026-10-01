@@ -303,3 +303,17 @@ P7.1 真实演练中发现并修正：导入隔离报告保留原 ZIP 的 `blobs
 **最终交接：**主目录 master，代码和每阶段交接均本地提交，不 push、不发布公网。开发服务仍为主目录 Vite 2156、API watch 48816、Judge watch 64348、TeX watch 12500，实际命令行存于 `.local/p71-dev-processes.json`；开发库 problemforge_f054 / Redis DB 1 / `.local/p3-storage`，Build/TestRun 活动数 0/0。5183 `.local/p7-upgrade.env` 和 5186 `.local/p71-final-restore.env` 保持最终镜像运行；5184 `.local/p7-old-restore.env`、5185 `.local/p71-encrypted-restore.env` 保留停止的恢复现场。原 5181/5182 P5 两实例未升级或删除。下次先核对进程与配置，不盲用 PID。
 
 P6.0—P6.2、P7.0—P7.1 本轮范围完成。按用户明确要求，P7.2 独立 Linux/HTTPS、P8.0 真实 Polygon 样包、P8.1 代表规模验证继续暂缓；未创建定时任务或外部备份/通知连接。容量历史为新增登记量，盘点是停写全量只读检查，不是在线 GC 或压力测试；跨主机维护锁、断电后自动清理等未宣称已实现。操作和密钥保管见 MAINTENANCE，阶段证据与浏览器限制按本文保留。
+
+## 手动测试准备：容器清理与详细使用说明（2026-10-01）
+
+用户要求清理测试容器并准备自行测试。本节入口/容器状态取代上节演练后的运行清单，既有阶段证据仍保留。
+
+**实际清理：**先按本项目精确 Compose project 标签盘点容器与卷，核对配置路径；4 个运行中的部署 API 均无 QUEUED/RUNNING Build 或 TestRun。依次对 `problemforge-p5`、`problemforge-p5-restore`、`problemforge-p7-old-restore`、`problemforge-p71-encrypted-restore`、`problemforge-p71-final-restore` 执行各自配置的 Compose down，移除 45 个重复演练容器及对应网络；再移除主测试实例已成功退出的 migrate/storage-init 两个一次性容器。共从 58 个容器减到 11 个，前后核对本项目 20 个命名卷完全一致。没有使用 down -v、prune 或镜像清理；数据库/私有文件/Redis 卷、配置、镜像、备份和加密密钥全部保留，未操作其他项目。
+
+**保留入口：**`http://localhost:5183` 为推荐手动测试入口，project `problemforge-p7-upgrade`，配置 `.local/p7-upgrade.env`，继续使用最终镜像 `problemforge-app:p71-20261001-r2` / Git `0537583`。保留其 7 个常驻容器；已移除的 5181/5182/5184/5185/5186 不再提供网页。5180 开发服务仍从主目录运行，实际命令行重新核对 Vite 2156、API watch 48816、Judge watch 64348、TeX watch 12500，因此保留 `problemforge` project 的 4 个基础容器；开发库仍为 problemforge_f054，活动 Build/TestRun 为 0/0。下次仍先核对实际进程，不盲用 PID。
+
+**手册与账号：**扩展 `docs/USER_GUIDE.md`，覆盖本机启动/停止/日志、账号和角色、已有 A/B/C 与冻结比赛、复制示例、从零 A+B 的三稿/源码/Validator/错误解/数据/自测、有效验收、审核冻结、比赛出版、题包往返、进阶 Judge、保存冲突、账号模板维护、备份及手动检查清单；README 链接同步。5183 恢复数据库的管理员凭据来自 `.local/p5-prod.env`，示例出题人来自 `.local/p5-deployment/author.json`，不是新恢复配置中的初始化密码。为方便用户登录，汇总到忽略文件 `.local/manual-test-access.txt`，不输出或提交密码。当前实例实际发布的是三类各一套部署演练模板；手册没有将开发库六套模板混写成当前实例状态。
+
+**实际验证：**清理后以管理员及示例出题人分别登录成功，读取题目、比赛、模板、profile 与运行管理后退出新建核对会话。运行管理状态 ok、版本/十迁移一致；5183、5180 网页和 3100 健康接口 HTTP 200。主测试 API/两 Worker/DB/Redis 健康，沙箱可用；ops-state 核对十迁移校验和及 81 个私有文件（2,494,083 字节）全部通过，inventoryHash 为 `fc5c4a0d6dca5be3412c26b4a235bc22b364e5c37a26978fc879298cc2d18388`。保留 2 用户、8 题、1 比赛、6 Build、10 TestRun、6 Artifact，与清理前业务基线一致。详细证据 `.local/manual-test-cleanup.json`、`manual-test-entry.json`、`manual-test-storage-state.json`，均未包含密码。
+
+**验证边界：**本轮为容器清理和文档交付，不修改业务代码或示例内容，不启动新 Judge/TeX，不重跑全量/E2E。手册 A+B 和末尾勾选项是交给用户实际操作的教程，不记作本轮已执行验收。既有浏览器验证限制及 P7.2/P8 暂缓项保持原记录。文档差异检查通过，凭据和清理证据仍被 Git 忽略；本阶段单独本地提交，不 push。
