@@ -10,6 +10,8 @@ import './judge.css';
 import './p4.css';
 const router = createRouter({ history: createWebHistory(), routes: [
   { path: '/login', component: () => import('./pages/Login.vue') }, { path: '/', redirect: '/problems' },
+  { path: '/reset-password', component: () => import('./pages/ResetPassword.vue') },
+  { path: '/account', component: () => import('./pages/Account.vue') },
   { path: '/problems', component: () => import('./pages/Problems.vue') }, { path: '/problems/:id', component: () => import('./pages/Workspace.vue') },
   { path: '/import', component: () => import('./pages/ImportPackage.vue') },
   { path: '/tasks', component: () => import('./pages/Tasks.vue') },
@@ -21,7 +23,7 @@ const router = createRouter({ history: createWebHistory(), routes: [
   { path: '/admin/groups', component: () => import('./pages/UserGroups.vue') },
   { path: '/admin/operations', component: () => import('./pages/Operations.vue') },
 ] });
-router.beforeEach(async to => { navigation.pending = true; navigation.failedPath = ''; if (!session.ready) await loadSession(); if (!session.user && to.path !== '/login') return '/login'; if (to.path.startsWith('/admin') && session.user?.role !== 'ADMIN') return '/problems'; });
+router.beforeEach(async to => { navigation.pending = true; navigation.failedPath = ''; if (!session.ready) await loadSession(); if (!session.user && !['/login', '/reset-password'].includes(to.path)) return '/login'; if (to.path.startsWith('/admin') && session.user?.role !== 'ADMIN') return '/problems'; });
 router.afterEach(() => { navigation.pending = false; });
 router.onError((_error, to) => { navigation.pending = false; navigation.failedPath = to.fullPath; });
 createApp(App).use(router).mount('#app');

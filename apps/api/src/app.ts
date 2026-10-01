@@ -34,7 +34,7 @@ declare module 'fastify' {
 }
 export type Api = ReturnType<typeof createTypedApp>;
 function createTypedApp(logging: boolean) {
-  return Fastify({ logger: logging ? { redact: ['req.headers.cookie', 'req.headers.authorization', 'req.body.password'] } : false,
+  return Fastify({ logger: logging ? { redact: ['req.headers.cookie', 'req.headers.authorization', 'req.body.password', 'req.body.currentPassword', 'req.body.newPassword', 'req.body.resetToken'] } : false,
     bodyLimit: 2_500_000, ajv: { customOptions: { removeAdditional: false, coerceTypes: false } },
   }).withTypeProvider<TypeBoxTypeProvider>();
 }
@@ -43,7 +43,7 @@ export async function authenticate(req: FastifyRequest) {
   const raw = req.cookies.pf_session;
   if (!raw) throw new HttpError(401, '请先登录', 'AUTH_REQUIRED');
   const session = await db.session.findUnique({ where: { id: sha256(raw) }, include: { user: true } });
-  if (!session || session.expiresAt < new Date() || session.user.disabled) throw new HttpError(401, '登录已过期', 'AUTH_REQUIRED');
+  if (!session || session.expiresAt <= new Date() || session.user.disabled || session.user.passwordResetRequired) throw new HttpError(401, '登录已过期', 'AUTH_REQUIRED');
   req.user = { id: session.user.id, email: session.user.email, name: session.user.name, role: session.user.role };
   req.sessionId = session.id; req.csrfToken = session.csrfToken;
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers['x-csrf-token'] !== session.csrfToken) throw new HttpError(403, 'CSRF 验证失败', 'CSRF_FAILED');

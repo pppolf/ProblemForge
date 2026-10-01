@@ -42,6 +42,9 @@ model User {
   passwordHash String
   role SystemRole @default(USER)
   disabled Boolean @default(false)
+  version Int @default(1)
+  passwordResetRequired Boolean @default(false)
+  passwordReset PasswordReset?
   createdAt DateTime @default(now())
   sessions Session[]
   memberships ProblemMember[]
@@ -58,6 +61,14 @@ model Session {
   expiresAt DateTime
   createdAt DateTime @default(now())
   @@index([expiresAt])
+  @@index([userId])
+}
+model PasswordReset {
+  id String @id
+  userId String @unique
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 }
 model Problem {
   id String @id @default(cuid())

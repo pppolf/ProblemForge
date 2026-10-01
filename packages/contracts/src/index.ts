@@ -43,3 +43,13 @@ export const UserInput = Type.Object({
   password: Type.String({ minLength: 12, maxLength: 256 }), role: Type.Union([Type.Literal('USER'), Type.Literal('ADMIN')]),
 }, strict);
 export type UserView = { id: string; email: string; name: string; role: 'ADMIN' | 'USER' };
+export const UserVersionInput = Type.Object({ expectedVersion: Type.Integer({ minimum: 1 }) }, strict);
+export const UserUpdateInput = Type.Object({
+  ...UserVersionInput.properties,
+  email: UserInput.properties.email, name: UserInput.properties.name, role: UserInput.properties.role,
+  disabled: Type.Boolean(),
+}, strict);
+export const PasswordChangeInput = Type.Object({ currentPassword: LoginInput.properties.password, newPassword: UserInput.properties.password }, strict);
+export const PasswordResetInput = Type.Object({ resetToken: Type.String({ pattern: '^[a-f0-9]{64}$' }), newPassword: UserInput.properties.password }, strict);
+export const SessionRevokeInput = Type.Object({ all: Type.Boolean() }, strict);
+export type ManagedUser = UserView & { disabled: boolean; version: number; passwordResetRequired: boolean };
