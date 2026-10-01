@@ -19,7 +19,7 @@ export async function scheduleBuild(id: string) {
     await db.build.updateMany({ where: { id, state: 'QUEUED' }, data: { log: `入队暂未完成：${(error as Error).message}\n后台将重试入队。` } });
   }
 }
-export async function buildAccess(req: { user: { id: string; role: string } }, build: Build) {
+export async function buildAccess(req: { user: { id: string; role: string } }, build: Pick<Build, 'purpose' | 'contestId' | 'documentId' | 'problemId'>) {
   if (build.purpose === 'TEMPLATE_VALIDATION') {
     if (req.user.role !== 'ADMIN') throw new HttpError(404, '构建不存在或无访问权限');
   } else if(build.contestId) await contestAccess(req.user,build.contestId);

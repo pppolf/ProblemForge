@@ -42,6 +42,7 @@
     "verify:p5:recovery": "tsx scripts/verify-p5-recovery.ts",
     "verify:p5:restore": "tsx scripts/verify-p5-restore.ts",
     "verify:p6:accounts": "tsx scripts/verify-p6-accounts.ts",
+    "verify:p6:history": "tsx scripts/verify-p6-history.ts",
     "ops": "node scripts/ops.mjs",
     "check:affected": "node scripts/ci.mjs"
   },

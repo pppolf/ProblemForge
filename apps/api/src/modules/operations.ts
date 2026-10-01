@@ -37,8 +37,11 @@ export async function operationsRoutes(app: Api, redis: Redis) {
   });
   const streams = new Map<string, number>(), closers = new Set<() => void>();
   app.addHook('preClose', async () => { for (const close of closers) close(); });
-  app.get('/api/events', { preHandler: authenticate, schema: { querystring: Type.Object({ problemId: Type.Optional(Type.String()), contestId: Type.Optional(Type.String()) }, { additionalProperties: false }) } }, async (req, reply) => {
+  const watchedIds = Type.Optional(Type.String({ maxLength: 6000, pattern: '^[A-Za-z0-9_-]+(,[A-Za-z0-9_-]+)*$' }));
+  app.get('/api/events', { preHandler: authenticate, schema: { querystring: Type.Object({ problemId: Type.Optional(Type.String()), contestId: Type.Optional(Type.String()), buildIds: watchedIds, runIds: watchedIds }, { additionalProperties: false }) } }, async (req, reply) => {
     const { problemId, contestId } = req.query;
+    const buildIds = req.query.buildIds?.split(',') ?? [], runIds = req.query.runIds?.split(',') ?? [];
+    if (buildIds.length > 50 || runIds.length > 50) throw new HttpError(400, '每类最多关注 50 个历史任务');
     if (problemId && contestId) throw new HttpError(400, '一次只能订阅一个题目或比赛');
     const authorize = async () => { await authenticate(req); if (problemId) await problemAccess(req.user, problemId).catch(async e => { if (e instanceof HttpError && e.statusCode === 403) { const { problemPermission } = await import('@problemforge/domain'); await problemPermission(req.user, problemId); } else throw e; }); if (contestId) await contestAccess(req.user, contestId); };
     await authorize();
@@ -54,9 +57,12 @@ export async function operationsRoutes(app: Api, redis: Redis) {
         await authorize();
         const builds = await db.build.findMany({ where: contestId ? { contestId } : problemId ? { problemId } : { requestedById: req.user.id }, orderBy: { createdAt: 'desc' }, take: 50 });
         const runs = contestId ? [] : await db.testRun.findMany({ where: problemId ? { problemId } : { requestedById: req.user.id }, orderBy: { createdAt: 'desc' }, take: 50 });
+        const oldBuilds = await db.build.findMany({ where: { id: { in: buildIds.filter(id => !builds.some(b => b.id === id)) }, ...(contestId ? { contestId } : problemId ? { problemId } : { requestedById: req.user.id }) } });
+        const oldRuns = contestId ? [] : await db.testRun.findMany({ where: { id: { in: runIds.filter(id => !runs.some(r => r.id === id)) }, ...(problemId ? { problemId } : { requestedById: req.user.id }) } });
+        builds.push(...oldBuilds); runs.push(...oldRuns);
         const visibleBuilds = [], visibleRuns = [];
-        for (const b of builds) { try { await buildAccess(req, b); visibleBuilds.push({ id: b.id, state: b.state, updatedAt: b.updatedAt, cacheSourceId: b.cacheSourceId }); } catch (e) { if (!(e instanceof HttpError)) throw e; } }
-        for (const r of runs) { try { await problemAccess(req.user, r.problemId); visibleRuns.push({ id: r.id, state: r.state, completed: r.completed, total: r.total, stage: r.stage, updatedAt: r.updatedAt }); } catch (e) { if (!(e instanceof HttpError)) throw e; } }
+        for (const b of builds) { try { await buildAccess(req, b); visibleBuilds.push({ id: b.id, state: b.state, createdAt: b.createdAt, updatedAt: b.updatedAt, cacheSourceId: b.cacheSourceId }); } catch (e) { if (!(e instanceof HttpError)) throw e; } }
+        for (const r of runs) { try { await problemAccess(req.user, r.problemId); visibleRuns.push({ id: r.id, state: r.state, accepted: r.accepted, completed: r.completed, total: r.total, stage: r.stage, createdAt: r.createdAt, updatedAt: r.updatedAt }); } catch (e) { if (!(e instanceof HttpError)) throw e; } }
         const data = { builds: visibleBuilds, runs: visibleRuns }, hash = hashObject(data);
         if (hash !== previous) { previous = hash; if (!reply.raw.write(`id: ${hash}\nevent: tasks\ndata: ${JSON.stringify(data)}\n\n`)) close(); }
         else if (++ticks % 7 === 0 && !reply.raw.write(': keepalive\n\n')) close();

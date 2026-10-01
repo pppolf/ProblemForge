@@ -94,6 +94,7 @@ model Problem {
   testGroupConfig TestGroupConfig?
   groupMembers ProblemGroupMember[]
   revisions ProblemRevision[]
+  @@index([createdAt, id])
 }
 model ProblemMember {
   problemId String
@@ -194,6 +195,9 @@ model Build {
   publications Publication[]
   @@index([state, queuedAt])
   @@index([problemId, documentId, createdAt])
+  @@index([requestedById, createdAt, id])
+  @@index([problemId, createdAt, id])
+  @@index([contestId, createdAt, id])
 }
 model Artifact {
   id String @id @default(cuid())
@@ -615,6 +619,8 @@ model TestRun {
   invocations Invocation[]
   @@index([state, queuedAt])
   @@index([problemId, createdAt])
+  @@index([requestedById, createdAt, id])
+  @@index([problemId, createdAt, id])
 }
 model RunCase {
   id String @id @default(cuid())

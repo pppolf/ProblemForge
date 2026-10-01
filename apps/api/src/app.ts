@@ -28,6 +28,7 @@ import { packageRoutes } from './modules/packages.ts';
 import { PackageError } from '@problemforge/problem-format';
 import { operationsRoutes } from './modules/operations.ts';
 import { staticRoutes } from './modules/static.ts';
+import { historyRoutes } from './modules/history.ts';
 
 declare module 'fastify' {
   interface FastifyRequest { user: UserView; sessionId: string; csrfToken: string; }
@@ -78,6 +79,7 @@ export async function createApp(logging = true) {
   });
   await operationsRoutes(app,redis);
   await authRoutes(app);
+  await historyRoutes(app);
   await problemRoutes(app);
   await templateRoutes(app);
   await buildRoutes(app);

@@ -48,7 +48,7 @@ const templateOptions = computed(() => {
 });
 const unsaved = computed(() => drafts.value.some(d => d.dirty) || judgeDirty.value||managementDirty.value);
 
-async function refreshResults() { try { builds.value = await api(`/builds?problemId=${route.params.id}`); publications.value = await api(`/problems/${route.params.id}/publications`); } catch (e) { message.error((e as Error).message); } }
+async function refreshResults() { try { const rows = await api<Build[]>(`/builds?problemId=${route.params.id}`); if (selectedBuildId.value && !rows.some(b=>b.id===selectedBuildId.value)) rows.push(await api(`/builds/${selectedBuildId.value}`)); builds.value = rows; publications.value = await api(`/problems/${route.params.id}/publications`); } catch (e) { message.error((e as Error).message); } }
 async function load() { try { problem.value = await api(`/problems/${route.params.id}`); drafts.value = problem.value.documents.map((d: Draft) => ({ ...d, dirty: false, saving: false })); language.value = drafts.value.some(d => d.language === 'zh-CN') ? 'zh-CN' : drafts.value[0]?.language ?? 'zh-CN'; templates.value = await api('/templates'); assets.value = await api(`/problems/${route.params.id}/assets`); await refreshResults(); } catch (e) { message.error((e as Error).message); } }
 onMounted(async () => { window.addEventListener('beforeunload', beforeUnload); await load(); await refreshSamples(); });
 onBeforeUnmount(() => {  window.removeEventListener('beforeunload', beforeUnload); });
@@ -91,6 +91,7 @@ function insertAsset(path: string) { if (!current.value) return; current.value.c
 </script>
 <template>
   <NSpin :show="!problem"><template v-if="problem"><div class="workspace-heading"><div><div class="breadcrumb"><RouterLink to="/problems">题目</RouterLink> / 工作区</div><h1>{{ problem.title }}</h1></div><div class="toolbar-left"><NSelect v-model:value="language" :options="languages" style="width: 130px" @update:value="selectedBuildId = ''"/><NTag :bordered="false">{{ problem.role }} · 默认私有</NTag></div></div>
+  <div class="p4-toolbar spaced"><RouterLink :to="{path:'/tasks',query:{kind:'tex',problemId:String(route.params.id)}}">全部 TeX 历史</RouterLink><RouterLink v-if="problem.role!=='TRANSLATOR'" :to="{path:'/tasks',query:{kind:'judge',problemId:String(route.params.id)}}">全部 Judge 历史</RouterLink><span class="muted">工作区显示最近 50 条，完整历史可分页检索</span></div>
   <NTabs v-model:value="section" type="segment" class="workspace-sections"><NTab name="documents">题面与双题解出版</NTab><NTab v-if="problem.role!=='TRANSLATOR'" name="judge">程序、数据与验收</NTab><NTab v-if="problem.role!=='TRANSLATOR'" name="manage">组织、修订与协作</NTab></NTabs>
   <DeferredPanel v-if="problem.role!=='TRANSLATOR' && visited.has('manage')" v-show="section==='manage'" :load="loadManagement" label="组织、修订与协作" :problem="problem" :has-unsaved="unsaved" @dirty="(v: boolean)=>managementDirty=v" @metadata="(v: Record<string, unknown>)=>Object.assign(problem,v)" @restored="load();refreshSamples()"/><DeferredPanel v-if="problem.role!=='TRANSLATOR' && visited.has('judge')" :load="loadJudge" label="程序、数据与验收" :problem-id="problem.id" :writable="writable" v-show="section === 'judge'" @dirty="(v: boolean) => judgeDirty = v" @data-changed="refreshSamples"/>
   <div v-show="section === 'documents'">
