@@ -96,3 +96,5 @@ pnpm verify:p5:restore
 只有数据库和安全语义均兼容时，才可以停止应用后改回旧镜像、重新启动。P5 → P6 新增账号重置与会话语义，不能直接换回 P5 镜像绕过这些规则；应将 P5 匹配的旧备份恢复到另一个空 project，核对后再决定入口切换。恢复旧备份不会包含备份后的新数据。脚本不反向执行迁移，不覆盖来源卷，不自动切换用户入口。
 
 本项目升级定向脚本为 `pnpm verify:p7:upgrade --env .local/<演练配置>.env --label <记录名> --release .local/releases/<标识>.json`，只允许 problemforge-p7 前缀的独立实例；复用原 P5 三题/三份 PDF 证据与账号。`--p5` 校验原版恢复，`--baseline` 校验保留 P6 能力的兼容回退镜像，不冒充该基线具备后来新增的版本面板。检查只读取旧报告与产物，不创建 Judge/TeX 任务。
+
+P7 加密备份、维护结果、保留预览和容量/一致性盘点见 [MAINTENANCE](MAINTENANCE.md)。旧的 `ops backup` 明文格式继续用于受控升级演练；日常配置备份使用 `maintenance backup`。

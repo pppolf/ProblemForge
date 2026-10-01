@@ -25,8 +25,10 @@ export const config = {
   buildQuota: Number(process.env.BUILD_QUOTA ?? 6), judgeQuota: Number(process.env.JUDGE_QUOTA ?? 3),
   maxAttempts: Number(process.env.TASK_MAX_ATTEMPTS ?? 3),
   storageQuotaBytes: Number(process.env.STORAGE_QUOTA_BYTES ?? 10_000_000_000),
+  storageWarningPercent: Number(process.env.STORAGE_WARNING_PERCENT ?? 80),
 };
 for (const value of [config.leaseMs, config.buildQuota, config.judgeQuota, config.maxAttempts, config.storageQuotaBytes]) if (!Number.isSafeInteger(value) || value < 1) throw new Error('运行配额配置必须为正整数');
+if (!Number.isInteger(config.storageWarningPercent) || config.storageWarningPercent < 1 || config.storageWarningPercent > 100) throw new Error('STORAGE_WARNING_PERCENT 必须为 1—100 的整数');
 if (config.leaseMs < 10000) throw new Error('TASK_LEASE_MS 至少 10000');
 if (config.production && new URL(config.origin).protocol !== 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(new URL(config.origin).hostname)) throw new Error('生产 APP_ORIGIN 必须使用 HTTPS；仅本机演练可用 HTTP');
 export function canonical(value: unknown): string {

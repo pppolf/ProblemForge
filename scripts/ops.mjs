@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { createReadStream, createWriteStream } from 'node:fs';
+import { createReadStream, createWriteStream, unlinkSync } from 'node:fs';
 import { readFile, writeFile, mkdir, access } from 'node:fs/promises';
 import { resolve, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +20,11 @@ if(command==='init'){
 const settings=Object.fromEntries((await readFile(envPath,'utf8')).split(/\r?\n/).filter(l=>/^[A-Z_]+=/.test(l)).map(l=>{const i=l.indexOf('=');return[l.slice(0,i),l.slice(i+1)];}));
 if(!/^problemforge-[a-z0-9-]{2,40}$/.test(settings.COMPOSE_PROJECT_NAME??''))throw new Error('拒绝操作非 ProblemForge 专用 project');
 const base=['compose','--project-name',settings.COMPOSE_PROJECT_NAME,'--env-file',envPath,'-f',resolve(root,'infra/compose.prod.yml')];
+if(['up','init-admin','backup','restore','storage-check'].includes(command)) {
+ const locks=local('.local/ops-locks');await mkdir(locks,{recursive:true});const lock=resolve(locks,settings.COMPOSE_PROJECT_NAME+'.lock');
+ try{await writeFile(lock,JSON.stringify({pid:process.pid,command,startedAt:new Date().toISOString()}),{flag:'wx',mode:0o600});}catch(e){if(e.code==='EEXIST')throw new Error('该实例已有维护操作或残留锁；先核实进程/容器状态，不自动抢锁');throw e;}
+ process.on('exit',()=>{try{unlinkSync(lock);}catch{}});
+}
 const imageId=()=>{const r=spawnSync('docker',['image','inspect',settings.PF_APP_IMAGE,'--format','{{.Id}}'],{encoding:'utf8'});if(r.status!==0)throw new Error('部署镜像不可用');return r.stdout.trim();};
 function run(tail,{input,output,capture=false}={}){return new Promise((resolvePromise,reject)=>{
  const child=spawn('docker',[...base,...tail],{cwd:root,env:{...process.env,...settings},stdio:[input?'pipe':'ignore',output||capture?'pipe':'inherit','inherit']});
@@ -34,10 +39,14 @@ const tool=(script,extra=[],options={})=>run(['run','--rm','-T','--no-deps','too
 if(command==='up'){await run(['up','-d','--no-build','--wait','--wait-timeout','180']);}
 else if(command==='init-admin'){await run(['run','--rm','-T','--no-deps','-e','PF_ADMIN_EMAIL','-e','PF_ADMIN_PASSWORD','toolbox','node','--import','tsx','scripts/init-admin.ts']);}
 else if(command==='state'){await tool('scripts/ops-state.ts');}
+else if(command==='storage-check'){
+ const out=local(option('out')??`.local/maintenance/storage-${Date.now()}.json`);if(await exists(out))throw new Error('报告已存在，不覆盖');await mkdir(dirname(out),{recursive:true});
+ try{await run(['stop','api','tex-worker','judge-worker']);await tool('scripts/storage-inspect.ts',['--offline'],{output:out});console.log(`只读盘点完成：${out}`);}finally{await run(['up','-d','--no-build','api','tex-worker','judge-worker']);}
+}
 else if(command==='backup'){
  const out=local(option('out')??`.local/backups/${Date.now()}`);if(await exists(out))throw new Error('备份目录已存在，不覆盖');await mkdir(out,{recursive:true});
- await run(['stop','api','tex-worker','judge-worker']);
  try{
+  await run(['stop','api','tex-worker','judge-worker']);
   const state=JSON.parse(await tool('scripts/ops-state.ts',['--quiescent'],{capture:true}));
   await writeFile(resolve(out,'state.json'),JSON.stringify(state,null,2));
   await run(['exec','-T','postgres','pg_dump','-U','problemforge','-d','problemforge','--format=custom','--no-owner'],{output:resolve(out,'database.dump')});
@@ -67,4 +76,4 @@ else if(command==='restore'){
  if(JSON.stringify(restored)!==JSON.stringify(expected))throw new Error('恢复后清单或文件哈希不一致，应用未启动');
  await run(['up','-d','--no-build','--wait','--wait-timeout','180']);console.log('空实例恢复完成，数据库计数、迁移与全部已登记私有文件逐项验证一致。');
 }
-else throw new Error('命令：init / up / init-admin / state / backup / restore；详见 docs/DEPLOYMENT.md');
+else throw new Error('命令：init / up / init-admin / state / backup / restore / storage-check；详见 docs/DEPLOYMENT.md');
