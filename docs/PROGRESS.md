@@ -265,3 +265,15 @@ P6.1 已单独提交为 `83f40c6`，再开始本阶段。**实现：**文稿、�
 P6.2 已提交 `eaa8a26`。版本构建入口只接收当前干净提交的 Git archive，生成镜像内 Git/构建/迁移信息及外部镜像 ID 清单；运行页显示装载版本和数据库迁移一致性。新增独立演练验证脚本，读取 P5 冻结比赛、验收报告、三份 PDF，并检查 P6 接口、版本匹配及前端静态依赖。
 
 `pnpm check api web`、两个构建脚本语法检查及差异检查通过。为使发布镜像对应确定提交，本次先提交已检查的版本追踪实现；**P7.0 演练尚未完成**，随后从此提交构建并执行升级/重启/回退，再单独提交实际结果，完成前不进入 P7.1。原 P5 两实例、卷及备份未修改。
+
+## P7.0 升级与回退演练完成（2026-10-01）
+
+**实际镜像：**从干净提交 `1d35083731b4f7270c9d8566549afd7544cdfbb4` 的 Git archive 构建 `problemforge-app:p7-20261001`，镜像 ID `sha256:97db6af078f53c9cdd7ad6f666f09a5a1b20401fe1253da85e9bc7f9d59167ed`，清单 `.local/releases/p7-20261001.json`。包含完整 P6、版本面板及生产按需前端；构建类型检查通过，Monaco 大块提示仍保留。另从真实 P6.2 提交 `eaa8a26` 构建兼容回退镜像 `problemforge-app:p6-baseline-20261001`，ID `sha256:39ad845f55499d830a1f67237a59d625aa90560aebf6bdbe7b67650b6f413b57`，没有伪造旧版本代码或移动原 P5 标签。
+
+**实际路径：**新 project `problemforge-p7-upgrade`、配置 `.local/p7-upgrade.env`、5183，从原 p5-proof 匹配镜像恢复，核对数据库/文件清单一致；旧排队记录按原机制恢复，未创建新的 Judge/TeX 任务。再做独立 `.local/backups/p7-before-upgrade` 一致备份，升级至 P7 镜像，实际应用账号/历史两个迁移，重启 API/两 Worker，再切回相同十迁移及相同账号安全语义的 P6.2 镜像，最后回到 P7。升级、重启和兼容镜像回退的冻结比赛、三个验收报告和三份 PDF 哈希均通过；P6 会话/账号字段、历史连续分页、镜像 ID/提交/构建号及十个迁移校验和一致。生产入口静态依赖不含 Monaco/PDF 渲染器，Guide 分块存在且静态 JS 实际可取。
+
+对于跨 P5/P6 的结构与安全语义变化，没有直接把 P5 镜像连到新库：将升级前备份恢复到另一个空 project `problemforge-p7-old-restore`（配置 `.local/p7-old-restore.env`、5184），八迁移及文件清单一致，原账号、冻结比赛和 PDF/报告实测成功。验证后停止这个演练 project 的容器，保留全部卷和配置。原 5181/5182 两套 P5 实例及 p5-proof 未改动。
+
+证据 `.local/verify-p7-restored-p5.json`、`verify-p7-upgraded.json`、`verify-p7-restarted.json`、`verify-p7-image-rollback.json`、`verify-p7-old-backup-rollback.json`、`verify-p7-final-release.json`。最后回到 P7 时再次登录碰到正常 Redis 8 次/10 分钟限制，没有关闭或清除限流；最终通过容器镜像 ID、十迁移/81 文件哈希、无运行任务和公开健康检查确认恢复到已验收版本，不宣称该次重复登录成功。
+
+**边界与交接：**仍是本机 Docker Linux 引擎、回环入口的独立演练，不是用户暂缓的独立主机/HTTPS 或压力测试；运行面板的数据接口、生产静态文件和构建已验证，本轮未重复全部浏览器流程。5183 保持 P7 运行，5184 保留停止的旧版恢复现场。提交本阶段结果后进入 P7.1；不 push。
