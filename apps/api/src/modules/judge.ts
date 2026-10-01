@@ -2,7 +2,7 @@ import { Type } from '@sinclair/typebox';
 import { randomUUID } from 'node:crypto';
 import {
   JudgeSettingsInput, defaultJudgeSettings, ProfileInput, ProfileUpdateInput, ProgramInput, ProgramUpdateInput,
-  TestCaseInput, TestCaseUpdateInput, TestZipInput, GeneratorPlanInput, GeneratorPlanUpdateInput, ToolSelfTestInput, ToolSelfTestUpdateInput,
+  TestCaseInput, TestCaseUpdateInput, TestZipInput, GeneratorPlanInput, GeneratorPlanUpdateInput, ToolSelfTestInput, ToolSelfTestUpdateInput, generatorPlanCommands, generatorPlanProgramIds,
   type ProgramSave, type GeneratorPlanSave, type ToolSelfTestSave, type JudgeSettingsValue, type TestGroupsValue,
 } from '@problemforge/contracts';
 import { db, Prisma } from '@problemforge/database';
@@ -39,9 +39,9 @@ async function testView(id: string) {
   return { ...view, duplicates };
 }
 async function checkPlan(problemId: string, data: GeneratorPlanSave) {
-  const program = await db.program.findUnique({ where: { id: data.programId } });
-  if (!program || program.problemId !== problemId || program.role !== 'GENERATOR') throw new HttpError(422, '生成计划必须选择本题的生成器');
-  if (data.numberStart + data.count - 1 > 100000) throw new HttpError(422, '生成编号超过范围');
+  try { generatorPlanCommands(data); } catch (error) { throw new HttpError(422, (error as Error).message); }
+  const ids = generatorPlanProgramIds(data);
+  if (await db.program.count({ where: { id: { in: ids }, problemId, role: 'GENERATOR' } }) !== ids.length) throw new HttpError(422, '生成计划的每条命令必须引用本题的生成器');
 }
 async function selfTestData(problemId: string, data: ToolSelfTestSave) {
   if (data.programId) {

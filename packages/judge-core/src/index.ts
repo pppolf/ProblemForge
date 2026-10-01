@@ -2,6 +2,7 @@ import type { JudgePurpose, JudgeSettingsValue, ProfileConfigValue, ProgramLangu
 import type { SandboxResult } from '@problemforge/judge-adapter';
 
 export const JUDGE_POLICY = 'problemforge-judge-v1';
+export const GENERATOR_COMMAND_POLICY = 'problemforge-judge-command-lines-v1';
 export { interactionVerdict, INTERACTION_POLICY } from './interaction.ts';
 export { scoreGroups, scoreExpectation, groupOrder, GroupError, type ScoreReport, type GroupScore } from './scoring.ts';
 export const TESTLIB_COMMIT = '68f9f300b6abebec82d2a68d8ca04394f2664fb6';

@@ -1,8 +1,8 @@
 import { db, Prisma } from '@problemforge/database';
-import { defaultJudgeSettings, defaultInteractionSettings, type JudgePurpose, type JudgeSettingsValue, type GeneratorPlanSave, type StressConfigValue, type TestGroupsValue } from '@problemforge/contracts';
+import { defaultJudgeSettings, defaultInteractionSettings, generatorPlanCommands, generatorPlanProgramIds, type JudgePurpose, type JudgeSettingsValue, type GeneratorPlanSave, type StressConfigValue, type TestGroupsValue } from '@problemforge/contracts';
 import { hashObject, HttpError } from '@problemforge/domain';
 import { GO_JUDGE_VERSION } from '@problemforge/judge-adapter';
-import { JUDGE_POLICY, JUDGE_TOOLCHAIN, INTERACTION_POLICY, groupOrder, GroupError, solutionRoles, type JudgeSnapshot, type ProgramSnapshot, type CaseSnapshot, type SelfTestSnapshot, type ProfileSnapshot } from '@problemforge/judge-core';
+import { JUDGE_POLICY, GENERATOR_COMMAND_POLICY, JUDGE_TOOLCHAIN, INTERACTION_POLICY, groupOrder, GroupError, solutionRoles, type JudgeSnapshot, type ProgramSnapshot, type CaseSnapshot, type SelfTestSnapshot, type ProfileSnapshot } from '@problemforge/judge-core';
 
 export async function judgeSnapshot(tx: Prisma.TransactionClient, problemId: string, purpose: JudgePurpose, programId?: string, budgetMs = 300000): Promise<JudgeSnapshot> {
   const problem = await tx.problem.findUniqueOrThrow({ where: { id: problemId } });
@@ -25,7 +25,7 @@ export async function judgeSnapshot(tx: Prisma.TransactionClient, problemId: str
     if (['STRESS', 'REPLAY'].includes(purpose)) return !!stressData && ([stressData.generatorId, stressData.referenceId, stressData.candidateId, stressData.checkerId].includes(p.id) || (p.enabled && (p.role === 'VALIDATOR' || p.role === 'EXTRA_VALIDATOR' && (p.validatorScope !== 'GROUPS' || extraIds.has(p.id)))));
     if (purpose === 'COMPILE') return p.id === programId;
     if (selfTests.some(s => s.programId === p.id)) return true;
-    if (p.role === 'GENERATOR') return plans.some(plan => plan.programId === p.id);
+    if (p.role === 'GENERATOR') return plans.some(plan => generatorPlanProgramIds(plan.data as GeneratorPlanSave).includes(p.id));
     if (!p.enabled) return false;
     if (['VALIDATOR', 'EXTRA_VALIDATOR'].includes(p.role)) return ['VALIDATE', 'ANSWERS', 'ACCEPTANCE'].includes(purpose) && (p.validatorScope !== 'GROUPS' || extraIds.has(p.id));
     if (p.role === 'INTERACTOR') return settings.interactionMode === 'INTERACTIVE' && ['ANSWERS', 'ACCEPTANCE'].includes(purpose);
@@ -49,7 +49,7 @@ export async function judgeSnapshot(tx: Prisma.TransactionClient, problemId: str
   if (['ANSWERS', 'ACCEPTANCE', 'STRESS', 'REPLAY'].includes(purpose)) Object.assign(scopedSettings, settings);
   else if (purpose === 'SELF_TEST') Object.assign(scopedSettings, { checkerMode: settings.checkerMode, absoluteTolerance: settings.absoluteTolerance, relativeTolerance: settings.relativeTolerance });
   return {
-    problemId, purpose, ...(programId ? { programId } : {}), budgetMs: stressData?.budgetMs ?? budgetMs, policy: JUDGE_POLICY, toolchain: JUDGE_TOOLCHAIN, sandboxVersion: GO_JUDGE_VERSION,
+    problemId, purpose, ...(programId ? { programId } : {}), budgetMs: stressData?.budgetMs ?? budgetMs, policy: plans.some(plan => (plan.data as GeneratorPlanSave).commands !== undefined) ? GENERATOR_COMMAND_POLICY : JUDGE_POLICY, toolchain: JUDGE_TOOLCHAIN, sandboxVersion: GO_JUDGE_VERSION,
     ...(stress ? { stress: { version: stress.version, hash: stress.hash, data: stressData! } } : {}),
     ...(groupConfig && !stressData ? { groups: { version: groupConfig.version, hash: groupConfig.hash, data: groupData! } } : {}),
     ...(stressGroups ? { stressGroups } : {}),
@@ -91,8 +91,11 @@ export function validateJudgeSnapshot(input: JudgeSnapshot) {
   }
   if (input.purpose === 'GENERATE' && !input.plans.length) throw new HttpError(422, '没有启用的生成计划');
   for (const plan of input.plans) {
-    const generator = input.programs.find(p => p.id === plan.programId);
-    if (!generator || !generator.enabled || generator.role !== 'GENERATOR') throw new HttpError(422, `生成计划 ${plan.name} 的生成器不可用`);
+    try { generatorPlanCommands(plan); } catch (error) { throw new HttpError(422, `${plan.name}：${(error as Error).message}`); }
+    for (const id of generatorPlanProgramIds(plan)) {
+      const generator = input.programs.find(p => p.id === id);
+      if (!generator || !generator.enabled || generator.role !== 'GENERATOR') throw new HttpError(422, `生成计划 ${plan.name} 的生成器不可用`);
+    }
   }
   if (['ANSWERS', 'SELF_TEST', 'ACCEPTANCE'].includes(input.purpose) && input.settings.checkerMode === 'CUSTOM' && input.programs.filter(p => p.role === 'CHECKER' && p.enabled).length > 1) throw new HttpError(422, '只能启用一个判题 Checker');
   if (['ANSWERS', 'ACCEPTANCE'].includes(input.purpose) && !(input.settings.interactionMode === 'INTERACTIVE' && (input.settings.interaction?.verdictMode ?? 'DIRECT') === 'DIRECT') && input.settings.checkerMode === 'CUSTOM' && !input.programs.some(p => p.role === 'CHECKER' && p.enabled)) throw new HttpError(422, '自定义比较需要启用 testlib Checker');

@@ -75,10 +75,14 @@ export const TestGroupsUpdateInput = Type.Object({ expectedVersion: Type.Integer
 export type TestGroupsValue = Static<typeof TestGroupsInput>;
 export type ScoreExpectation = NonNullable<ProgramSave['expectedScore']>;
 export const TestZipInput = Type.Object({ base64: Type.String({ minLength: 1, maxLength: 11_200_000, pattern: '^[A-Za-z0-9+/]+={0,2}$' }), groupName: testProperties.groupName }, strict);
+const generatorArgv = Type.Array(Type.String({ maxLength: 512, pattern: '^[^\u0000\r\n]*$' }), { maxItems: 32 });
+const generatorSeed = Type.String({ pattern: '^-?[0-9]{1,18}$' });
+export const GeneratorCommandInput = Type.Object({ argv: generatorArgv, seed: generatorSeed, programId: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })) }, strict);
+export type GeneratorCommand = Static<typeof GeneratorCommandInput>;
 const planProperties = {
   name: programProperties.name, programId: Type.String({ minLength: 1, maxLength: 80 }), enabled: Type.Boolean(),
-  argv: Type.Array(Type.String({ maxLength: 512, pattern: '^[^\u0000\r\n]*$' }), { maxItems: 32 }),
-  seed: Type.String({ pattern: '^-?[0-9]{1,18}$' }), count: Type.Integer({ minimum: 1, maximum: 100 }),
+  argv: generatorArgv, seed: generatorSeed, count: Type.Integer({ minimum: 1, maximum: 100 }),
+  commands: Type.Optional(Type.Array(GeneratorCommandInput, { minItems: 1, maxItems: 100 })),
   numberStart: testProperties.number, groupName: testProperties.groupName, isSample: Type.Boolean(),
 };
 export const GeneratorPlanInput = Type.Object(planProperties, strict);

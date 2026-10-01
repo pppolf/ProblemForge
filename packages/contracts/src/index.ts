@@ -1,5 +1,6 @@
 import { Type, type Static } from '@sinclair/typebox';
 export * from './judge.ts';
+export * from './generator-plan.ts';
 export * from './collaboration.ts';
 export * from './manifest.ts';
 

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@problemforge/database';
-import type { ProblemManifest, ManifestTest } from '@problemforge/contracts';
+import { remapGeneratorPlanPrograms, type ProblemManifest, type ManifestTest } from '@problemforge/contracts';
 import { hashObject, sha256, HttpError } from '@problemforge/domain';
 import { appendTest } from './judge-data.ts';
 import { storage } from '../app.ts';
@@ -66,7 +66,7 @@ export async function restoreManifest(tx:Prisma.TransactionClient,problemId:stri
   }
   // These structured plans have their own version histories; no shell is imported.
   const oldPlans=await tx.generatorPlan.findMany({where:{problemId}});
-  for(const g of m.plans){const {id,version,...value}=g;const data={...value,programId:programIds.get(g.programId)!};if(!data.programId)throw new HttpError(422,'生成计划缺少程序');const hash=hashObject(data);const old=copy?undefined:oldPlans.find(o=>o.id===id);
+  for(const g of m.plans){const {id,version,...value}=g;const data=remapGeneratorPlanPrograms(value,programIds);if(!data.programId)throw new HttpError(422,'生成计划缺少程序');const hash=hashObject(data);const old=copy?undefined:oldPlans.find(o=>o.id===id);
     const saved=old?await tx.generatorPlan.update({where:{id:old.id},data:{programId:data.programId,name:data.name,enabled:data.enabled,version:{increment:1},data,hash}}):await tx.generatorPlan.create({data:{problemId,programId:data.programId,name:data.name,enabled:data.enabled,data,hash}});
     await tx.generatorPlanRevision.create({data:{planId:saved.id,version:saved.version,data,hash}});
   }

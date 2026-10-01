@@ -1,8 +1,8 @@
 import { db, Prisma } from '@problemforge/database';
 import { hashObject, sha256 } from '@problemforge/domain';
 import { GO_JUDGE_VERSION } from '@problemforge/judge-adapter';
-import { JUDGE_POLICY, JUDGE_TOOLCHAIN, INTERACTION_POLICY, scoreGroups, scoreExpectation, type ScoreReport, checkExpectation, compareOutput, solutionRoles, type JudgeSnapshot, type ProgramSnapshot, type BlobRef } from '@problemforge/judge-core';
-import { defaultJudgeSettings, type JudgeSettingsValue } from '@problemforge/contracts';
+import { JUDGE_POLICY, GENERATOR_COMMAND_POLICY, JUDGE_TOOLCHAIN, INTERACTION_POLICY, scoreGroups, scoreExpectation, type ScoreReport, checkExpectation, compareOutput, solutionRoles, type JudgeSnapshot, type ProgramSnapshot, type BlobRef } from '@problemforge/judge-core';
+import { defaultJudgeSettings, generatorPlanCommands, type JudgeSettingsValue } from '@problemforge/contracts';
 import { Executor, JudgeFailure, type Captured, type Compiled } from './executor.ts';
 import { stressPipeline } from './stress.ts';
 
@@ -18,7 +18,8 @@ export type Report = {
 };
 export async function pipeline(runId: string, input: JudgeSnapshot, executor: Executor, report: Report) {
   const settings = { ...defaultJudgeSettings, ...input.settings } as JudgeSettingsValue;
-  if (input.policy !== JUDGE_POLICY || input.toolchain !== JUDGE_TOOLCHAIN || input.sandboxVersion !== GO_JUDGE_VERSION) throw new JudgeFailure('TOOLCHAIN_MISMATCH', '任务策略/工具链已改变，请创建新任务');
+  const policy = input.plans.some(plan => plan.commands !== undefined) ? GENERATOR_COMMAND_POLICY : JUDGE_POLICY;
+  if (input.policy !== policy || input.toolchain !== JUDGE_TOOLCHAIN || input.sandboxVersion !== GO_JUDGE_VERSION) throw new JudgeFailure('TOOLCHAIN_MISMATCH', '任务策略/工具链已改变，请创建新任务');
   if (settings.interactionMode === 'INTERACTIVE' && input.interactionPolicy !== INTERACTION_POLICY) throw new JudgeFailure('INTERACTION_POLICY_MISMATCH', '交互策略已改变，请创建新任务');
   for (const p of input.programs) if (sha256(p.source) !== p.sourceHash || hashObject({ language: p.profile.language, config: p.profile.config }) !== p.profile.hash) throw new JudgeFailure('SOURCE_HASH_MISMATCH', '源码或编译 profile 快照哈希不匹配');
   const compiled = new Map<string, Compiled>(), failedCompile = new Map<string, Captured>();
@@ -77,18 +78,18 @@ export async function pipeline(runId: string, input: JudgeSnapshot, executor: Ex
     await executor.progress({ data: { completed: { increment: 1 }, stage: `收集输入 #${t.number}` } });
   }
   for (const plan of input.plans) {
-    const generator = compiled.get(plan.programId);
-    if (!generator) throw new JudgeFailure('GENERATOR_UNAVAILABLE', `生成器 ${plan.name} 不可用`);
-    for (let i = 0; i < plan.count; i++) {
-      const seed = (BigInt(plan.seed) + BigInt(i)).toString(), ref = `plan:${plan.id}:v${plan.version}:${i}`, number = plan.numberStart + i;
-      const execution = await executor.generate(generator, plan.argv, seed, ref);
+    for (const [i, command] of generatorPlanCommands(plan).entries()) {
+      const generator = compiled.get(command.programId ?? plan.programId);
+      if (!generator) throw new JudgeFailure('GENERATOR_UNAVAILABLE', `生成器 ${plan.name} 不可用`);
+      const { argv, seed } = command, ref = `plan:${plan.id}:v${plan.version}:${i}`, number = plan.numberStart + i;
+      const execution = await executor.generate(generator, argv, seed, ref);
       if (execution.verdict !== 'AC' || !execution.outputRef) throw new JudgeFailure('GENERATOR_FAILED', `${plan.name} seed=${seed}: ${execution.verdict}\n${execution.diagnostic}`);
       const blob = execution.outputRef;
       const c = await db.runCase.create({ data: { runId, ref, number, groupName: plan.groupName, isSample: plan.isSample, inputKey: blob.key, inputHash: blob.hash, inputBytes: blob.bytes,
-        origin: { type: 'GENERATOR', planId: plan.id, planVersion: plan.version, generatorRevisionId: generator.program.revisionId, profileHash: generator.program.profile.hash, argv: plan.argv, seed, invocationId: execution.id } } });
+        origin: { type: 'GENERATOR', planId: plan.id, planVersion: plan.version, generatorRevisionId: generator.program.revisionId, profileHash: generator.program.profile.hash, argv, seed, invocationId: execution.id } } });
       caseData.push({ ref, id: c.id, number, groupName: plan.groupName, input: execution.output!, suppliedAnswer: null }); duplicates(blob.hash, number, ref);
       if (i === 0) {
-        const repeated = await executor.generate(generator, plan.argv, seed, ref, true);
+        const repeated = await executor.generate(generator, argv, seed, ref, true);
         if (repeated.verdict !== 'AC') throw new JudgeFailure('GENERATOR_FAILED', `${plan.name} 重复生成失败：${repeated.verdict}`);
         if (repeated.outputRef?.hash !== blob.hash) report.warnings.push(`生成器 ${plan.name} 在相同 argv / seed=${seed} 下产生不同输入；本任务保留第一次输入，不承诺确定性`);
       }

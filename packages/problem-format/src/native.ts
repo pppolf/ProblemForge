@@ -1,7 +1,7 @@
 import {createHash}from'node:crypto';
 import {Type,type TSchema}from'@sinclair/typebox';
 import {Value}from'@sinclair/typebox/value';
-import {ProgramInput,GeneratorPlanInput,ToolSelfTestInput,ProfileConfig,JudgeSettings,TestGroupsInput,StressConfigInput,DocumentInput,Language,defaultJudgeSettings,type ProblemManifest,type StoredBlob}from'@problemforge/contracts';
+import {ProgramInput,GeneratorPlanInput,ToolSelfTestInput,ProfileConfig,JudgeSettings,TestGroupsInput,StressConfigInput,DocumentInput,Language,defaultJudgeSettings,generatorPlanCommands,generatorPlanProgramIds,type ProblemManifest,type StoredBlob}from'@problemforge/contracts';
 import {PackageError,safePath}from'./archive.ts';import type{Exporter,Purpose,Issue,ImportResult}from'./types.ts';
 export const digest=(bytes:Buffer|string)=>createHash('sha256').update(bytes).digest('hex');
 const strict={additionalProperties:false}, id=Type.String({minLength:1,maxLength:80}),hash=Type.String({pattern:'^[a-f0-9]{64}$'}),version=Type.Integer({minimum:1});
@@ -28,7 +28,7 @@ export function validateManifest(m:unknown):asserts m is ProblemManifest{
  for(const d of v.documents)if(d.sampleRevisionIds.some(id=>!tests.has(id)))throw new PackageError('样例引用不存在');
  for(const p of v.programs){if(digest(p.source)!==p.sourceHash)throw new PackageError('程序源码哈希不匹配');if(['MAIN_SOLUTION','CORRECT_SOLUTION'].includes(p.role)&&p.expectedVerdicts.join()!=='AC'||p.role==='TIME_LIMIT_SOLUTION'&&p.expectedVerdicts.join()!=='TLE'||p.role==='WRONG_SOLUTION'&&p.expectedVerdicts.includes('AC'))throw new PackageError('解法角色与预期判定冲突');if(p.expectedScore)for(const range of [...p.expectedScore.groups,...(p.expectedScore.total?[p.expectedScore.total]:[])])if(range.min>range.max||[range.min,range.max].some(v=>Math.abs(v*1000-Math.round(v*1000))>1e-7))throw new PackageError('分数范围必须递增且精确到 0.001 分');}
  const role=(id:string,allowed:string[])=>{if(!v.programs.some(p=>p.id===id&&allowed.includes(p.role)))throw new PackageError('配置引用的程序缺失或角色错误');};
- for(const p of v.plans)role(p.programId,['GENERATOR']);for(const s of v.selfTests)if(s.programId)role(s.programId,s.kind==='CHECKER'?['CHECKER']:['VALIDATOR','EXTRA_VALIDATOR']);
+ for(const p of v.plans){for(const id of generatorPlanProgramIds(p))role(id,['GENERATOR']);try{generatorPlanCommands(p);}catch(error){throw new PackageError(`生成计划 ${p.name}：${(error as Error).message}`);}}for(const s of v.selfTests)if(s.programId)role(s.programId,s.kind==='CHECKER'?['CHECKER']:['VALIDATOR','EXTRA_VALIDATOR']);
  for(const g of v.groups?.groups??[]){for(const t of g.members)if(!v.tests.some(v=>v.id===t.testId&&v.revisionId===t.revisionId&&v.enabled))throw new PackageError('分组成员不匹配当前启用测试');for(const id of g.extraValidatorIds)role(id,['EXTRA_VALIDATOR']);}
  if(v.stress){role(v.stress.generatorId,['GENERATOR']);role(v.stress.referenceId,['MAIN_SOLUTION','CORRECT_SOLUTION','BRUTE_FORCE']);role(v.stress.candidateId,['MAIN_SOLUTION','CORRECT_SOLUTION','BRUTE_FORCE','WRONG_SOLUTION','TIME_LIMIT_SOLUTION']);if(v.stress.checkerId)role(v.stress.checkerId,['CHECKER']);}
  for(const b of blobs(v))safePath(b.key);for(const a of v.assets)safePath(a.path);
