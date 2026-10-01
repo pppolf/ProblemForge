@@ -304,9 +304,9 @@ P7.1 真实演练中发现并修正：导入隔离报告保留原 ZIP 的 `blobs
 
 P6.0—P6.2、P7.0—P7.1 本轮范围完成。按用户明确要求，P7.2 独立 Linux/HTTPS、P8.0 真实 Polygon 样包、P8.1 代表规模验证继续暂缓；未创建定时任务或外部备份/通知连接。容量历史为新增登记量，盘点是停写全量只读检查，不是在线 GC 或压力测试；跨主机维护锁、断电后自动清理等未宣称已实现。操作和密钥保管见 MAINTENANCE，阶段证据与浏览器限制按本文保留。
 
-## 手动测试准备：容器清理与详细使用说明（2026-10-01）
+## 手动测试准备：容器清理与详细使用说明（2026-10-01，入口选择已更正）
 
-用户要求清理测试容器并准备自行测试。本节入口/容器状态取代上节演练后的运行清单，既有阶段证据仍保留。
+用户要求清理测试容器并准备自行测试。本节当时错误地将恢复演练实例推荐为用户测试入口，已由下一节撤销和更正；以下保留实际操作历史，当前入口以下一节为准。
 
 **实际清理：**先按本项目精确 Compose project 标签盘点容器与卷，核对配置路径；4 个运行中的部署 API 均无 QUEUED/RUNNING Build 或 TestRun。依次对 `problemforge-p5`、`problemforge-p5-restore`、`problemforge-p7-old-restore`、`problemforge-p71-encrypted-restore`、`problemforge-p71-final-restore` 执行各自配置的 Compose down，移除 45 个重复演练容器及对应网络；再移除主测试实例已成功退出的 migrate/storage-init 两个一次性容器。共从 58 个容器减到 11 个，前后核对本项目 20 个命名卷完全一致。没有使用 down -v、prune 或镜像清理；数据库/私有文件/Redis 卷、配置、镜像、备份和加密密钥全部保留，未操作其他项目。
 
@@ -317,3 +317,17 @@ P6.0—P6.2、P7.0—P7.1 本轮范围完成。按用户明确要求，P7.2 独�
 **实际验证：**清理后以管理员及示例出题人分别登录成功，读取题目、比赛、模板、profile 与运行管理后退出新建核对会话。运行管理状态 ok、版本/十迁移一致；5183、5180 网页和 3100 健康接口 HTTP 200。主测试 API/两 Worker/DB/Redis 健康，沙箱可用；ops-state 核对十迁移校验和及 81 个私有文件（2,494,083 字节）全部通过，inventoryHash 为 `fc5c4a0d6dca5be3412c26b4a235bc22b364e5c37a26978fc879298cc2d18388`。保留 2 用户、8 题、1 比赛、6 Build、10 TestRun、6 Artifact，与清理前业务基线一致。详细证据 `.local/manual-test-cleanup.json`、`manual-test-entry.json`、`manual-test-storage-state.json`，均未包含密码。
 
 **验证边界：**本轮为容器清理和文档交付，不修改业务代码或示例内容，不启动新 Judge/TeX，不重跑全量/E2E。手册 A+B 和末尾勾选项是交给用户实际操作的教程，不记作本轮已执行验收。既有浏览器验证限制及 P7.2/P8 暂缓项保持原记录。文档差异检查通过，凭据和清理证据仍被 Git 忽略；本阶段单独本地提交，不 push。
+
+## 更正测试入口：恢复主目录开发版的使用指引（2026-10-01）
+
+**用户明确要求：**在原正式开发版测试，保留之前的题面/题解模板，不得擅自新开端口。上一提交 `9d223f5` 将用户引向 5183 恢复演练数据库是代理判断错误，导致用户看不到原开发库内容。5180 原服务一直运行，原数据库、模板和私有文件未删除或替换；不是需要从演练备份恢复数据的故障。
+
+**当前唯一日常入口：**`http://localhost:5180`，工作目录 `D:\project\ProblemForge`，API `127.0.0.1:3100`，配置 `.env`，数据库 `problemforge_f054`，Redis DB 1，私有文件 `.local/p3-storage`。原 Vite/API/Judge/TeX 主目录进程重新核对为 2156/48816/64348/12500，未重启或替换。运行管理版本为 `development`，不是演练镜像版本号。后续仍应核对进程实际命令，不盲用历史 PID。
+
+**已移除最后一套演练：**精确核对 project 标签、配置路径以及无 QUEUED/RUNNING 任务后，对 `problemforge-p7-upgrade` 执行不带 -v 的 Compose down，移除剩余 7 个容器及两个网络。项目现在只保留原 `problemforge` 的 postgres、redis、tex-sandbox、judge-sandbox 4 个基础容器；5181—5186 均不再监听。前后核对原清单 20 个命名卷仍存在；镜像、备份、配置和主目录私有文件保留，没有新增端口/实例，没有操作其他项目。
+
+**原模板实际核对：**通过 5180 的代理接口，以原管理员和原 P2 出题人登录成功；管理员模板目录与普通用户已发布模板列表均可读取，6 套模板共 7 个 PUBLISHED 版本的文件哈希全部一致：CWNU 比赛题面 v1/v2、简洁蓝色题面 v1、经典书面题解 v1、蓝色书面题解 v1、CWNU 讲解 · 4:3 v1、宽屏讲解 · 16:9 v1。未重新初始化模板或更改任何版本。原出题人可见 22 道题、2 场比赛，「ProblemForge 三题示例赛」当前冻结 #4 和原分组求和示例可读取。
+
+**已纠正文档与账号：**USER_GUIDE 全部改为原 5180、原开发账号、原示例地址、原六套模板及开发进程启动方式；撤掉演练镜像启动/备份指令，避免再次连接另一套库。`.local/manual-test-access.txt` 改为汇总原 `.local/bootstrap-admin.txt`（admin-f054@problemforge.local）和 `.local/verify-p2-fixture.json` 的账号，未创建账号或重置密码。README、PLAN 和 AGENTS 明确固定主目录现有入口、原开发数据与模板，不擅自新增端口或拿演练实例替代用户开发环境。历史部署证据保留，前一条错误入口建议显式标注为已撤销。
+
+**验证与边界：**5180 网页及经其代理的 /api/health 均 HTTP 200，运行管理 status ok，开发 Build/TestRun 活动数 0/0；5181—5186 逐项确认不可访问。凭据和证据文件保持 Git 忽略，文档链接、代码框、无密码泄漏及 git diff --check 通过。证据 `.local/main-development-check.json`、`main-development-cleanup.json`、`main-development-after-cleanup.json`。本轮没有运行新 Judge/TeX、修改题目/模板/配置、重跑全量或进行备份恢复；既有未测项和 P7.2/P8 暂缓保持原记录。更正单独本地提交，不 push。

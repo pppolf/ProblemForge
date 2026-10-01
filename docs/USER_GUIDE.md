@@ -1,25 +1,26 @@
 # ProblemForge 详细使用说明
 
-本说明面向本机手动测试，入口和已有数据于 **2026-10-01** 核对。网页侧栏「使用指引」提供流程简版。首次使用可先看第 1—3 节，再按第 4—7 节完成自己的题目和比赛。
+本说明面向 **`D:\project\ProblemForge` 主目录的正式开发版**，入口和原有模板于 **2026-10-01** 重新核对。此前指向 5183 恢复演练实例的说明有误，已全部更正；日常开发和手动测试统一使用原来的 5180。网页侧栏「使用指引」提供流程简版。
 
 ## 1. 当前测试环境与登录
 
 ### 1.1 使用哪个地址
 
-**请使用 [http://localhost:5183](http://localhost:5183)。** 当前已经启动，打开浏览器即可测试。
+**请使用原来的 [http://localhost:5180](http://localhost:5180)。** 主目录开发服务正在运行，打开浏览器即可测试。
 
 | 项目 | 当前值 |
 | --- | --- |
-| 应用版本 | `p71-20261001-r2`，代码提交 `0537583` |
-| Compose project | `problemforge-p7-upgrade` |
-| 启动配置 | `D:\project\ProblemForge\.local\p7-upgrade.env` |
-| 常驻容器 | API/网页、PostgreSQL、Redis、TeX Worker、Judge Worker、两个 Linux 沙箱，共 7 个 |
-| 已有内容 | 8 道历史测试题、1 场比赛、3 类已发布模板；首次体验请选择第 3 节的 A/B/C 示例 |
-| 开发入口 | `http://localhost:5180`，使用另一套开发数据库；本说明以 5183 为准 |
+| 代码 | 主目录当前工作代码，运行管理显示 `development` |
+| 网页 / API | `localhost:5180` / `127.0.0.1:3100`，网页通过代理访问 API |
+| 配置 | `D:\project\ProblemForge\.env` |
+| 数据库 / 私有文件 | `problemforge_f054` / `D:\project\ProblemForge\.local\p3-storage` |
+| Compose project | `problemforge`，配置 `infra/compose.dev.yml` |
+| 常驻容器 | PostgreSQL、Redis、TeX 沙箱、Judge 沙箱，共 4 个；网页、API、两个 Worker 由主目录 Node 进程运行 |
+| 原有模板 | 6 套模板、7 个已发布版本，见第 4 节；原题目、比赛和任务仍保留 |
 
-旧演练入口 5181、5182、5184、5185、5186 的容器已经移除，数据卷、配置、镜像和备份保留。5180 开发服务仍在主目录运行，因此另保留 `problemforge` project 的 4 个基础容器；本项目当前合计 11 个容器。
+5181—5186 的部署/恢复演练容器已全部移除，相关数据卷、配置、镜像和备份保留。原开发数据库和模板未删除、未替换，不需要重新初始化、重新导入或恢复。
 
-浏览器固定使用 `localhost:5183`，与服务 Origin 配置保持一致。同一浏览器配置中的 Cookie 不按端口隔离，交替登录 5180/5183 可能互相替换会话。比较两个环境或两个账号时，使用独立浏览器配置或普通窗口与隐私窗口。
+浏览器固定使用 `localhost:5180`，与服务 Origin 保持一致。如果之前登录过 5183，回到 5180 后重新使用原开发账号登录；Cookie 不按端口隔离，之前的演练登录可能替换了浏览器会话。测试两个账号时使用普通窗口与隐私窗口。
 
 ### 1.2 账号在哪里
 
@@ -27,14 +28,14 @@
 
 | 账号 | 用途 | 原始凭据位置 |
 | --- | --- | --- |
-| 系统管理员 `admin@problemforge.local` | 用户、模板、编译配置、用户组和运行管理 | `.local/p5-prod.env` 的 `PF_ADMIN_EMAIL`、`PF_ADMIN_PASSWORD` |
-| 部署演练出题人 | 既有示例题/比赛、复制示例、编写和验收新题 | `.local/p5-deployment/author.json` 的 `email`、`password` |
+| 原系统管理员 `admin-f054@problemforge.local` | 原模板、用户、编译配置、用户组和运行管理 | `.local/bootstrap-admin.txt` 的「邮箱」「密码」 |
+| 原开发出题人「P2 出题人」 | 既有开发示例题/比赛、复制示例、编写和验收新题 | `.local/verify-p2-fixture.json` 的 `authorEmail`、`authorPassword` |
 
-5183 从原数据库恢复并升级，仍沿用原账号。**不要把 `.local/p7-upgrade.env` 中的初始化管理员密码当作当前登录密码。** `.local/bootstrap-admin.txt` 属于 5180 开发环境。
+`manual-test-access.txt` 已改为以上原开发账号。没有创建新账号或重置密码。不要再使用此前说明中的部署演练账号。
 
 凭据文件在 Git 忽略目录中，手册不写入密码。修改密码后，本地文件不会自动更新。连续登录触发限流时稍后重试，不反复点击登录。
 
-第一次建议用「部署演练出题人」。若要用自己的账号，管理员先在「用户管理」创建普通用户，再由示例题负责人通过「成员与权限」授权；新用户默认不会看到别人的私有题目。
+查看原模板请用原管理员打开 [模板中心](http://localhost:5180/admin/templates)；出题流程可用原开发出题人。若要用新账号，管理员创建普通用户后由题目负责人授权；新用户默认不会看到别人的私有题目。
 
 ### 1.3 启动、停止和查看状态
 
@@ -44,33 +45,39 @@
 Set-Location D:\project\ProblemForge
 ```
 
-重新启动已有实例：
+**当前无需重新启动。** 完整关机后需要重新启动时，先恢复原有 4 个基础服务：
 
 ```powershell
-pnpm ops up --env .local/p7-upgrade.env
+docker compose --env-file .env -f infra/compose.dev.yml up -d --no-build
 ```
 
-命令使用现有镜像和数据卷。初始化任务成功后，`migrate` / `storage-init` 显示 `Exited (0)` 是正常现象，不需要重复初始化管理员或导入数据。
+确认主目录的网页/API/Worker 都已停止后，在项目终端启动开发进程：
+
+```powershell
+pnpm dev
+```
+
+网页固定为 5180，API 为 3100。已有进程运行时不要重复执行 `pnpm dev`；端口被占用应查明原进程，不改用新端口。不要覆盖 `.env`，不要重复初始化管理员或示例模板。
 
 查看容器：
 
 ```powershell
-docker compose --env-file .local/p7-upgrade.env -f infra/compose.prod.yml ps
+docker compose --env-file .env -f infra/compose.dev.yml ps
 ```
 
-测试结束后，先确认任务中心没有排队/运行任务，再停止本套环境：
+正常测试完可以保留开发服务。需要完整停机时，先确认无活动任务，在自己运行 `pnpm dev` 的终端按 Ctrl+C 停止应用进程，再停止基础服务：
 
 ```powershell
-docker compose --env-file .local/p7-upgrade.env -f infra/compose.prod.yml stop
+docker compose --env-file .env -f infra/compose.dev.yml stop
 ```
 
-查看最近日志：
+查看容器基础服务日志：
 
 ```powershell
-docker compose --env-file .local/p7-upgrade.env -f infra/compose.prod.yml logs --tail 100 api tex-worker judge-worker
+docker compose --env-file .env -f infra/compose.dev.yml logs --tail 100 postgres redis tex-sandbox judge-sandbox
 ```
 
-日常停机用 `stop` 即可。`down -v` 会删除命名卷中的数据库与私有文件，不用于本次测试的日常清理。
+API/Worker 日志在启动终端；当前后台进程的日志是 `.local/p6-api.out.log`、`p6-judge.out.log`、`p6-tex.out.log` 及对应 `.err.log`，网页日志为 `.local/web-load-dev.out.log` / `.err.log`。不要盲用旧 PID 停止进程。`down -v` 会删除数据库等命名卷，不用于日常清理；私有文件目录 `.local/p3-storage` 也必须保留。
 
 ## 2. 页面和角色分工
 
@@ -96,19 +103,19 @@ docker compose --env-file .local/p7-upgrade.env -f infra/compose.prod.yml logs -
 
 ## 3. 先体验已有示例
 
-使用部署演练出题人登录后，搜索「部署演练」或直接打开：
+使用原开发出题人登录后，搜索「分组」或直接打开：
 
-- [部署演练 · A](http://localhost:5183/problems/cmuowveue001cnq07c1py7vb6)
-- [部署演练 · B](http://localhost:5183/problems/cmuowvkr5003rnq07uedw5sem)
-- [部署演练 · C](http://localhost:5183/problems/cmuowvqnv005unq073dmt6zti)
-- [P5 Linux 部署演练赛](http://localhost:5183/contests/cmuowvtou007unq07ome47k89)
+- [浏览器导入 · 分组求和](http://localhost:5180/problems/cmuoidkui0002kt6cjolfphqy)
+- [分组求和](http://localhost:5180/problems/cmuogzz72000wktjkait0e8a1)
+- [原生往返 · 分组求和](http://localhost:5180/problems/cmuoi2yau0005ktdofwhhym3u)
+- [ProblemForge 三题示例赛](http://localhost:5180/contests/cmuoh0dm7006bktjk0bgeq57w)
 
-名称中的「P5」是历史示例名称，运行程序已经是 P7.1 版本。其余「Worker 中断与 Redis 丢失演练」题用于故障验证，不作为第一次出题的教程。
+这些地址对应原开发库中的题目与比赛。各题修订和任务历史不同，先查看已有记录；要修改可以复制为自己的测试题。
 
-1. 打开 A/B/C 示例，在出版区切换题面、文档题解和 Beamer，观察三个独立稿件及模板绑定。
+1. 打开示例，在出版区切换题面、文档题解和 Beamer，观察独立稿件及原模板绑定。
 2. 进入「程序、数据与验收 → 验收与日志」，选已有完整验收，查看矩阵、输入/答案、编译和执行日志。无需为了查看历史重新运行任务。
 3. 进入「组织、修订与协作 → 修订与审核」，查看冻结修订与审核记录。
-4. 打开示例比赛，在「冻结与资料」选择冻结 #1，查看已有题册、文档题解和 Beamer 成功构建；选择子任务切换 PDF、真实编译日志和固定来源。
+4. 打开示例比赛，在「冻结与资料」选择当前冻结 #4，查看已有题册、文档题解和 Beamer 成功构建；选择子任务切换 PDF、真实编译日志和固定来源。
 5. 准备修改时，回到题目「概览与组织」，先保存未完成编辑，再点击「复制为我的私有题目」。在副本中修改名称、标签和各稿件标题。
 6. 副本改完后重新验收、审核和冻结。它不会继承源题的旧成功任务和审核凭证。
 
@@ -118,7 +125,7 @@ docker compose --env-file .local/p7-upgrade.env -f infra/compose.prod.yml logs -
 
 1. 在题目列表点击「＋ 创建题目」，输入名称，点击「创建并编辑」。默认建立 `zh-CN` 的三份独立文稿。
 2. 在「题面与双题解出版」选择语言和稿件类型。
-3. 选择已发布模板。本实例当前可用：题面 `部署演练 · statement-compact` v1；文档题解 `部署演练 · editorial-document-blue` v1；Beamer `部署演练 · editorial-beamer-wide` v1。
+3. 选择原开发库的已发布模板：题面「CWNU 比赛题面」v2（保留 v1）或「简洁蓝色题面」v1；文档题解「经典书面题解」v1 或「蓝色书面题解」v1；Beamer「CWNU 讲解 · 4:3」v1 或「宽屏讲解 · 16:9」v1。旧绑定保留原版本，需要更新时显式选择。
 4. 填写当前稿件的标题、作者和正文，确认「已启用」，点击「保存」，看到「已保存 vN」后再继续。
 5. 三类稿件分别操作。「停用」保留正文。需要英文稿时输入 `en` 并点击「添加语言」，再分别填写三种英文稿。
 
@@ -293,7 +300,7 @@ int main() {
 ## 7. 编排比赛和生成资料
 
 1. 在「比赛」创建比赛，进入「比赛编排」，填写名称、署名、语言、场次、页眉日期和封面日期。
-2. 分别选择题面、文档题解和 Beamer 的比赛模板；本实例三套已发布模板均支持比赛。
+2. 分别选择题面、文档题解和 Beamer 的比赛模板；下拉框按语言和比赛支持情况筛选。CWNU 题面用于新比赛时选支持当前整场编排的 v2。
 3. 选择有权访问的源题及其「已审核冻结的修订」，点击「加入比赛」。初次可只加入自己的 A+B。
 4. 设置题号，用「上移/下移」控制题册顺序，「Beamer 讲解顺序」独立控制讲解次序，重排仍保留原题号。
 5. 点击「保存编排」，检查材料完整性，负责人点击「检查完整性并冻结」。
@@ -409,24 +416,20 @@ Polygon 为离线明确子集，`BLOCKED` 项必须处理。真实外部样包�
 
 ### 12.3 运行、容量和备份
 
-「运行与审计」应显示 `p71-20261001-r2`、Git `0537583`、迁移一致、数据库/Redis/Worker/沙箱可用。可查看任务、配额、存储、预留、缓存引用和新增登记量。
+主目录「运行与审计」显示 `development`，使用工作目录代码，不显示演练镜像的发布号。应确认数据库、Redis、Worker 和沙箱可用；可查看任务、配额、存储、预留、缓存引用和新增登记量。
 
-重要测试完成后，在无活动任务且编辑已保存时，可做一次本地一致备份，期间应用会短暂停止写入：
+开发环境的完整备份必须同时覆盖原数据库 `problemforge_f054` 与私有目录 `.local/p3-storage`，并在应用停止写入时形成一致快照。单题可以先私有导出原生 FULL 保存成果，它不能替代整库备份。
 
-```powershell
-$backupName = Get-Date -Format 'yyyyMMdd-HHmmss'
-pnpm ops backup --env .local/p7-upgrade.env --out ".local/backups/manual-$backupName"
-```
-
-这是数据库与私有文件配套的明文备份。加密备份、密钥保管、保留预览、盘点及空实例恢复见 [MAINTENANCE.md](MAINTENANCE.md) 和 [DEPLOYMENT.md](DEPLOYMENT.md)。已有加密备份密钥在 `.local/keys/p71-backup.key`，不随题包导出。
+现有 `pnpm ops` / `pnpm maintenance` 文档面向部署 Compose 实例；不要套用以前的演练配置备份或启动当前开发环境，否则操作的是另一套数据库。部署运维说明保留在 [MAINTENANCE.md](MAINTENANCE.md) 和 [DEPLOYMENT.md](DEPLOYMENT.md)，后续部署须另行明确目标，不能替代主目录开发。
 
 ## 13. 常见问题
 
 | 现象 | 处理 |
 | --- | --- |
-| 旧端口打不开 | 5181/5182/5184/5185/5186 已清理，使用 5183 |
-| 5183 打不开 | 检查 Docker Linux 引擎，执行第 1.3 节启动命令和 `ps` |
-| 账号不对/掉登录 | 用本机登录说明，固定 `localhost:5183`，不要同浏览器交替登录多个端口 |
+| 演练端口打不开 | 5181—5186 已清理，日常测试固定使用原 5180 |
+| 5180 打不开 | 检查主目录网页进程及原 4 个基础容器；按第 1.3 节启动，不新开端口 |
+| 账号不对/掉登录 | 用更新后的原开发账号登录说明，固定 `localhost:5180`；此前演练 Cookie 可能需要重新登录 |
+| 原模板看不到 | 先确认地址为 5180、使用原账号；原管理员的模板中心应有 6 套模板和 7 个已发布版本 |
 | 新用户题目列表为空 | 需要负责人授权，或自己创建私有题目 |
 | 模板列表为空 | 检查稿件类型、语言及管理员发布状态 |
 | 保存后 PDF 没变 | 保存和构建分开；创建新构建并选择新任务 |

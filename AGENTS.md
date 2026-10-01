@@ -1,6 +1,7 @@
 # 仓库规则
 
 - 本机默认直接在主目录 `D:\project\ProblemForge` 修改和验证；除非用户明确要求，不新建 Git worktree。
+- 用户日常开发与手动测试固定使用主目录现有 `http://localhost:5180`（API 3100）、原开发数据库与模板；不得擅自新开端口、切换数据库或用部署/恢复演练实例替代。需要新增实例或端口时先获得用户明确授权。
 - 新对话先读 docs/PROGRESS.md 的交接记录和 docs/PLAN.md 的当前阶段执行计划，确认开发服务实际运行目录。
 - 完整任务书在 [AGENT_PROMPT.md](AGENT_PROMPT.md)，按 P0 → P5 推进，不删除功能范围。
 - 功能块完成后做定向检查；默认 test/test:quick 仅固定的轻量快查，支持单范围，不隐式执行全量、E2E、真实 TeX 或 Judge。
