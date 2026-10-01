@@ -11,11 +11,15 @@ import StressPanel from './StressPanel.vue';
 import GroupPanel from './GroupPanel.vue';
 import ScoreExpectationEditor from './ScoreExpectationEditor.vue';
 import InteractionSettingsPanel from './InteractionSettingsPanel.vue';
+import EditorFeedback from './EditorFeedback.vue';
+import { snapshot, mergeSaved, downloadDraft, draftSignature } from '../draft-state';
+import { rememberedChoice } from '../editor-navigation';
 const props = defineProps<{ problemId: string; writable: boolean }>();
 const emit = defineEmits<{ dirty: [value: boolean]; dataChanged: [] }>();
 const message = useMessage();
 const stressDirty = ref(false), groupsDirty = ref(false), groupConfig = ref<any>({ data: { groups: [] } });
-const tab = ref('programs'), loaded = ref(false), busy = ref(false);
+const tab = rememberedChoice('judge-tab','programs',['programs','settings','data','selftests','acceptance','stress','groups']), loaded = ref(false), busy = ref(false);
+const programError = ref(''), lastProgram = rememberedChoice<string>('program','');
 const profiles = ref<any[]>([]), programs = ref<any[]>([]), tests = ref<any[]>([]), plans = ref<any[]>([]), selfTests = ref<any[]>([]), runs = ref<any[]>([]);
 const chosenRunId = ref(''), chosenRun = ref<any>();
 const settings = ref({ ...defaultJudgeSettings }), settingsVersion = ref(1), settingsSaved = ref('');
@@ -23,7 +27,7 @@ const programDraft = ref<any>(), programSaved = ref('');
 const modal = ref<'test' | 'plan' | 'selftest' | ''>(''), form = ref<any>({}), formSaved = ref('');
 const zipInput = ref<HTMLInputElement>();
 const settingsDirty = computed(() => loaded.value && JSON.stringify(settings.value) !== settingsSaved.value);
-const programDirty = computed(() => !!programDraft.value && JSON.stringify(programDraft.value) !== programSaved.value);
+const programDirty = computed(() => !!programDraft.value && draftSignature(programDraft.value) !== programSaved.value);
 const formDirty = computed(() => !!modal.value && JSON.stringify(form.value) !== formSaved.value);
 watch(() => settingsDirty.value || programDirty.value || formDirty.value || stressDirty.value || groupsDirty.value, value => emit('dirty', value), { immediate: true });
 const roleOptions = programRoles.map(r => ({ label: programRoleLabels[r], value: r }));
@@ -44,32 +48,37 @@ async function load() {
   try {
     const [config, profileList] = await Promise.all([api(`/problems/${props.problemId}/judge-settings`), api('/compile-profiles')]);
     settings.value = config.settings; settingsVersion.value = config.version; settingsSaved.value = JSON.stringify(settings.value); profiles.value = profileList;
-    await catalog(); await refreshRuns(); if (programs.value.length) selectProgram(programs.value[0].id); loaded.value = true;
+    await catalog(); await refreshRuns(); if (programs.value.length) selectProgram(programs.value.find(p=>p.id===lastProgram.value)?.id ?? programs.value[0].id); loaded.value = true;
   } catch (e) { message.error((e as Error).message); }
 }
 onMounted(async () => { await load();  });
 onBeforeUnmount(() => {  emit('dirty', false); });
 useTaskEvents(()=>refreshRuns().catch(e=>message.error(e.message)),{problemId:props.problemId});
 function selectProgram(id?: string) {
+  if(busy.value){message.info('请等待当前保存完成再切换程序');return;}
   if (programDirty.value && !window.confirm('当前程序还有未保存修改，确定放弃并切换吗？')) return;
   const p = programs.value.find(p => p.id === id);
   programDraft.value = p ? { id: p.id, version: p.version, name: p.name, role: p.role, profileId: p.profileId, source: p.currentRevision.source, enabled: p.enabled, notes: p.notes, expectedVerdicts: [...p.expectedVerdicts], validatorScope: p.validatorScope, expectedScore: p.expectedScore ?? null }
     : { name: '', role: 'CORRECT_SOLUTION', profileId: profiles.value.find(p => p.enabled)?.id ?? '', source: '#include <iostream>\nint main() {\n  // 编写程序\n}\n', enabled: true, notes: '', expectedVerdicts: ['AC'], validatorScope: 'GLOBAL', expectedScore: null };
-  programSaved.value = p ? JSON.stringify(programDraft.value) : '';
+  programSaved.value = p ? draftSignature(programDraft.value) : '';
+  programError.value=''; if(p)lastProgram.value=p.id;
 }
 function roleChanged(role: ProgramRole) { programDraft.value.expectedScore = null; programDraft.value.validatorScope = 'GLOBAL'; programDraft.value.expectedVerdicts = [role === 'WRONG_SOLUTION' ? 'WA' : role === 'TIME_LIMIT_SOLUTION' ? 'TLE' : 'AC']; }
 async function saveProgram() {
-  if (!programDraft.value || !props.writable) return false; busy.value = true;
+  if (!programDraft.value || !props.writable || busy.value) return false; busy.value = true; programError.value='';
+  const submitted = snapshot(programDraft.value);
   try {
-    const { id, version, ...data } = programDraft.value;
+    const { id, version, ...data } = submitted;
     const saved = await api(id ? `/programs/${id}` : `/problems/${props.problemId}/programs`, { method: id ? 'PUT' : 'POST', body: JSON.stringify({ ...data, ...(id ? { expectedVersion: version } : {}) }) });
-    programDraft.value = { ...data, id: saved.id, version: saved.version }; programSaved.value = JSON.stringify(programDraft.value);
-    await catalog(); await refreshRuns(); message.success(`程序已保存 · v${saved.version}`); return true;
-  } catch (e) { message.error((e as Error).message); return false; } finally { busy.value = false; }
+    const server = { ...data, id: saved.id, version: saved.version };
+    programDraft.value = mergeSaved(programDraft.value,submitted,server); programSaved.value = draftSignature(server); lastProgram.value=saved.id;
+    await catalog(); await refreshRuns(); message.success(`程序已保存 · v${saved.version}${programDirty.value?'；继续输入的修改仍未保存':''}`); return !programDirty.value;
+  } catch (e) { programError.value=(e as Error).message; message.error(programError.value); return false; } finally { busy.value = false; }
 }
 async function saveSettings() {
+  if(busy.value)return;const submitted=snapshot(settings.value);
   busy.value = true;
-  try { const saved = await api(`/problems/${props.problemId}/judge-settings`, { method: 'PUT', body: JSON.stringify({ expectedVersion: settingsVersion.value, settings: settings.value }) }); settingsVersion.value = saved.version; settingsSaved.value = JSON.stringify(settings.value); await refreshRuns(); message.success('判题配置已保存'); }
+  try { const saved = await api(`/problems/${props.problemId}/judge-settings`, { method: 'PUT', body: JSON.stringify({ expectedVersion: settingsVersion.value, settings: submitted }) }); settingsVersion.value = saved.version; settingsSaved.value = JSON.stringify(submitted); await refreshRuns(); message.success(settingsDirty.value?'已保存提交的配置；继续输入的修改仍未保存':'判题配置已保存'); }
   catch (e) { message.error((e as Error).message); } finally { busy.value = false; }
 }
 async function submit(purpose: JudgePurpose) {
@@ -132,7 +141,7 @@ async function importZip(event: Event) {
 }
 </script>
 <template><NSpin :show="!loaded"><div class="panel judge-workspace"><NTabs v-model:value="tab" type="line"><NTab name="programs">程序</NTab><NTab name="data">测试数据 / 生成计划</NTab><NTab name="selftests">工具自测</NTab><NTab name="acceptance">验收与日志</NTab><NTab name="groups">数据组与评分</NTab><NTab name="stress">对拍与反例</NTab><NTab name="settings">判题配置</NTab></NTabs>
-  <div v-if="tab === 'programs'" class="program-layout"><aside class="program-list"><NButton v-if="writable" block @click="selectProgram()">新建程序</NButton><button v-for="p in programs" :key="p.id" class="program-link" :class="{ selected: p.id === programDraft?.id }" @click="selectProgram(p.id)"><strong>{{ p.name }}</strong><small>{{ programRoleLabels[p.role as ProgramRole] }} · v{{ p.version }} · {{ p.profile.name }}{{ p.enabled ? '' : ' · 已停用' }}</small></button><NEmpty v-if="!programs.length" description="尚无程序" class="empty"/></aside><section v-if="programDraft" class="program-editor"><div class="document-toolbar"><span class="save-state">{{ programDirty ? '未保存，离开会提醒' : `已保存 v${programDraft.version}` }}</span><div class="toolbar-right"><NButton :disabled="!writable" :loading="busy" @click="saveProgram">保存程序</NButton><NButton type="primary" :disabled="!writable" :loading="busy" @click="submit('COMPILE')">编译当前源码</NButton></div></div><div class="judge-form-grid"><NFormItem label="名称"><NInput v-model:value="programDraft.name" :disabled="!writable"/></NFormItem><NFormItem label="角色"><NSelect v-model:value="programDraft.role" :options="roleOptions" :disabled="!writable" @update:value="roleChanged"/></NFormItem><NFormItem label="管理员编译 profile"><NSelect v-model:value="programDraft.profileId" :options="profiles.map(p => ({ label: `${p.name} · v${p.version}`, value: p.id, disabled: !p.enabled }))" :disabled="!writable"/></NFormItem><NFormItem v-if="solution" label="预期判定"><NSelect v-model:value="programDraft.expectedVerdicts" multiple :options="verdicts.map(v => ({ label: v, value: v }))" :disabled="!writable || ['MAIN_SOLUTION', 'CORRECT_SOLUTION', 'TIME_LIMIT_SOLUTION'].includes(programDraft.role)"/></NFormItem><NFormItem v-if="programDraft.role === 'EXTRA_VALIDATOR'" label="校验适用范围"><NSelect v-model:value="programDraft.validatorScope" :options="[{label:'全部数据',value:'GLOBAL'},{label:'仅指定数据组',value:'GROUPS'}]" :disabled="!writable"/></NFormItem><NFormItem label="备注"><NInput v-model:value="programDraft.notes" :disabled="!writable"/></NFormItem><NFormItem label="任务选择"><NCheckbox v-model:checked="programDraft.enabled" :disabled="!writable">启用此程序</NCheckbox></NFormItem></div><ScoreExpectationEditor v-if="solution && !['MAIN_SOLUTION', 'CORRECT_SOLUTION'].includes(programDraft.role)" v-model="programDraft.expectedScore" :groups="groupConfig.data.groups.map((g: any) => g.id)" :disabled="!writable"/><SourceEditor :key="programDraft.id ?? 'new'" v-model="programDraft.source" :language="editorLanguage" :readonly="!writable"/></section><NEmpty v-else description="选择或新建程序，保存后独立编译" class="empty"/></div>
+  <div v-if="tab === 'programs'" class="program-layout"><aside class="program-list"><NButton v-if="writable" block @click="selectProgram()">新建程序</NButton><button v-for="p in programs" :key="p.id" class="program-link" :class="{ selected: p.id === programDraft?.id }" @click="selectProgram(p.id)"><strong>{{ p.name }}</strong><small>{{ programRoleLabels[p.role as ProgramRole] }} · v{{ p.version }} · {{ p.profile.name }}{{ p.enabled ? '' : ' · 已停用' }}</small></button><NEmpty v-if="!programs.length" description="尚无程序" class="empty"/></aside><section v-if="programDraft" class="program-editor"><EditorFeedback :dirty="programDirty" :saving="busy" :error="programError" :version="programDraft.version" label="程序" @export="downloadDraft(`program-${programDraft.id ?? 'new'}`,programDraft)"/><div class="document-toolbar"><span class="save-state">{{ programDirty ? '未保存，离开会提醒' : `已保存 v${programDraft.version}` }}</span><div class="toolbar-right"><NButton :disabled="!writable" :loading="busy" @click="saveProgram">保存程序</NButton><NButton type="primary" :disabled="!writable" :loading="busy" @click="submit('COMPILE')">编译当前源码</NButton></div></div><div class="judge-form-grid"><NFormItem label="名称"><NInput v-model:value="programDraft.name" :disabled="!writable"/></NFormItem><NFormItem label="角色"><NSelect v-model:value="programDraft.role" :options="roleOptions" :disabled="!writable" @update:value="roleChanged"/></NFormItem><NFormItem label="管理员编译 profile"><NSelect v-model:value="programDraft.profileId" :options="profiles.map(p => ({ label: `${p.name} · v${p.version}`, value: p.id, disabled: !p.enabled }))" :disabled="!writable"/></NFormItem><NFormItem v-if="solution" label="预期判定"><NSelect v-model:value="programDraft.expectedVerdicts" multiple :options="verdicts.map(v => ({ label: v, value: v }))" :disabled="!writable || ['MAIN_SOLUTION', 'CORRECT_SOLUTION', 'TIME_LIMIT_SOLUTION'].includes(programDraft.role)"/></NFormItem><NFormItem v-if="programDraft.role === 'EXTRA_VALIDATOR'" label="校验适用范围"><NSelect v-model:value="programDraft.validatorScope" :options="[{label:'全部数据',value:'GLOBAL'},{label:'仅指定数据组',value:'GROUPS'}]" :disabled="!writable"/></NFormItem><NFormItem label="备注"><NInput v-model:value="programDraft.notes" :disabled="!writable"/></NFormItem><NFormItem label="任务选择"><NCheckbox v-model:checked="programDraft.enabled" :disabled="!writable">启用此程序</NCheckbox></NFormItem></div><ScoreExpectationEditor v-if="solution && !['MAIN_SOLUTION', 'CORRECT_SOLUTION'].includes(programDraft.role)" v-model="programDraft.expectedScore" :groups="groupConfig.data.groups.map((g: any) => g.id)" :disabled="!writable"/><SourceEditor :key="programDraft.id ?? 'new'" v-model="programDraft.source" :language="editorLanguage" :readonly="!writable"/></section><NEmpty v-else description="选择或新建程序，保存后独立编译" class="empty"/></div>
   <div v-else-if="tab === 'data'"><div class="panel-toolbar"><span>输入与答案保留原始字节、换行及哈希</span><div class="toolbar-right"><NButton v-if="writable" :loading="busy" @click="zipInput?.click()">导入 ZIP</NButton><input ref="zipInput" type="file" accept=".zip" hidden @change="importZip"/><NButton v-if="writable" type="primary" @click="editTest()">添加数据</NButton></div></div><p class="judge-hint">ZIP 使用 [tests/]编号.in 与 编号.ans；同编号导入冲突会整批拒绝。重复输入会提示并保留。</p><div class="table-scroll"><table class="data-table"><thead><tr><th>编号 / 分组</th><th>输入 / 答案</th><th>版本与重复提醒</th><th>操作</th></tr></thead><tbody><tr v-for="t in tests" :key="t.id"><td>#{{ t.number }} · {{ t.groupName }}<small>{{ t.isSample ? '题面样例' : '私有测试' }}{{ t.enabled ? '' : ' · 已停用' }}</small></td><td><a :href="`/api/test-revisions/${t.currentRevision.id}/input`">输入 · {{ t.currentRevision.inputBytes }} bytes</a><small><a v-if="t.currentRevision.answerHash" :href="`/api/test-revisions/${t.currentRevision.id}/answer`">答案 · {{ t.currentRevision.answerBytes }} bytes</a><span v-else>尚无答案，运行主标程后显式收集</span></small></td><td>v{{ t.version }} · {{ t.currentRevision.inputHash.slice(0, 12) }}<small v-if="t.duplicates.length" class="duplicate-warning">重复：{{ t.duplicates.map((d: any) => `#${d.number}`).join('、') }}</small></td><td><NButton v-if="writable" size="small" @click="editTest(t)">编辑</NButton></td></tr></tbody></table></div><NEmpty v-if="!tests.length" description="尚无正式数据" class="empty"/>
     <div class="panel-toolbar"><strong>生成计划 · argv / 种子</strong><div class="toolbar-right"><NButton v-if="writable" :loading="busy" @click="submit('GENERATE')">执行生成计划</NButton><NButton v-if="writable" @click="editPlan()">添加计划</NButton></div></div><p class="judge-hint">argv 为 JSON 字符串数组。种子逐次递增，作为最后一个参数及 PF_SEED 传入；相同种子会做一次重复生成检查。</p><table class="data-table"><thead><tr><th>计划</th><th>参数与种子</th><th>数据范围</th><th></th></tr></thead><tbody><tr v-for="p in plans" :key="p.id"><td>{{ p.name }}<small>v{{ p.version }}{{ p.enabled ? '' : ' · 已停用' }}</small></td><td><code>{{ JSON.stringify(p.data.argv) }}</code><small>seed={{ p.data.seed }}</small></td><td>#{{ p.data.numberStart }} 起 · {{ p.data.count }} 组 · {{ p.data.groupName }}</td><td><NButton v-if="writable" size="small" @click="editPlan(p)">编辑</NButton></td></tr></tbody></table>
   </div>

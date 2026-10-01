@@ -47,12 +47,15 @@ export async function templateRoutes(app: Api) {
     if (!req.body.expectedVersion) throw new HttpError(400, '编辑需要 expectedVersion');
     const files = req.body.styleConfig ? applyAdminStyle(req.body.files, version.template.kind, req.body.styleConfig) : req.body.files;
     checkFiles(files, version.template.kind);
-    const changed = await db.templateVersion.updateMany({ where: { id: version.id, editVersion: req.body.expectedVersion, state: { in: ['DRAFT', 'VALIDATED'] } }, data: {
+    const saved = await db.$transaction(async tx => {
+    const changed = await tx.templateVersion.updateMany({ where: { id: version.id, editVersion: req.body.expectedVersion, state: { in: ['DRAFT', 'VALIDATED'] } }, data: {
       files, hash: hashObject(files), styleConfig: req.body.styleConfig, editVersion: { increment: 1 }, state: 'DRAFT', validationBuildId: null, validationBuildHash: null,
     } });
     if (!changed.count) throw new HttpError(409, '模板草稿已更新，请重新加载', 'VERSION_CONFLICT');
+    return tx.templateVersion.findUniqueOrThrow({ where: { id: version.id } });
+    });
     await audit(req.user.id, 'EDIT_TEMPLATE_VERSION', version.id);
-    return db.templateVersion.findUniqueOrThrow({ where: { id: version.id } });
+    return saved;
   });
   app.post('/api/admin/template-versions/:id/validate', { preHandler: admin, schema: { params: Id } }, async req => {
     const version = await db.templateVersion.findUnique({ where: { id: req.params.id }, include: { template: true } });

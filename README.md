@@ -78,3 +78,5 @@ pnpm build:web
 ```
 
 `test` / `test:quick` 默认只运行固定的模板策略与私有存储快查，也可指定 template / contest / storage / judge / p3 单范围；不自动扩展到新增套件，不运行集成、E2E 或构建。`pnpm verify:publication <题目ID>` 需三类已有成功构建的验证题目，会创建定向验证稿件；具体已执行记录见 PROGRESS。真实执行受限于 Linux 沙箱，不可用时任务明确失败，不执行宿主机 TeX 或作者程序。正式运行使用生产 Compose，默认仅监听本机回环；本次交付没有向公网发布。
+
+团队首次试用见 [操作指引](docs/USER_GUIDE.md)，网页侧栏也有对应入口。编辑冲突可查看、下载或复制本地草稿，再与服务端版本手动合并。显式定向验收：`pnpm verify:p6:editing`（隔离数据库并发写入和延迟保存合并，不启动 Judge/TeX）。

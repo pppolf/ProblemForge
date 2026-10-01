@@ -12,6 +12,7 @@ const router = createRouter({ history: createWebHistory(), routes: [
   { path: '/login', component: () => import('./pages/Login.vue') }, { path: '/', redirect: '/problems' },
   { path: '/reset-password', component: () => import('./pages/ResetPassword.vue') },
   { path: '/account', component: () => import('./pages/Account.vue') },
+  { path: '/guide', component: () => import('./pages/Guide.vue') },
   { path: '/problems', component: () => import('./pages/Problems.vue') }, { path: '/problems/:id', component: () => import('./pages/Workspace.vue') },
   { path: '/import', component: () => import('./pages/ImportPackage.vue') },
   { path: '/tasks', component: () => import('./pages/Tasks.vue') },

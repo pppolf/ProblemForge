@@ -44,7 +44,7 @@ export async function contestRoutes(app:Api){
   });
   app.put('/api/contests/:id',{preHandler:authenticate,schema:{params:Id,body:ContestInput}},async req=>{
     await contestAccess(req.user,req.params.id,true);const old=await db.contest.findUniqueOrThrow({where:{id:req.params.id}});await validateSelection(req.user,req.body.data,old.data as ContestDataValue);
-    const changed=await db.contest.updateMany({where:{id:old.id,version:req.body.expectedVersion},data:{title:req.body.data.title,data:req.body.data,version:{increment:1}}});if(!changed.count)throw new HttpError(409,'比赛编排已改变，请重载合并','VERSION_CONFLICT');await audit(req.user.id,'UPDATE_CONTEST',old.id);return db.contest.findUniqueOrThrow({where:{id:old.id}});
+    const result=await db.$transaction(async tx=>{const changed=await tx.contest.updateMany({where:{id:old.id,version:req.body.expectedVersion},data:{title:req.body.data.title,data:req.body.data,version:{increment:1}}});if(!changed.count)throw new HttpError(409,'比赛编排已改变，请重载合并','VERSION_CONFLICT');return tx.contest.findUniqueOrThrow({where:{id:old.id}});});await audit(req.user.id,'UPDATE_CONTEST',old.id);return result;
   });
   app.post('/api/contests/:id/freeze',{preHandler:authenticate,schema:{params:Id,body:ContestFreezeInput}},async req=>{
     await owner(req.user,req.params.id,true);const result=await db.$transaction(async tx=>{
