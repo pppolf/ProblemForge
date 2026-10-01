@@ -6,6 +6,7 @@ import { SandboxClient } from '@problemforge/judge-adapter';
 import type { Redis } from 'ioredis';
 import { admin, authenticate, type Api } from '../app.ts';
 import { buildAccess } from './builds.ts';
+import { runtimeVersion } from '../runtime-version.ts';
 
 async function readiness(redis: Redis) {
   const checks: Record<string, string> = {};
@@ -21,7 +22,7 @@ export async function operationsRoutes(app: Api, redis: Redis) {
   app.get('/api/health', async (_, reply) => { const result = await readiness(redis); return reply.code(result.status === 'ok' ? 200 : 503).send({ status: result.status, appName: config.appName }); });
   app.get('/api/admin/operations', { preHandler: admin }, async () => {
     const health = await readiness(redis), stored = await db.storedObject.aggregate({ _sum: { bytes: true }, _count: true });
-    return { ...health, storage: { bytes: Number(stored._sum.bytes ?? 0n), limit: config.storageQuotaBytes, objects: stored._count, pending: await db.storedObject.count({ where: { ready: false } }) }, tasks: { builds: await db.build.count({ where: { state: { in: ['QUEUED', 'RUNNING'] } } }), judge: await db.testRun.count({ where: { state: { in: ['QUEUED', 'RUNNING'] } } }) }, quotas: { buildsPerUser: config.buildQuota, judgePerUser: config.judgeQuota, attempts: config.maxAttempts, leaseSeconds: config.leaseMs / 1000 } };
+    return { ...health, version: await runtimeVersion(), storage: { bytes: Number(stored._sum.bytes ?? 0n), limit: config.storageQuotaBytes, objects: stored._count, pending: await db.storedObject.count({ where: { ready: false } }) }, tasks: { builds: await db.build.count({ where: { state: { in: ['QUEUED', 'RUNNING'] } } }), judge: await db.testRun.count({ where: { state: { in: ['QUEUED', 'RUNNING'] } } }) }, quotas: { buildsPerUser: config.buildQuota, judgePerUser: config.judgeQuota, attempts: config.maxAttempts, leaseSeconds: config.leaseMs / 1000 } };
   });
   app.get('/api/admin/audit', { preHandler: admin, schema: { querystring: Type.Object({ cursor: Type.Optional(Type.String({ maxLength: 100 })), action: Type.Optional(Type.String({ maxLength: 100 })) }, { additionalProperties: false }) } }, async req => {
     const rows = await db.auditLog.findMany({ where: { ...(req.query.action ? { action: req.query.action } : {}) }, ...(req.query.cursor ? { cursor: { id: req.query.cursor }, skip: 1 } : {}), orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 100 });

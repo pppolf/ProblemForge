@@ -86,3 +86,13 @@ pnpm verify:p5:restore
 部署脚本从已有 P4 `verify-p4-contest.json` 三题固定修订导出原生包，在新实例重绑已审核模板、实际验收、冻结比赛并生成三份 PDF。故障脚本只允许专用 `problemforge-p5`，实际 SIGKILL Judge Worker、等待租约失效、检查保留证据和显式重试，再移除一条 Redis 调度记录验证补投。`--prepare` 停止专用 Judge Worker 并提交排队任务，应立即执行后面的备份命令，由备份恢复 Worker；不要对有其他使用者的实例运行故障演练。验证脚本创建真实数据，反复运行会保留新增及失败记录，连续登录也受正常限流约束。
 
 两类部署沙箱可分别在 toolbox 中运行 `node --import tsx scripts/verify-sandbox.ts --stdout` 和 `--judge --stdout` 检查，命令不向只读应用目录写证明文件。所有作者代码执行仍由 Linux 沙箱完成。具体完成记录、PDF/截图和未测范围见 [PROGRESS.md](PROGRESS.md)。
+
+## 可追踪版本与升级（P7）
+
+`pnpm build:release <唯一构建标识>` 要求已检查、提交的干净工作区，直接将 `git archive HEAD` 输入 Docker，确保忽略目录中的配置、凭据和运行数据不会进入构建。构建标识仅使用小写字母、数字、点、下划线和连字符，已有标识或镜像标签拒绝覆盖。结果为 `problemforge-app:<标识>` 和 `.local/releases/<标识>.json`，记录 Git 提交、Git 树、构建时间及实际镜像 ID。镜像内 `release.json` 另含全部迁移校验和；管理员运行页面显示实际装载的版本和数据库迁移是否一致。普通 Compose 构建没有 Git 参数时明确显示 unversioned，不冒充发布版本；开发服务显示 development。
+
+升级前先一致备份并保存原镜像 ID 和部署配置。在独立 project 恢复匹配版本的备份并验收，再停止应用/Worker，修改该目标配置的 `PF_APP_IMAGE`，运行 `pnpm ops up --env <目标配置>` 应用迁移和启动新版本。核对运行页面和 `docker inspect <project>-api-1 --format '{{.Image}}'`，检查原冻结修订及私有产物。重启后复核。
+
+只有数据库和安全语义均兼容时，才可以停止应用后改回旧镜像、重新启动。P5 → P6 新增账号重置与会话语义，不能直接换回 P5 镜像绕过这些规则；应将 P5 匹配的旧备份恢复到另一个空 project，核对后再决定入口切换。恢复旧备份不会包含备份后的新数据。脚本不反向执行迁移，不覆盖来源卷，不自动切换用户入口。
+
+本项目升级定向脚本为 `pnpm verify:p7:upgrade --env .local/<演练配置>.env --label <记录名> --release .local/releases/<标识>.json`，只允许 problemforge-p7 前缀的独立实例；复用原 P5 三题/三份 PDF 证据与账号。`--p5` 校验原版恢复，`--baseline` 校验保留 P6 能力的兼容回退镜像，不冒充该基线具备后来新增的版本面板。检查只读取旧报告与产物，不创建 Judge/TeX 任务。
