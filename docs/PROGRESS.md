@@ -387,3 +387,11 @@ P6.0—P6.2、P7.0—P7.1 本轮范围完成。按用户明确要求，P7.2 独�
 原 5180 健康接口和新 Vue 组件 HTTP 200；删除 API 未登录 401、空选择 400、不存在 ID 409。仅临时登录原管理员检查这些拒绝路径并退出本次会话；该题仍有原 10 条正式数据、0 条删除标记，检查前后列表完全一致，证据 `.local/test-delete-entry.json`。没有实际删除用户数据或持久保存测试夹具，也没有提交生成/答案/验收/TeX 任务。
 
 **未验证与交接：**未做浏览器点击删除、成功删除的在线 HTTP/E2E、真实重新生成、压力或全量回归，页面交互继续由用户在原入口手动验收；没有环境阻塞。部分唯一索引由 SQL 迁移维护，不能以 db push 替代迁移。P7.2/P8 继续暂缓。更新交接并检查差异后，本功能单独本地提交，不 push。
+
+## pnpm dev 终端入口导致 P2 账号登录失败（2026-10-02）
+
+**诊断：**用户自行执行 `pnpm dev` 后无法登录。当前前端/API 仍来自主目录，监听 127.0.0.1:5180 / 3100，原 `problemforge_f054`、Redis DB 1 和四个基础容器正常。原 P2 出题人 `p2-author-41fa6a3604@problemforge.local` 存在、未禁用、不要求重置、版本仍为 1；私有凭据文件中的原密码与数据库哈希匹配。实际用相同凭据分别请求登录：Origin 为 `http://127.0.0.1:5180` 时返回 403 / ORIGIN_FAILED /「请求来源不被允许」，Origin 为配置的 `http://localhost:5180` 时登录及读取会话均为 200，随后退出本次诊断会话。Vite 的 dev 命令显示前一个地址，而 API 严格匹配后一个地址，足以复现报告的入口问题；未读取用户浏览器当前地址或其输入的密码。证据 `.local/p2-login-origin-diagnosis.json` 不含密码或会话凭据。
+
+**修复：**Vite 开发中间件读取项目 APP_ORIGIN，将同端口本机别名上的 HTML GET/HEAD 导航临时重定向到规范地址，保留路径/查询并禁止缓存重定向。仅对本机 HTTP 开发页面生效，API、静态资源、生产构建及 Origin/CSRF 校验沿用原逻辑。当前 Vite 已自动加载配置；仍使用原 5180/3100，没有新进程实例、数据库或端口，也未重置账号或改动用户题目。USER_GUIDE 增加故障原因及入口说明。
+
+**实际验证与边界：**`pnpm check web`（含 vite.config.ts）通过。通过原 IPv4 监听和显式 HTTP Host 核对：别名登录页 307、Location 保留路径/查询，规范 Host 页面 200，API 健康检查/前端源文件 200，直接来自错误 Origin 的 API POST 仍为 403；证据 `.local/dev-entry-redirect-check.json`。本机 Node 直接解析 localhost 的探测选择 ::1，而 Vite 按既有配置仅监听 IPv4，因此该探测连接失败，HTTP 核对改为显式 IPv4 连接及 Host；未宣称完成浏览器 DNS/跳转/手动登录验证。用户可从 `http://localhost:5180` 继续手动登录。未运行 Judge/TeX、全量/E2E 或新增业务数据。当前服务由用户终端的 pnpm dev 管理，之前 `.local/main-fresh-services.json` 的后台 PID 记录已不代表当前进程；本次核对的 Vite PID 79692、API PID 28536，下次仍重新检查实际命令行。差异检查后本地提交，不 push。
