@@ -509,3 +509,9 @@ P6.0—P6.2、P7.0—P7.1 本轮范围完成。按用户明确要求，P7.2 独�
 **原环境与浏览器：**确认 5180/3100 的实际进程来自主目录且无活动 Build/TestRun 后，停止已核实的原 `pnpm dev` 树并用同一入口恢复，保持原库、Redis DB 1、存储、四个基础容器和端口。当前终端会话 12531、Vite PID 59804、API PID 70220，记录 `.local/template-management-services.json`，下次操作须重新核对实际进程。在线检查经原 5180 使用原管理员登录，确认两个新路由已加载并正确拒绝空白名称/过期来源，不写原模板；登录验证后退出。首次 Node fetch 将 localhost 解析为未监听的 IPv6 ::1，改用同一 5180 的 127.0.0.1 并保留 localhost Host / Origin 后通过。原管理员及 6 套模板 / 13 个版本完整数据指纹与检查前一致，用户仍仅 1 个、题目/比赛为 0、无活动任务；证据 `.local/template-management-before.json` 和 `.local/template-management-entry-check.json`。
 
 浏览器在原 localhost:5180 实际登录，确认 6 套目录均有重命名入口、名称编辑后保存按钮可用、取消保留原名、选中版本的独立复制弹窗正确显示来源与默认副本名；修正重命名弹窗关闭时短暂切换为复制文案的动画问题并重新查看。截图 `.local/template-rename-dialog.png` / `.local/template-copy-dialog.png`，验证会话退出、临时标签关闭。浏览器未提交实际重命名或副本创建；成功写入和副本隔离由回滚路由检查验证。未运行真实 TeX/Judge、全量/E2E、生产构建/部署或跨浏览器检查；既有 PDF 预览可正常读取。README、PLAN、TEMPLATES 和 USER_GUIDE 已更新，差异检查后本地提交，不 push；P7.2/P8 继续暂缓。
+
+## 精简模板编辑页的常驻提示（2026-10-02）
+
+**实现：**按用户截图要求，删除模板编辑区关于原 main.tex 版式的蓝色说明、相邻的发布版本说明，以及配置旁“重新生成 style.tex”的常驻提示；移除专用 archivePreset 判断及无用样式。保留模板名称、版本状态、重命名/复制/保存/验证等操作及错误、未保存反馈，功能约束不变。
+
+**实际验证与范围：**确认原 5180（Vite PID 70312）/3100（API PID 76712）进程来自主目录；无需重启服务。`pnpm check web` 和差异检查通过，原 5180 的 Templates.vue 模块转换 HTTP 200，核对三处文案及 archivePreset 已移除，重命名/复制入口和加载失败反馈仍在。没有写数据库、模板内容或运行配置；未重新进行浏览器、集成、TeX/Judge、全量/E2E 检查。完成交接后本地提交，不 push。
