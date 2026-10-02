@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { db, Prisma } from '@problemforge/database';
 import { config, hashObject, root, sha256 } from '@problemforge/domain';
 import { kinds } from '@problemforge/contracts';
 import { applyAdminStyle, loadTemplateDirectory, type TemplateFiles } from '@problemforge/template-engine';
 import { createApp } from '../apps/api/src/app.ts';
+import { importTemplateFiles, moveTemplateFile, readTemplateUploads, removeTemplateFile } from '../apps/web/src/template-files.ts';
 
 // Exercise the real routes against the original database without a listener,
 // outbound login, queued build or persistent fixture. Every write rolls back.
@@ -83,6 +84,28 @@ try {
         const editedFiles = { ...draft.files, 'preview.tex': files['preview.tex'] + '\n% Independent copy edit' };
         const edited = await call('PUT', `/admin/template-versions/${draft.id}`, { expectedVersion: draft.editVersion, files: editedFiles });
         assert.equal(edited.editVersion, 2); assert.notEqual(edited.hash, selected.hash); assert.deepEqual(edited.styleConfig, styleConfig);
+        const filePath = `/admin/template-versions/${draft.id}`;
+        const firstImage = await readFile(resolve(root, 'templates/builtin/statement/images/协会logo.png'));
+        const nextImage = await readFile(resolve(root, 'templates/builtin/statement/images/cwnucpc.png'));
+        const uploaded = importTemplateFiles(editedFiles, await readTemplateUploads([new File([firstImage], '标志.png'), new File(['% editable source'], 'extra.tex')], 'workspace'));
+        for (const auth of [null, ordinary]) await call('PUT', filePath, { expectedVersion: 2, files: uploaded }, auth ? 403 : 401, auth);
+        await call('PUT', filePath, { expectedVersion: 2, files: uploaded }, 403, admin, { 'x-csrf-token': 'wrong' });
+        const withFiles = await call('PUT', filePath, { expectedVersion: 2, files: uploaded });
+        assert.deepEqual(withFiles.files, uploaded); assert.equal(withFiles.state, 'DRAFT');
+        // Replacing an image invalidates a previous validation without touching the published source.
+        await tx.templateVersion.update({ where: { id: draft.id }, data: { state: 'VALIDATED', validationBuildId: `fixture-validation-${suffix}`, validationBuildHash: withFiles.hash } });
+        const replacement = importTemplateFiles(uploaded, await readTemplateUploads([new File([nextImage], 'different-name.png')], '', 'workspace/标志.png'));
+        const moved = moveTemplateFile(replacement, 'workspace/extra.tex', 'sections/extra.tex');
+        const updatedFiles = removeTemplateFile(moved, 'sections/extra.tex');
+        const updated = await call('PUT', filePath, { expectedVersion: 3, files: updatedFiles });
+        assert.deepEqual(updated.files, updatedFiles); assert.equal(updated.files['workspace/标志.png'], nextImage.toString('base64'));
+        assert.equal(updated.state, 'DRAFT'); assert.equal(updated.validationBuildId, null); assert.equal(updated.validationBuildHash, null);
+        assert.notEqual(updated.hash, withFiles.hash); assert.deepEqual(updated.styleConfig, styleConfig);
+        await call('PUT', filePath, { expectedVersion: 3, files: uploaded }, 409);
+        await call('PUT', filePath, { expectedVersion: 4, files: { ...updatedFiles, 'workspace/标志.png': 'aW52YWxpZA==' } }, 422);
+        await call('PUT', filePath, { expectedVersion: 4, files: { ...updatedFiles, '../unsafe.tex': 'unsafe' } }, 422);
+        assert.deepEqual((await tx.templateVersion.findUniqueOrThrow({ where: { id: draft.id } })).files, updatedFiles);
+        evidence.push(`${kind}: workspace upload and same-path image replacement persisted byte-for-byte, source rename/delete saved atomically, roles/CSRF/invalid-image/unsafe-path/stale-version rejected, prior validation cleared`);
         await call('POST', `/admin/template-versions/${draft.id}/copy`, { name: 'stale copy', expectedVersion: 1 }, 409);
         await call('PUT', `/admin/template-versions/${selected.id}`, { expectedVersion: selected.editVersion, files }, 409);
         assert.deepEqual(await tx.templateVersion.findMany({ where: { templateId: source.id }, orderBy: { number: 'asc' } }), originalVersions);
