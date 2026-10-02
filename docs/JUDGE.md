@@ -86,6 +86,7 @@ Checker 正常退出 0 / 1 / 2 或 4 对应 AC / WA / PE。testlib `_fail=3`、�
 只有 Interactor 环境得到 hidden-input 和 jury-answer；选手仅得到自己的程序及通信管道。双方工作目录、stderr 和工具文件相互隔离。固定 testlib argv 为 input-file、output-file、answer-file；tout 写入 interaction-output。
 
 - DIRECT：Interactor 的有效 testlib 0 / 1 / 2、4 对应 AC / WA / PE。
+- DIRECT 模式的任务答案字段仍保存 Interactor 的 tout 文件，缺省为空文件；其 0 字节不代表选手 stdout 为空。页面按任务快照标为「Interactor 附加输出」，并提供主标程 stdout 和双向通信记录下载；是否通过以 Interactor 判定为准。显式收集沿用该文件，不从通用交互协议中猜测或提取最终答案。
 - CHECKER：Interactor 先正常接受，再把 tout 的输出交当前内置比较器或自定义 Checker。主标程的 tout 提供参考答案，已上传答案存在时先比对。选手 stdout 通信与用于比较的 tout 分别保存。
 - testlib _fail=3、工具崩溃和工具资源超限属于 TOOL_ERROR；沙箱或可信中继失败属于 INFRA_ERROR。双方 Invocation 保留真实沙箱状态、CPU、墙钟、内存、stderr，以及真实 Interactor 子进程退出控制记录。有效判错不会被平台清理对端的 SIGKILL 改成无关 RE。
 
