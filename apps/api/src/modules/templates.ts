@@ -1,6 +1,6 @@
 import { Type } from '@sinclair/typebox';
 import { resolve } from 'node:path';
-import { TemplateInput, TemplateDraftInput, ReasonInput, Kind } from '@problemforge/contracts';
+import { TemplateInput, TemplateRenameInput, TemplateCopyInput, TemplateDraftInput, ReasonInput, Kind } from '@problemforge/contracts';
 import { db } from '@problemforge/database';
 import { hashObject, HttpError, audit, root } from '@problemforge/domain';
 import { validateTemplate, applyAdminStyle, templateLanguages, type TemplateFiles, POLICY_VERSION, TEX_PROFILE, CONTEST_RENDERER_VERSION, ContentPolicyError } from '@problemforge/template-engine';
@@ -25,7 +25,35 @@ export async function templateRoutes(app: Api) {
   })).map(({ files, ...version }) => ({ ...version, languages: templateLanguages(files as TemplateFiles),contestCapable:!!(files as TemplateFiles)['booklet.tex']?.includes('{{CONTENTS}}')&&!!(files as TemplateFiles)['item.tex'] })));
   app.get('/api/admin/templates', { preHandler: admin }, async () => db.template.findMany({ include: { versions: { orderBy: { number: 'desc' } } }, orderBy: { createdAt: 'desc' } }));
   app.post('/api/admin/templates', { preHandler: admin, schema: { body: TemplateInput, tags: ['管理员模板'] } }, async req => {
-    const created = await db.template.create({ data: req.body }); await audit(req.user.id, 'CREATE_TEMPLATE', created.id); return created;
+    const created = await db.template.create({ data: { ...req.body, name: req.body.name.trim() } }); await audit(req.user.id, 'CREATE_TEMPLATE', created.id); return created;
+  });
+  app.patch('/api/admin/templates/:id', { preHandler: admin, schema: { params: Id, body: TemplateRenameInput, tags: ['管理员模板'] } }, async req => {
+    return db.$transaction(async tx => {
+      const template = await tx.template.findUnique({ where: { id: req.params.id } });
+      if (!template) throw new HttpError(404, '模板不存在');
+      const name = req.body.name.trim();
+      const changed = await tx.template.updateMany({ where: { id: template.id, name: req.body.expectedName }, data: { name } });
+      if (!changed.count) throw new HttpError(409, '模板名称已被修改，请刷新列表后重试', 'VERSION_CONFLICT');
+      await tx.auditLog.create({ data: { actorId: req.user.id, action: 'RENAME_TEMPLATE', resourceId: template.id, detail: { before: req.body.expectedName, after: name } } });
+      return tx.template.findUniqueOrThrow({ where: { id: template.id } });
+    });
+  });
+  app.post('/api/admin/template-versions/:id/copy', { preHandler: admin, schema: { params: Id, body: TemplateCopyInput, tags: ['管理员模板'] } }, async req => {
+    return db.$transaction(async tx => {
+      // Keep files and style metadata from the same saved source revision.
+      await tx.$queryRaw`SELECT id FROM "TemplateVersion" WHERE id = ${req.params.id} FOR SHARE`;
+      const source = await tx.templateVersion.findUnique({ where: { id: req.params.id }, include: { template: true } });
+      if (!source) throw new HttpError(404, '模板版本不存在');
+      if (source.editVersion !== req.body.expectedVersion) throw new HttpError(409, '来源模板草稿已更新，请重新加载后复制', 'VERSION_CONFLICT');
+      const files = source.files as TemplateFiles;
+      checkFiles(files, source.template.kind);
+      const created = await tx.template.create({ data: {
+        name: req.body.name.trim(), kind: source.template.kind,
+        versions: { create: { number: 1, files, hash: hashObject(files), ...(source.styleConfig === null ? {} : { styleConfig: source.styleConfig }) } },
+      }, include: { versions: true } });
+      await tx.auditLog.create({ data: { actorId: req.user.id, action: 'COPY_TEMPLATE', resourceId: created.id, detail: { sourceTemplateId: source.templateId, sourceVersionId: source.id, sourceEditVersion: source.editVersion, versionId: created.versions[0].id } } });
+      return created;
+    });
   });
   app.post('/api/admin/templates/:id/versions', { preHandler: admin, bodyLimit: 10_500_000, schema: { params: Id, body: TemplateDraftInput } }, async req => {
     const template = await db.template.findUnique({ where: { id: req.params.id } });

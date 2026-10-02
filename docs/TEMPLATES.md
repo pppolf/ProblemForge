@@ -32,6 +32,10 @@ metadata.schema.json 为不执行代码的声明子集：type: object、addition
 
 ## 版本、验证、构建与发布
 
+模板中心可在目录名称旁「重命名」，名称去首尾空白、限 1—120 字符。名称属于整套模板的可编辑信息，已发布版本也可改名；不会改写版本文件、哈希、验证结果、现有绑定或历史 PDF / 冻结快照。接口 `PATCH /api/admin/templates/:id` 使用 `expectedName` 拒绝覆盖他人刚改过的名称。
+
+选中具体版本后「复制为新模板」，输入名称即生成同类型、独立 ID 的 v1 草稿，完整保留该版本所有源码、图片与样式配置。来源可以是任一状态，但未保存的编辑需先保存；接口 `POST /api/admin/template-versions/:id/copy` 使用 `expectedVersion` 核对来源编辑版本，并在同一事务内读取文件/配置、创建模板及记录来源审计。副本不沿用原验证、发布状态、构建或题目绑定，须重新验证样稿、预览并发布。已有「复制为新版本」仍用于在同一套模板下继续迭代。
+
 草稿保存通过 expectedVersion 比较，冲突返回 409。验证固定模板文件哈希、策略/profile、真实 go-judge 版本，模板样稿使用固定 latexmk -norc / XeLaTeX / no-shell-escape。成功要求真实 Accepted、退出码 0 与合法 PDF 产物；失败保存真实日志，绝不写空 PDF 或虚构通过。
 
 生命周期为 DRAFT → VALIDATED → PUBLISHED；编辑使验证失效，发布后不可原地修改。管理员需预览匹配验证构建；归档停止新选择但保留旧绑定，撤回阻止新构建。管理员发布新版不重绑定已有题目或比赛。

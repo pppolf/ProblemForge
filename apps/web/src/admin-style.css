@@ -13,6 +13,10 @@
 .template-kind-heading>span:last-child{color:#7d899b;font-weight:400;white-space:nowrap}
 .template-kind-group .template-group{margin-bottom:16px}
 .template-kind-group .template-group:last-child{margin-bottom:0}
-.template-kind-group .template-group>strong{display:block;overflow-wrap:anywhere}
+.template-group-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:6px}
+.template-group-heading>strong{min-width:0;overflow-wrap:anywhere}
+.template-group-heading>.n-button{flex-shrink:0}
+.template-action-modal{width:min(480px,calc(100vw - 32px))}
+.template-action-buttons{display:flex;justify-content:flex-end;gap:10px}
 .template-selection-note{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-bottom:18px;padding:10px;border-radius:5px;background:#f5f7fa;color:#586983;font-size:12px;overflow-wrap:anywhere}
 @media(max-width:760px){.template-categories{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.template-category-button{gap:6px;padding:9px 10px}}

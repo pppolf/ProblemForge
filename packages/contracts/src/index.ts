@@ -25,7 +25,10 @@ export const DocumentInput = Type.Object({
   sampleRevisionIds: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 80 }), { maxItems: 10, uniqueItems: true })),
 }, strict);
 export type DocumentSave = Static<typeof DocumentInput>;
-export const TemplateInput = Type.Object({ name: Type.String({ minLength: 1, maxLength: 120 }), kind: Kind }, strict);
+const TemplateName = Type.String({ minLength: 1, maxLength: 120, pattern: '\\S' });
+export const TemplateInput = Type.Object({ name: TemplateName, kind: Kind }, strict);
+export const TemplateRenameInput = Type.Object({ name: TemplateName, expectedName: Type.String({ minLength: 1, maxLength: 120 }) }, strict);
+export const TemplateCopyInput = Type.Object({ name: TemplateName, expectedVersion: Type.Integer({ minimum: 1 }) }, strict);
 export const TemplateStyle = Type.Object({
   marginMm: Type.Integer({ minimum: 15, maximum: 35 }),
   cjkFont: Type.Union([Type.Literal('Noto Serif CJK SC'), Type.Literal('Noto Sans CJK SC')]),
