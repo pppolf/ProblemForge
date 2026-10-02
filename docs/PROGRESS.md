@@ -465,3 +465,17 @@ P6.0—P6.2、P7.0—P7.1 本轮范围完成。按用户明确要求，P7.2 独�
 原 5180 实测健康 HTTP 200、auth/config 明确 configured=false、缺密钥登录 503、未登录 me 401，登录及修订组件 Vite 转换 HTTP 200；证据 `.local/association-entry-check.json`。真实浏览器查看原 `http://localhost:5180/login`，账号/邮箱、密码、官网入口、未配置提示和禁用登录按钮均正常，截图 `.local/association-login-page.png`。Compose 仅静态 `config --quiet` 通过，ops 脚本语法检查和差异检查通过。
 
 **未验证 / 下一步：**真实协会成功登录待用户给 APPKEY 后联调；原管理员/出题人需明确协会 userId 后显式绑定，原本地密码不能再登录，已有有效会话不统一清除。未浏览器操作已登录用户管理或冻结、未新运行 Judge/TeX、未全量/E2E/生产构建或部署。P0—P7 历史集成脚本依赖旧本地密码夹具，README/ACCOUNTS 已标注须先适配授权的协会测试账号，不宣称其通过；当前相关检查用 verify:access。P7.2/P8 继续暂缓。更新本交接后单独本地提交，不 push。
+
+## 清空用户与题目，仅保留系统管理员（2026-10-02）
+
+**用户要求与范围：**用户明确要求清空所有用户和题目数据，只保留一个超级管理员。核对原开发库只有一个 ADMIN（本系统最高系统权限）：`admin-f054@problemforge.local` / 系统管理员，ID `cmuo19g110000kta4qk0sh12b`，保留该记录及其角色、状态；删除其他 11 个用户。仍操作主目录原 `problemforge_f054`、Redis DB 1 和 `.local/p3-storage`，保留模板与编译配置，没有新增环境、端口、数据库或工作树。
+
+**备份与实际清理：**确认 Build/TestRun 活动数均为 0 后，停止经监听和父子关系核实的主目录 `pnpm dev` 进程树，基础容器继续运行。清理前完整备份位于 `.local/backups/main-before-users-clear-20261002T084743836Z`，包含原 PostgreSQL custom dump（12,602,670 字节）、364 个私有文件（6,673,199 字节）、原环境配置、队列快照、清理计划和哈希清单；逐个文件比对 SHA-256/大小，并用 pg_restore 列出目录、完整读取归档到 `/dev/null`，没有写入恢复库。第一次备份目录检查遇到 Windows 管道提前关闭的 EOF，在任何数据删除前终止；适配该信号后重新备份并通过完整读取校验。旧备份和证据保留，不提交 Git。
+
+在锁表的 Serializable 事务中删除 11 个用户、1 个用户组、58 个会话、全部 2 道题和 1 场比赛及级联内容，包括文稿、源程序、正式数据/版本、生成计划、修订、评论/审批、成员关系、验收历史等；删除 10 个题目/比赛 Build、26 个 TestRun、8 条编译缓存及原 1,285 条审计，新增一条本次清理审计。重置凭据、发布、导入/导出等原本为空，清理后仍为空。删除旧 Worker 心跳，重启时由原两个 Worker 自动登记新的心跳。按任务 ID 清理 10 个 TeX / 26 个 Judge 队列项，不清空 Redis。对已备份、哈希一致且无剩余数据库引用的 349 个私有文件逐个核实实际路径后删除（3,267,521 字节），同步清理 StoredObject 登记。执行脚本 `.local/clear-main-users-content.ts`，结果 `.local/clear-main-users-result.json`，备份内另存完整清单。
+
+**保留与实际验证：**只剩 1 个启用的 ADMIN；题目、比赛和各关联业务内容表均为 0，Session / PasswordReset / UserGroup 均为 0。该管理员、6 套模板 / 13 个已发布版本及 3 套编译配置的完整数据指纹与清理前一致。保留模板验证历史 16 个 Build、15 份 PDF / StoredObject（3,405,678 字节），全部模板源码哈希正确；离线存储盘点无缺失、哈希差异、未完成预留或无引用文件。`pnpm exec tsx scripts/ops-state.ts --quiescent` 校验 12 个迁移的原始字节、全部剩余私有文件及无运行中任务，通过。
+
+**原服务恢复：**普通终端 `pnpm dev` 从主目录恢复原 5180 / 3100 及两个 Worker，终端会话 50253；本轮核对 Vite PID 7196、API PID 27984，登记 `.local/users-clear-services.json`，停止前须重新核对实际命令行。登录页面、5180 代理健康及 3100 健康接口均 HTTP 200 / status ok，auth/config 仍为 configured=false；旧浏览器事件请求已因会话被清理返回 401。启动后再次只读核对所有业务表数量与保留数据指纹一致，Judge 队列为空，TeX 仅剩保留的模板验证历史；证据 `.local/verify-main-users-clear.json`。运行后正常产生新的 Worker 心跳与请求审计，不代表旧数据恢复。
+
+**未验证 / 交接：**APPKEY 仍预留为空，唯一管理员的 associationUserId 仍未绑定；没有猜测身份、设置新密码或启用本地登录回退。需取得其真实协会 userId 后显式 `pnpm user:link`，填写 APPKEY 并重启原 API 后再联调官网登录。所有旧会话已撤销，原本地密码不可登录，其他用户以后通过协会首次登录会新建普通用户记录。README、PLAN、ACCOUNTS、USER_GUIDE 和本地手动访问说明同步更新。没有执行恢复演练、真实协会登录、浏览器登录后操作、新 Judge/TeX、全量/E2E 或测试夹具初始化；不自动补回已删用户、题目或比赛。完成数据/文件/服务定向核对及文档差异检查后单独本地提交，不 push，P7.2/P8 继续暂缓。
