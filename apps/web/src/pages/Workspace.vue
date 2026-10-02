@@ -9,6 +9,8 @@ import SourceEditor from '../components/SourceEditor.vue';
 import PdfPreview from '../components/PdfPreview.vue';
 import DeferredPanel from '../components/DeferredPanel.vue';
 import EditorFeedback from '../components/EditorFeedback.vue';
+import StatementFormatPicker from '../components/StatementFormatPicker.vue';
+import type { StatementFormatApplication } from '../statement-formats';
 import { snapshot, mergeSaved, downloadDraft } from '../draft-state';
 import { rememberedChoice, useUnsavedGuard, readNavigation, writeNavigation } from '../editor-navigation';
 const loadJudge = () => import('../components/JudgeWorkspace.vue');
@@ -61,6 +63,16 @@ async function load() { try { problem.value = await api(`/problems/${route.param
 onMounted(async () => { await load(); await refreshSamples(); });
 useTaskEvents(refreshResults,{problemId:String(route.params.id)});
 function dirty() { if (current.value) current.value.dirty = true; }
+function applyStatementFormat(value: StatementFormatApplication) {
+  const draft = current.value;
+  if (!draft || draft.kind !== 'STATEMENT' || !documentWritable.value || draft.saving || building.value) return;
+  const body = draft.currentRevision.body;
+  draft.currentRevision.body = value.mode === 'append' && body ? `${body}${body.endsWith('\n') ? '\n' : '\n\n'}${value.body}` : value.body;
+  if (value.title) draft.currentRevision.metadata.title = value.title;
+  draft.dirty = true;
+  if (value.mode === 'replace') draft.policyIssues = [];
+  message.success('交互题格式已写入草稿，请检查内容后保存题面');
+}
 async function save(): Promise<boolean> {
   const draft = current.value; if (!draft || !documentWritable.value || draft.saving) return false;
   const submitted = snapshot(documentData(draft)); draft.saving = true; draft.saveError='';
@@ -103,6 +115,7 @@ function insertAsset(path: string) { if (!current.value) return; current.value.c
     <template v-if="current"><div class="document-toolbar"><div class="toolbar-left"><NSelect v-model:value="current.templateVersionId" :options="templateOptions" :disabled="!writable" placeholder="选择管理员已发布模板" style="min-width: 250px; width: 310px" @update:value="dirty"/><NSwitch v-model:value="current.enabled" :disabled="!writable" @update:value="dirty"/><span>{{ current.enabled ? '已启用' : '已停用，稿件保留' }}</span></div><div class="toolbar-right"><span class="save-state">{{ current.saving ? '保存中…' : current.dirty ? '未保存' : `已保存 v${current.version}` }}</span><NButton :disabled="!documentWritable" :loading="current.saving" @click="save">保存</NButton><NButton type="primary" :disabled="!documentWritable || !current.enabled" :loading="building" @click="build">构建 PDF</NButton></div></div>
       <EditorFeedback :dirty="current.dirty" :saving="current.saving" :error="current.saveError" :version="current.version" :label="kindLabels[current.kind]" @export="exportDocument"/>
       <div class="content-metadata"><label>标题<NInput v-model:value="current.currentRevision.metadata.title" :disabled="!documentWritable" @update:value="dirty" /></label><label>作者<NInput v-model:value="current.currentRevision.metadata.author" :disabled="!documentWritable" @update:value="dirty"/></label><span class="muted">{{ current.language }} · {{ current.kind === 'EDITORIAL_BEAMER' ? '仅填写 frames，主题由模板生成' : '仅填写正文，文档外壳由模板生成' }}</span></div>
+      <StatementFormatPicker v-if="current.kind === 'STATEMENT' && documentWritable" :key="current.id" :disabled="current.saving || building" :has-content="!!current.currentRevision.body.trim()" :sample-count="current.currentRevision.sampleRevisionIds?.length ?? 0" @apply="applyStatementFormat"/>
       <div v-if="current.kind === 'STATEMENT'" class="sample-binding"><label>引用样例的具体数据版本</label><NSelect v-model:value="current.currentRevision.sampleRevisionIds" multiple :options="sampleOptions" :disabled="!writable" placeholder="在测试数据中标记样例并收集答案后选择" @update:value="dirty"/><small>输入与答案来自不可变数据版本，构建按原始字节复制；更新样例版本需显式重新选择。</small><NAlert v-if="hasDeletedSamples" type="warning" :show-icon="false">已引用的部分样例从测试数据中删除了，本文稿仍使用原固定版本。若不再需要，请取消引用或选择新版本并保存题面。</NAlert></div>
       <NAlert v-if="current.policyIssues?.length" type="warning" :show-icon="false">已保存草稿。构建前需要处理：{{ current.policyIssues.map(i => `第 ${i.line} 行：${i.message}`).join('；') }}</NAlert>
       <div class="editor-grid"><section class="source-pane"><div class="pane-title">LaTeX 源码 <span class="muted">{{ kindLabels[current.kind] }} · 独立版本</span></div><SourceEditor :key="current.id" v-model="current.currentRevision.body" :readonly="!documentWritable" @update:model-value="dirty" /></section><section class="result-pane"><NTabs v-model:value="rightTab" type="line"><NTab name="preview">PDF 预览</NTab><NTab name="log">构建日志</NTab><NTab name="publish">发布</NTab></NTabs><div class="build-selector"><NSelect :value="chosenBuild?.id ?? null" :options="currentBuilds.map(b => ({ label: `${b.state} · 内容 v${b.input.contentVersion ?? '?'} · 模板 v${b.input.templateNumber ?? '?'}${b.stale ? ' · 已过期' : ''}`, value: b.id }))" placeholder="尚无构建记录" @update:value="v => selectedBuildId = v"/><NButton v-if="chosenBuild && ['QUEUED', 'RUNNING'].includes(chosenBuild.state)" size="small" @click="cancel">取消</NButton><NButton v-if="chosenBuild && ['FAILED', 'CANCELED'].includes(chosenBuild.state)" size="small" @click="retry">重试此任务</NButton></div><NAlert v-if="chosenBuild?.stale" type="warning" :show-icon="false">历史产物：正文或模板绑定已改变，请重新构建当前版本。</NAlert><PdfPreview v-if="rightTab === 'preview'" :artifact-id="chosenBuild?.artifacts[0]?.id"/><template v-else-if="rightTab === 'log'"><NAlert v-if="chosenBuild?.errorCode" type="error">{{ chosenBuild.errorCode }}</NAlert><pre class="build-log">{{ chosenBuild?.log || '等待 Worker 返回执行日志。' }}</pre></template><div v-else class="publication-pane"><p>当前格式：{{ kindLabels[current.kind] }}。每种格式独立发布和撤回。</p><NButton type="primary" :disabled="!chosenBuild || chosenBuild.state !== 'SUCCEEDED' || chosenBuild.stale || current.dirty || problem.role !== 'OWNER'" @click="publish">公开发布当前 PDF</NButton><div v-for="p in publications.filter(p => p.document.kind === kind && p.document.language === language)" :key="p.id" class="publication-row"><span>{{ p.revokedAt ? '已撤回' : '已发布' }} · {{ new Date(p.createdAt).toLocaleString('zh-CN') }}</span><a v-if="!p.revokedAt" :href="`/api/published/${p.token}/pdf`" target="_blank">打开公开 PDF</a><NButton v-if="!p.revokedAt && problem.role === 'OWNER'" size="small" @click="revoke(p.id)">撤回</NButton></div></div></section></div>
