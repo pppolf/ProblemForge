@@ -1,19 +1,19 @@
-.admin-style-form{display:flex;align-items:flex-end;gap:16px;padding:14px 18px;background:#fafbfc;border-bottom:1px solid #e8edf4}.admin-style-form label{display:flex;flex-direction:column;gap:5px;width:170px;font-size:12px;color:#728098}
+.admin-style-form{display:flex;align-items:flex-end;gap:16px;padding:14px 18px;background:var(--surface-soft);border-bottom:1px solid var(--line-soft)}.admin-style-form label{display:flex;flex-direction:column;gap:5px;width:170px;font-size:12px;color:var(--text-muted)}
 .template-editor{container:template-editor / inline-size;min-width:0}
 .template-layout.template-workspace-wide{grid-template-columns:minmax(0,1fr)}
 .template-page-actions{display:flex;gap:10px;flex-wrap:wrap}
 .template-workspace-options{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 18px}
 .template-preview-stale{margin:8px 14px}
 .template-categories{display:flex;flex-wrap:wrap;gap:8px;padding:12px;margin-bottom:16px}
-.template-category-button{display:inline-flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 14px;border:1px solid transparent;border-radius:6px;background:transparent;color:#586983;font-size:13px;cursor:pointer}
-.template-category-button:hover{background:#f1f5fa}
-.template-category-button.active{background:#edf3ff;border-color:#c8d9fb;color:#2563eb;font-weight:600}
-.template-category-count{min-width:22px;padding:1px 6px;border-radius:12px;background:#eef1f5;color:#586983;font-size:12px;text-align:center;font-variant-numeric:tabular-nums}
-.template-category-button.active .template-category-count{background:#dbe8ff;color:#1d4ed8}
+.template-category-button{display:inline-flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 14px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--text-secondary);font-size:13px;cursor:pointer}
+.template-category-button:hover{background:var(--surface-muted)}
+.template-category-button.active{background:var(--accent-soft);border-color:var(--accent-line);color:var(--accent);font-weight:600}
+.template-category-count{min-width:22px;padding:1px 6px;border-radius:12px;background:var(--surface-muted);color:var(--text-secondary);font-size:12px;text-align:center;font-variant-numeric:tabular-nums}
+.template-category-button.active .template-category-count{background:var(--accent-soft);color:var(--accent-pressed)}
 .template-list.template-directory{display:block}
-.template-kind-group+.template-kind-group{border-top:1px solid #e8edf4;margin-top:20px;padding-top:18px}
-.template-kind-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 14px;color:#586983;font-size:12px;font-weight:600}
-.template-kind-heading>span:last-child{color:#7d899b;font-weight:400;white-space:nowrap}
+.template-kind-group+.template-kind-group{border-top:1px solid var(--line-soft);margin-top:20px;padding-top:18px}
+.template-kind-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 14px;color:var(--text-secondary);font-size:12px;font-weight:600}
+.template-kind-heading>span:last-child{color:var(--text-muted);font-weight:400;white-space:nowrap}
 .template-kind-group .template-group{margin-bottom:16px}
 .template-kind-group .template-group:last-child{margin-bottom:0}
 .template-group-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:6px}
@@ -21,5 +21,5 @@
 .template-group-heading>.n-button{flex-shrink:0}
 .template-action-modal{width:min(480px,calc(100vw - 32px))}
 .template-action-buttons{display:flex;justify-content:flex-end;gap:10px}
-.template-selection-note{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-bottom:18px;padding:10px;border-radius:5px;background:#f5f7fa;color:#586983;font-size:12px;overflow-wrap:anywhere}
+.template-selection-note{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-bottom:18px;padding:10px;border-radius:5px;background:var(--surface-muted);color:var(--text-secondary);font-size:12px;overflow-wrap:anywhere}
 @media(max-width:760px){.template-categories{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.template-category-button{gap:6px;padding:9px 10px}}

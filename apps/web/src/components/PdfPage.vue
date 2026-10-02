@@ -64,5 +64,5 @@ onBeforeUnmount(() => { disposed = true; drawing++; observer?.disconnect(); rend
 .pdf-page{position:relative;flex:none;background:white;box-shadow:0 2px 10px #25364b1a}
 .pdf-page canvas{display:block;box-shadow:none}
 .pdf-page-pending{visibility:hidden}
-.pdf-page-placeholder{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:20px;overflow-wrap:anywhere;color:#7a879a;font-size:12px}
+.pdf-page-placeholder{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:20px;overflow-wrap:anywhere;color:var(--text-muted);font-size:12px}
 </style>

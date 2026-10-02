@@ -38,7 +38,7 @@ function apply(mode: StatementFormatApplication['mode']) {
 </template>
 
 <style scoped>
-.statement-format-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid #e8edf4}
+.statement-format-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid var(--line-soft)}
 .statement-format-preview{font-family:Consolas,"Microsoft YaHei",monospace}
 .statement-format-option{margin-top:14px}
 .statement-format-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}

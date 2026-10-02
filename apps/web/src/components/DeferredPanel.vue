@@ -30,6 +30,6 @@ function retry() { window.location.reload(); }
 </template>
 
 <style scoped>
-.deferred-panel { min-height: 180px; padding: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: #64738a; background: #fafbfc; font-size: 13px; }
+.deferred-panel { min-height: 180px; padding: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--text-muted); background: var(--surface-soft); font-size: 13px; }
 .deferred-panel p { margin: 0; }
 </style>
