@@ -1,6 +1,6 @@
 import { reactive } from 'vue';
-import type { UserView } from '@problemforge/contracts';
-export const session = reactive({ user: null as UserView | null, csrfToken: '', appName: 'ProblemForge', ready: false, expired: false });
+import type { AuthenticatedUser } from '@problemforge/contracts';
+export const session = reactive({ user: null as AuthenticatedUser | null, csrfToken: '', appName: 'ProblemForge', ready: false, expired: false });
 export class ApiError extends Error { constructor(message: string, public status: number, public code: string, public details?: unknown) { super(message); } }
 const pendingBuilds=new Map<string,string>();
 export async function api<T = any>(path: string, options: RequestInit = {}): Promise<T> {
@@ -11,7 +11,7 @@ export async function api<T = any>(path: string, options: RequestInit = {}): Pro
   const response = await fetch(`/api${path}`, { ...options, credentials: 'same-origin', headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(session.csrfToken ? { 'X-CSRF-Token': session.csrfToken } : {}), ...options.headers } });
   if(submission&&response.status<500)pendingBuilds.delete(submission);
   if (!response.ok) { const error = await response.json(); if (response.status === 401) session.expired = true; throw new ApiError(error.message, response.status, error.code, error.details); }
-  if (path === '/auth/login' || path === '/auth/me') session.expired = false;
+  if (path === '/auth/login' || path === '/auth/admin/login' || path === '/auth/me') session.expired = false;
   return response.json();
 }
 export async function loadSession() {

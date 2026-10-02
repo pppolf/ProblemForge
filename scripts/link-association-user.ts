@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { db } from '@problemforge/database';
+import { assertAssociationLinkable } from '@problemforge/domain';
 // This is an explicit local-operator binding, never an email-based login shortcut.
 const args = process.argv.slice(2);
 const option = (key: string) => { const index = args.indexOf(key); return index >= 0 ? args[index + 1] : undefined; };
@@ -10,6 +11,7 @@ try {
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(70406100)::text`;
     const user = await tx.user.findUnique({ where: { email } });
     if (!user) throw new Error('本地用户不存在；此命令不创建账号。');
+    assertAssociationLinkable(user);
     if (user.associationUserId && user.associationUserId !== associationUserId) throw new Error('本地用户已绑定其他协会身份，拒绝覆盖。');
     const existing = await tx.user.findUnique({ where: { associationUserId } });
     if (existing && existing.id !== user.id) throw new Error('协会身份已关联其他本地用户，拒绝合并或覆盖权限。');

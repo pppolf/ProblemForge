@@ -1,4 +1,4 @@
-import { config, HttpError } from '@problemforge/domain';
+import { config, HttpError, isLocalAdministrator } from '@problemforge/domain';
 import type { Prisma } from '@problemforge/database';
 
 const loginUrl = 'https://www.cwnupaa.com/api/user/external/login';
@@ -64,6 +64,7 @@ export async function syncAssociationUser(tx: Prisma.TransactionClient, info: As
   const current = await tx.user.findUnique({ where: { associationUserId: info.userId } });
   if (current?.disabled) throw new HttpError(403, '此账号已在出题工作台停用，请联系管理员', 'ACCOUNT_DISABLED');
   const collision = await tx.user.findUnique({ where: { email: info.email } });
+  if (collision && isLocalAdministrator(collision)) throw new HttpError(409, '此邮箱属于独立超级管理员，请使用超级管理员登录入口', 'LOCAL_ADMIN_ACCOUNT');
   if (collision && collision.id !== current?.id) throw new HttpError(409, '此邮箱已有本地账号，请联系管理员绑定协会用户 ID 后再登录', 'ACCOUNT_LINK_REQUIRED');
   const profile = { email: info.email, name: info.name, associationAccount: info.userAccount };
   if (!current) {

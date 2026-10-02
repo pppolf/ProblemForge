@@ -12,6 +12,7 @@ export const kindLabels: Record<DocumentKind, string> = {
 export const Kind = Type.Union(kinds.map(k => Type.Literal(k)));
 const strict = { additionalProperties: false };
 export const LoginInput = Type.Object({ account: Type.String({ minLength: 1, maxLength: 254, pattern: '\\S' }), password: Type.String({ minLength: 1, maxLength: 256 }) }, strict);
+export const LocalAdminPasswordInput = Type.Object({ currentPassword: Type.String({ minLength: 1, maxLength: 256 }), newPassword: Type.String({ minLength: 12, maxLength: 256, pattern: '\\S' }) }, strict);
 export const Language = Type.String({ pattern: '^[a-z]{2}(-[A-Z]{2})?$' });
 export const ProblemInput = Type.Object({ title: Type.String({ minLength: 1, maxLength: 160 }), language: Language }, strict);
 export const LanguageInput = Type.Object({ language: Language }, strict);
@@ -40,6 +41,7 @@ export const BuildInput = Type.Object({ documentId: Type.String({ maxLength: 80 
 export const ReasonInput = Type.Object({ reason: Type.String({ minLength: 1, maxLength: 1000 }) }, strict);
 export const PublishInput = Type.Object({ buildId: Type.String({ maxLength: 80 }) }, strict);
 export type UserView = { id: string; email: string; name: string; role: 'ADMIN' | 'USER' };
+export type AuthenticatedUser = UserView & { authProvider: 'local-admin' | 'association' };
 export const UserVersionInput = Type.Object({ expectedVersion: Type.Integer({ minimum: 1 }) }, strict);
 export const UserUpdateInput = Type.Object({
   ...UserVersionInput.properties,
@@ -47,4 +49,4 @@ export const UserUpdateInput = Type.Object({
   disabled: Type.Boolean(),
 }, strict);
 export const SessionRevokeInput = Type.Object({ all: Type.Boolean() }, strict);
-export type ManagedUser = UserView & { disabled: boolean; version: number; associationUserId: string | null; associationAccount: string | null };
+export type ManagedUser = UserView & { disabled: boolean; version: number; associationUserId: string | null; associationAccount: string | null; localAdmin: boolean };

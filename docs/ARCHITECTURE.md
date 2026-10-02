@@ -2,7 +2,7 @@
 
 浏览器（Vue / Naive UI / Monaco / PDF.js）→ Fastify 模块化单体（身份、题目、程序/数据、模板、Judge/出版任务）→ PostgreSQL。数据库保存事实，Redis / BullMQ 只调度。业务存储通过 StorageAdapter 使用私有目录，无静态文件根和可直达宿主机路径。
 
-User.systemRole 与 ProblemMember.resourceRole 分离。所有私有读写、日志、历史构建、PDF 与下载按当前数据库权限授权；撤销不靠版本快照缓存。会话使用随机不透明 cookie，数据库仅保存 token 的 SHA-256；登录由后端通过固定 HTTPS 地址向协会官网验证账号/邮箱和密码，APPKEY 仅在 API 环境中；本地不保存协会密码。协会 userId（精确十进制字符串）唯一绑定本地 User，首次登录仅授予 USER，同邮箱不自动合并旧账号。SameSite=Strict / HttpOnly；生产 Secure，写入检查 Origin 与 CSRF，登录使用 Redis 限流。
+User.systemRole 与 ProblemMember.resourceRole 分离。所有私有读写、日志、历史构建、PDF 与下载按当前数据库权限授权；撤销不靠版本快照缓存。会话使用随机不透明 cookie，数据库仅保存 token 的 SHA-256。超级管理员通过独立 `/api/auth/admin/login` 验证本地邮箱和 scrypt 密码，仅允许未绑定协会的 ADMIN；普通用户通过 `/api/auth/login` 由固定 HTTPS 协会接口验证，APPKEY 仅在 API 环境中，本地不保存协会密码。协会 userId（精确十进制字符串）唯一绑定本地 User，首次登录仅授予 USER，同邮箱不自动合并或接管独立管理员。SameSite=Strict / HttpOnly；生产 Secure，写入检查 Origin 与 CSRF，两个登录入口使用 Redis 限流。本地管理员改密验证当前密码、撤销全部会话，不能停用或降权最后一个可登录的独立管理员；签发会话时在账号事务锁内重查身份、启停和密码。
 
 Problem → Document（problem/language/kind 唯一）→ 不可变 ContentRevision。STATEMENT、EDITORIAL_DOCUMENT、EDITORIAL_BEAMER 的记录、当前版本、enabled、模板选择及 Publication 完全独立。草稿保存用 expectedVersion 的原子比较更新，冲突 409，不覆盖。ProblemRevision 聚合固定跨稿件/程序/数据/配置/资源的修订清单及哈希；恢复追加新的各功能版本和 DRAFT 修订，旧历史与冻结状态不回写。
 

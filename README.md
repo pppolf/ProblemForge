@@ -8,25 +8,27 @@
 
 ```sh
 cp .env.example .env
-# 编辑 .env，配置数据库/Redis 密码、沙箱令牌及协会 ASSOCIATION_APP_KEY。
+# 全新环境：编辑 .env，配置数据库/Redis、沙箱令牌和 PF_ADMIN_PASSWORD（12—256 字符）。
+# ASSOCIATION_APP_KEY 供普通用户登录使用，超级管理员不依赖它。
 pnpm install --frozen-lockfile
 pnpm infra:up
 pnpm db:generate
 pnpm db:migrate
-pnpm admin:init --email admin@example.org --user-id <协会userId>
+pnpm admin:init --email admin@example.org
+# 初始化后可从配置中移除 PF_ADMIN_PASSWORD，登录使用数据库中的密码哈希。
 pnpm demo:init
 pnpm infra:tex
 pnpm infra:judge
 pnpm dev
 ```
 
-前端：[http://localhost:5180](http://localhost:5180)，API：`127.0.0.1:3100`，登录后的 OpenAPI：`/api/docs`。使用协会官网账号或邮箱与密码登录；APPKEY 留空时提示未配置。旧本地账号先按 [账号说明](docs/ACCOUNTS.md) 显式绑定协会 userId，保留原权限。本项目使用独立端口 15432 / 16379 / 15050 / 15051，不复用其他项目的服务或数据库。数据位于 Docker 命名卷及私有 `storage/`。
+前端：[http://localhost:5180](http://localhost:5180)，API：`127.0.0.1:3100`，登录后的 OpenAPI：`/api/docs`。超级管理员选择「超级管理员登录」，使用独立本地邮箱与密码，不需要 APPKEY 或协会 userId；普通用户选择协会账号或邮箱与密码登录，APPKEY 留空时仅协会入口不可用。详见 [账号说明](docs/ACCOUNTS.md)。本项目使用独立端口 15432 / 16379 / 15050 / 15051，不复用其他项目的服务或数据库。数据位于 Docker 命名卷及私有 `storage/`。
 
 `demo:init` 创建每类两套、共六套模板草稿，**不会伪造编译验证或自动发布模板**。管理员在模板中心验证真实样稿、预览 PDF 后发布；题目所有者只能选具体已发布版本。每种稿件独立保存，切换标签/停用格式保留正文。保存使用版本检查，冲突保留本地编辑。
 
 此前阶段已实际运行：本地登录、题目创建、按语言独立保存三类稿件、私有 PNG/JPEG 资源、管理员模板编辑与版本发布、隔离构建、PDF.js 预览、真实日志、取消/重试、三类分别发布及撤回。题面模板以用户压缩包的 **main.tex 源码版** 为准，保留原封面、主办方页、图片、字体和 olymp 排版；Beamer 来自指定 CWNU 模板。详见 [来源](templates/builtin/SOURCES.md) 和 [模板协议](docs/TEMPLATES.md)。
 
-2026-10-02 已改为协会登录并移除审批；接口模拟与原库回滚验证通过，真实协会登录仍待 APPKEY 联调。原审批和本地密码要求以这次用户调整为准。
+2026-10-02 已移除审批，普通用户接入协会登录，超级管理员使用独立本地密码。原管理员在 APPKEY / userId 为空时已实际登录；接口模拟与原库回滚验证通过，真实协会登录仍待 APPKEY 联调。原审批和本地密码要求以这次用户调整为准。
 
 P4 已接入比赛编排、独立成员、聚合修订与直接冻结和整场正式出版。三类材料均使用统一源码组装，题解可以独立选择和发布，Beamer 讲解顺序保留原题号。参考预览的比赛名称及主办方仅属于该管理员模板。已发布版本不会随磁盘内置样式更新而改变；已有数据库更新内置题面时使用 `pnpm demo:init --new-drafts --only=statement`，再验证、预览、发布，并显式选择新版本。
 
@@ -81,6 +83,6 @@ pnpm build:web
 
 `test` / `test:quick` 默认只运行固定的模板策略与私有存储快查，也可指定 template / contest / storage / judge / p3 单范围；不自动扩展到新增套件，不运行集成、E2E 或构建。`pnpm verify:publication <题目ID>` 需三类已有成功构建的验证题目，会创建定向验证稿件；具体已执行记录见 PROGRESS。真实执行受限于 Linux 沙箱，不可用时任务明确失败，不执行宿主机 TeX 或作者程序。正式运行使用生产 Compose，默认仅监听本机回环；本次交付没有向公网发布。
 
-团队首次试用见 [详细使用说明](docs/USER_GUIDE.md)，固定使用主目录原有 `http://localhost:5180`、原开发数据库与模板，包含协会登录、从零 A+B、验收冻结、比赛资料、题包和故障排查；网页侧栏「使用指引」提供简版。2026-10-02 已按用户要求备份并清空所有题目、比赛及关联内容，删除其他用户和全部旧会话，只保留原系统管理员 `admin-f054@problemforge.local`、6 套模板 / 13 个发布版本和编译配置。管理员仍待绑定协会 userId 并配置 APPKEY 后登录。部署/恢复演练容器已全部清理，不用演练环境替代用户开发版，不擅自新增端口。当前状态以 PROGRESS 最新交接为准。编辑冲突可查看、下载或复制本地草稿，再与服务端版本手动合并。显式定向验收：`pnpm verify:p6:editing`（隔离数据库并发写入和延迟保存合并，不启动 Judge/TeX）。
+团队首次试用见 [详细使用说明](docs/USER_GUIDE.md)，固定使用主目录原有 `http://localhost:5180`、原开发数据库与模板，包含登录、从零 A+B、验收冻结、比赛资料、题包和故障排查；网页侧栏「使用指引」提供简版。2026-10-02 已按用户要求备份并清空所有题目、比赛及关联内容，删除其他用户和全部旧会话，只保留原系统管理员 `admin-f054@problemforge.local`、6 套模板 / 13 个发布版本和编译配置。该管理员现可通过独立入口使用原本地密码登录，无需绑定协会。部署/恢复演练容器已全部清理，不用演练环境替代用户开发版，不擅自新增端口。当前状态以 PROGRESS 最新交接为准。编辑冲突可查看、下载或复制本地草稿，再与服务端版本手动合并。显式定向验收：`pnpm verify:p6:editing`（隔离数据库并发写入和延迟保存合并，不启动 Judge/TeX）。
 
 版本镜像入口为 `pnpm build:release <构建标识>`；加密备份与只读容量维护见 [维护说明](docs/MAINTENANCE.md)。定向检查 `pnpm verify:p7:maintenance` 不加入默认快查。

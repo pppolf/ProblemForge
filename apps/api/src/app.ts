@@ -8,7 +8,8 @@ import { Redis } from 'ioredis';
 import { db } from '@problemforge/database';
 import { config, sha256, HttpError, ManagedStorage } from '@problemforge/domain';
 import { ContentPolicyError } from '@problemforge/template-engine';
-import type { UserView } from '@problemforge/contracts';
+import type { AuthenticatedUser } from '@problemforge/contracts';
+import { publicUser } from './modules/user-view.ts';
 import { authRoutes } from './modules/auth.ts';
 import { problemRoutes } from './modules/problems.ts';
 import { templateRoutes } from './modules/templates.ts';
@@ -31,7 +32,7 @@ import { staticRoutes } from './modules/static.ts';
 import { historyRoutes } from './modules/history.ts';
 
 declare module 'fastify' {
-  interface FastifyRequest { user: UserView; sessionId: string; csrfToken: string; }
+  interface FastifyRequest { user: AuthenticatedUser; sessionId: string; csrfToken: string; }
 }
 export type Api = ReturnType<typeof createTypedApp>;
 function createTypedApp(logging: boolean) {
@@ -45,7 +46,7 @@ export async function authenticate(req: FastifyRequest) {
   if (!raw) throw new HttpError(401, '请先登录', 'AUTH_REQUIRED');
   const session = await db.session.findUnique({ where: { id: sha256(raw) }, include: { user: true } });
   if (!session || session.expiresAt <= new Date() || session.user.disabled || session.user.passwordResetRequired) throw new HttpError(401, '登录已过期', 'AUTH_REQUIRED');
-  req.user = { id: session.user.id, email: session.user.email, name: session.user.name, role: session.user.role };
+  req.user = publicUser(session.user);
   req.sessionId = session.id; req.csrfToken = session.csrfToken;
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers['x-csrf-token'] !== session.csrfToken) throw new HttpError(403, 'CSRF 验证失败', 'CSRF_FAILED');
 }
