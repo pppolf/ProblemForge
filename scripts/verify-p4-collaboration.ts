@@ -24,13 +24,11 @@ await translation.call(`/documents/${english.id}`,'PUT',{expectedVersion:english
 const run=await c.waitRun((await c.call(`/problems/${p.id}/test-runs`,'POST',{purpose:'ACCEPTANCE',requestKey:randomUUID()})).id);assert.equal(run.state,'SUCCEEDED',run.log);assert.equal(run.accepted,true);
 let working=await c.call(`/problems/${p.id}/working-revision`);assert.equal(working.acceptanceRunId,run.id);
 let revision=await c.call(`/problems/${p.id}/revisions`,'POST',{expectedHash:working.hash,label:'三组计分与中英稿件'});
-await c.call(`/revisions/${revision.id}/review`,'POST',{action:'SUBMIT',message:'提交固定清单'});
 const comment=await review.call(`/revisions/${revision.id}/comments`,'POST',{body:'已核对 100 / 35 / 0 分和依赖阻断。',anchor:'groups'});
 await review.call(`/review-comments/${comment.id}`,'PUT',{resolved:true});
-await review.call(`/revisions/${revision.id}/review`,'POST',{action:'APPROVE',message:'同意本次修订'});
-await c.call(`/revisions/${revision.id}/review`,'POST',{action:'FREEZE',message:'用于 P4 比赛固定版本'});
+await c.call(`/revisions/${revision.id}/freeze`,'POST',{});
 const oldHash=revision.hash;await saveDoc(c,zh,zh.currentRevision.body+'\n工作副本新增说明。');
-const history=await c.call(`/problems/${p.id}/revisions`);assert.equal(history[0].reviewStale,true);assert.equal(history[0].state,'FROZEN');
+const history=await c.call(`/problems/${p.id}/revisions`);assert.equal(history[0].current,false);assert.equal(history[0].state,'FROZEN');
 assert.equal((await c.call(`/revisions/${revision.id}`)).hash,oldHash);assert((await c.call(`/revisions/${revision.id}/diff`)).some((d:any)=>d.path==='documents'));
 await c.call(`/problems/${p.id}/revisions`,'POST',{expectedHash:working.hash,label:'冲突不得覆盖'},409);
 working=await c.call(`/problems/${p.id}/working-revision`);
@@ -38,5 +36,5 @@ const restored=await c.call(`/revisions/${revision.id}/restore`,'POST',{expected
 const back=await c.call(`/problems/${p.id}`);assert.equal(back.documents.find((d:any)=>d.id===zh.id).currentRevision.body,zh.currentRevision.body);assert(back.documents.find((d:any)=>d.id===zh.id).version>zh.version);
 await admin.call(`/admin/groups/${groupId}`,'PUT',{name:`P4 审题组 ${suffix}`,userIds:[],expectedVersion:1});await review.call(`/revisions/${revision.id}`,'GET',undefined,404);
 const after=await c.waitRun((await c.call(`/problems/${p.id}/test-runs`,'POST',{purpose:'ACCEPTANCE',requestKey:randomUUID()})).id);assert.equal(after.state,'SUCCEEDED',after.log);assert.equal(after.accepted,true);
-await writeFile('.local/verify-p4-collaboration.json',JSON.stringify({problemId:p.id,frozenRevisionId:revision.id,restoredRevisionId:restored.id,runId:run.id,restoredRunId:after.id,reviewerId:reviewer.id,translatorId:translator.id,checks:['copy keeps source and raw data','group grant and revocation','translator only en content','program and other-language denial','real acceptance','version-bound comment approval freeze','working edits mark stale but preserve frozen snapshot','CAS conflict','rollback creates new versions','restored real acceptance']},null,2));
-console.log('PASS P4 collaboration, current authorization, immutable revision/review/freeze, CAS, rollback and real Judge acceptance.');process.exit(0);
+await writeFile('.local/verify-p4-collaboration.json',JSON.stringify({problemId:p.id,frozenRevisionId:revision.id,restoredRevisionId:restored.id,runId:run.id,restoredRunId:after.id,reviewerId:reviewer.id,translatorId:translator.id,checks:['copy keeps source and raw data','group grant and revocation','translator only en content','program and other-language denial','real acceptance','version-bound comment and direct freeze','working edits mark stale but preserve frozen snapshot','CAS conflict','rollback creates new versions','restored real acceptance']},null,2));
+console.log('PASS P4 collaboration, current authorization, immutable revision/freeze, CAS, rollback and real Judge acceptance.');process.exit(0);

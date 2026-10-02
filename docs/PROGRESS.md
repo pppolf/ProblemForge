@@ -449,3 +449,19 @@ P6.0—P6.2、P7.0—P7.1 本轮范围完成。按用户明确要求，P7.2 独�
 用户当前比赛 `test`（`cmuqjnu41000iktv0u3o1wfcv`）原选 CWNU v3。按最新 expectedVersion 将比赛数据 v3 → v4，仅换绑题面模板为 CWNU v4，原 A/B 题号、题目冻结修订、顺序、比赛元信息及两套题解绑定全部保留。正常冻结接口确认原题目验收与修订有效后创建比赛冻结 #2 `cmuqkb1sg0063ktv0d11r7idq`，只生成题面，构建 `cmuqkb1vy0067ktv0dwjstino` 成功，PDF 产物 `cmuqkb3n3000fkt3ksxuzpxmx`（6 页）。已确认当前冻结匹配新编排、旧冻结哈希不变，没有改源题、建立新题或新比赛，也没有公开发布材料。
 
 **实际验证与边界：**原 policy / contest 两个测试文件共 6 项通过；两份新模板样稿共 5 页及当前比赛题册 6 页均由现有 Linux TeX 沙箱编译，并渲染逐页查看。实际标题为 `Problem A. A+B`、`Problem B. 多项式机器（Easy Version）`，简洁模板目录也包含 Problem 前缀；当前题册的交互命令正文在 `pf-content-4` 在线构建通过。单题相关文件逐字保持上一版，沿用其已通过的单题 PDF 检查。没有重新执行前端、浏览器、Judge 或全量/E2E 检查，也没有执行宿主机 TeX。保存前比赛配置、原模板指纹及 PDF 证据位于 Git 忽略目录 `.local/contest-title-update/`。USER_GUIDE / TEMPLATES 同步说明格式及最新版本，差异检查后本地提交，不 push。
+
+## 移除审批与接入协会账号密码登录（2026-10-02）
+
+**用户范围与实现：**用户认为功能臃肿，明确移除审批，并提供协会外部登录协议，只使用账号密码，APPKEY 稍后提供。本次覆盖原任务书/P4 审批和 P6 本地密码要求，已同步 AGENT_PROMPT、PLAN、README、使用指南和账号/架构/部署文档。提交、批准、要求修改、审批沿用和审批记录界面/API 均移除；独立 `POST /api/revisions/:id/freeze` 允许负责人在成功验收后直接冻结草稿。事务内核对权限、归档状态、完整修订哈希、有效验收及非空题面/正文策略。评论、差异、固定版本、比赛/出版来源约束保留；旧审批数据未删除，旧未冻结状态在 API 显示为草稿，可直接冻结。
+
+登录前端改为「协会账号或邮箱 + 密码」，后端固定 HTTPS 请求用户给定的 `/api/user/external/login`，传入 `loginType=password`。`ASSOCIATION_APP_KEY` 只在服务端配置，已在原 `.env` 和 `.env.example` 留空预留；未填时 API 503 / ASSOCIATION_NOT_CONFIGURED，页面提示并停用登录按钮，不回退本地密码。超时 8 秒、不跟随重定向、有界读取响应；Java Long userId 按原 JSON 十进制精确解析并唯一绑定。首次仅建 USER，已有身份同步昵称/账号/邮箱，权限与启停留在本地；邮箱冲突要求显式绑定，不自动接管原账号。密码/APPKEY/原始远端响应不持久化或写审计。保留 Origin/CSRF、Redis 登录限流、HttpOnly 会话及撤销。
+
+本地密码用户创建/修改/重置页面及 API 已移除；账号页引导官网，管理员仅改本系统角色/启停和撤销会话。新增 `pnpm user:link --email 原本地邮箱 --user-id 协会userId`，显式保留旧 ID/权限并撤销对应旧会话；冲突拒绝覆盖。`admin:init` 改为初始化已绑定的协会管理员，生产 Compose 仅给 API 传 APPKEY，ops 配置相应预留。**本次没有真实 APPKEY / 身份 ID，未绑定或改动任一原账号。** 官网未提供会话失效通知，官网改密/停用不会主动撤销已签发的本地会话，已在 ACCOUNTS/USER_GUIDE 说明；本地停用/撤销仍有效。
+
+**迁移与服务：**第 12 个迁移 `20261002000000_association_login` 已应用原 `problemforge_f054`（127.0.0.1:15432），只增加 User.associationUserId / associationAccount 两个可空列及唯一索引，不改原业务行。确认 Build/TestRun 活动数为 0 后，停止经命令行和父子关系核实的主目录 `pnpm dev` 进程树、生成 Prisma Client，再用普通终端 `pnpm dev` 恢复原 5180/3100 和两个 Worker。当前 Vite PID 69788、API PID 56784，登记 `.local/association-services.json`；下次先核对实际进程，不盲用 PID。继续原 Redis DB 1、`.local/p3-storage`、模板和数据库；没有新端口、实例、数据库或工作树。收尾原 12 个用户、2 道题、13 个模板版本均保留，已绑定用户数 0，活动 Build/TestRun 均为 0。
+
+**实际验证：**`pnpm check contracts database domain problem-format api web` 通过；`pnpm verify:access` 通过，测试只模拟远端响应并在原库必定回滚事务内执行实际 Fastify 路由。覆盖精确请求字段和密码不 trim、Java Long 无精度丢失、缺少/无效 APPKEY、错误凭据/学号提示、非法/超长响应和网络/超时异常；同 ID 的账号/邮箱登录、普通用户默认、会话签发/退出、Origin/CSRF/权限、旧密码/创建接口 404、邮箱碰撞拒绝、显式绑定身份保留、资料同步、停用与旧会话撤销、版本冲突、最后一个已绑定管理员保护。冻结覆盖直接草稿/旧待审状态成功、旧审批路由 404、权限/缺验收/归档/差异/重复冻结拒绝、评论及冻结哈希保留。成功验收仅为事务内的终态元数据夹具，未冒充真实 Judge；用户、题目、修订、任务及审计夹具均已回滚，证据 `.local/verify-access-simplification.json`。默认 test/test:quick 未扩大。
+
+原 5180 实测健康 HTTP 200、auth/config 明确 configured=false、缺密钥登录 503、未登录 me 401，登录及修订组件 Vite 转换 HTTP 200；证据 `.local/association-entry-check.json`。真实浏览器查看原 `http://localhost:5180/login`，账号/邮箱、密码、官网入口、未配置提示和禁用登录按钮均正常，截图 `.local/association-login-page.png`。Compose 仅静态 `config --quiet` 通过，ops 脚本语法检查和差异检查通过。
+
+**未验证 / 下一步：**真实协会成功登录待用户给 APPKEY 后联调；原管理员/出题人需明确协会 userId 后显式绑定，原本地密码不能再登录，已有有效会话不统一清除。未浏览器操作已登录用户管理或冻结、未新运行 Judge/TeX、未全量/E2E/生产构建或部署。P0—P7 历史集成脚本依赖旧本地密码夹具，README/ACCOUNTS 已标注须先适配授权的协会测试账号，不宣称其通过；当前相关检查用 verify:access。P7.2/P8 继续暂缓。更新本交接后单独本地提交，不 push。

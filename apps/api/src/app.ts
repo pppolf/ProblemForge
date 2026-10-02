@@ -35,7 +35,7 @@ declare module 'fastify' {
 }
 export type Api = ReturnType<typeof createTypedApp>;
 function createTypedApp(logging: boolean) {
-  return Fastify({ logger: logging ? { redact: ['req.headers.cookie', 'req.headers.authorization', 'req.body.password', 'req.body.currentPassword', 'req.body.newPassword', 'req.body.resetToken'] } : false,
+  return Fastify({ logger: logging ? { redact: ['req.headers.cookie', 'req.headers.authorization', 'req.body.password', 'req.body.credential', 'req.body.appKey', 'req.body.currentPassword', 'req.body.newPassword', 'req.body.resetToken'] } : false,
     bodyLimit: 2_500_000, ajv: { customOptions: { removeAdditional: false, coerceTypes: false } },
   }).withTypeProvider<TypeBoxTypeProvider>();
 }

@@ -11,7 +11,7 @@ export const kindLabels: Record<DocumentKind, string> = {
 };
 export const Kind = Type.Union(kinds.map(k => Type.Literal(k)));
 const strict = { additionalProperties: false };
-export const LoginInput = Type.Object({ email: Type.String({ format: 'email', maxLength: 254 }), password: Type.String({ minLength: 1, maxLength: 256 }) }, strict);
+export const LoginInput = Type.Object({ account: Type.String({ minLength: 1, maxLength: 254, pattern: '\\S' }), password: Type.String({ minLength: 1, maxLength: 256 }) }, strict);
 export const Language = Type.String({ pattern: '^[a-z]{2}(-[A-Z]{2})?$' });
 export const ProblemInput = Type.Object({ title: Type.String({ minLength: 1, maxLength: 160 }), language: Language }, strict);
 export const LanguageInput = Type.Object({ language: Language }, strict);
@@ -39,18 +39,12 @@ export const TemplateDraftInput = Type.Object({
 export const BuildInput = Type.Object({ documentId: Type.String({ maxLength: 80 }), requestKey: Type.Optional(Type.String({minLength:8,maxLength:100})) }, strict);
 export const ReasonInput = Type.Object({ reason: Type.String({ minLength: 1, maxLength: 1000 }) }, strict);
 export const PublishInput = Type.Object({ buildId: Type.String({ maxLength: 80 }) }, strict);
-export const UserInput = Type.Object({
-  email: Type.String({ format: 'email', maxLength: 254 }), name: Type.String({ minLength: 1, maxLength: 80 }),
-  password: Type.String({ minLength: 12, maxLength: 256 }), role: Type.Union([Type.Literal('USER'), Type.Literal('ADMIN')]),
-}, strict);
 export type UserView = { id: string; email: string; name: string; role: 'ADMIN' | 'USER' };
 export const UserVersionInput = Type.Object({ expectedVersion: Type.Integer({ minimum: 1 }) }, strict);
 export const UserUpdateInput = Type.Object({
   ...UserVersionInput.properties,
-  email: UserInput.properties.email, name: UserInput.properties.name, role: UserInput.properties.role,
+  role: Type.Union([Type.Literal('USER'), Type.Literal('ADMIN')]),
   disabled: Type.Boolean(),
 }, strict);
-export const PasswordChangeInput = Type.Object({ currentPassword: LoginInput.properties.password, newPassword: UserInput.properties.password }, strict);
-export const PasswordResetInput = Type.Object({ resetToken: Type.String({ pattern: '^[a-f0-9]{64}$' }), newPassword: UserInput.properties.password }, strict);
 export const SessionRevokeInput = Type.Object({ all: Type.Boolean() }, strict);
-export type ManagedUser = UserView & { disabled: boolean; version: number; passwordResetRequired: boolean };
+export type ManagedUser = UserView & { disabled: boolean; version: number; associationUserId: string | null; associationAccount: string | null };

@@ -40,6 +40,8 @@ model User {
   email String @unique
   name String
   passwordHash String
+  associationUserId String? @unique
+  associationAccount String?
   role SystemRole @default(USER)
   disabled Boolean @default(false)
   version Int @default(1)

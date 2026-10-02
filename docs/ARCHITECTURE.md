@@ -2,9 +2,9 @@
 
 浏览器（Vue / Naive UI / Monaco / PDF.js）→ Fastify 模块化单体（身份、题目、程序/数据、模板、Judge/出版任务）→ PostgreSQL。数据库保存事实，Redis / BullMQ 只调度。业务存储通过 StorageAdapter 使用私有目录，无静态文件根和可直达宿主机路径。
 
-User.systemRole 与 ProblemMember.resourceRole 分离。所有私有读写、日志、历史构建、PDF 与下载按当前数据库权限授权；撤销不靠版本快照缓存。会话使用随机不透明 cookie，数据库仅保存 token 的 SHA-256；密码 scrypt（N=32768/r=8/p=1）。SameSite=Strict / HttpOnly；生产 Secure，写入检查 Origin 与 CSRF，登录使用 Redis 限流。
+User.systemRole 与 ProblemMember.resourceRole 分离。所有私有读写、日志、历史构建、PDF 与下载按当前数据库权限授权；撤销不靠版本快照缓存。会话使用随机不透明 cookie，数据库仅保存 token 的 SHA-256；登录由后端通过固定 HTTPS 地址向协会官网验证账号/邮箱和密码，APPKEY 仅在 API 环境中；本地不保存协会密码。协会 userId（精确十进制字符串）唯一绑定本地 User，首次登录仅授予 USER，同邮箱不自动合并旧账号。SameSite=Strict / HttpOnly；生产 Secure，写入检查 Origin 与 CSRF，登录使用 Redis 限流。
 
-Problem → Document（problem/language/kind 唯一）→ 不可变 ContentRevision。STATEMENT、EDITORIAL_DOCUMENT、EDITORIAL_BEAMER 的记录、当前版本、enabled、模板选择及 Publication 完全独立。草稿保存用 expectedVersion 的原子比较更新，冲突 409，不覆盖。ProblemRevision 聚合固定跨稿件/程序/数据/配置/资源的审题清单及哈希；恢复追加新的各功能版本和 DRAFT 修订，旧历史与冻结状态不回写。
+Problem → Document（problem/language/kind 唯一）→ 不可变 ContentRevision。STATEMENT、EDITORIAL_DOCUMENT、EDITORIAL_BEAMER 的记录、当前版本、enabled、模板选择及 Publication 完全独立。草稿保存用 expectedVersion 的原子比较更新，冲突 409，不覆盖。ProblemRevision 聚合固定跨稿件/程序/数据/配置/资源的修订清单及哈希；恢复追加新的各功能版本和 DRAFT 修订，旧历史与冻结状态不回写。
 
 Template → TemplateVersion，只有系统 ADMIN 有维护接口。已发布版本不可修改，新编辑产生新草稿；归档版本保留已有绑定，撤回停止新构建。普通用户接口白名单拒绝 style/preamble/main.tex 等额外字段。模板 metadata schema 使用安全声明子集，不执行用户 schema 或代码。
 
@@ -30,7 +30,7 @@ SSE 只发送有限的任务元信息，定期重新验证会话和当前对象�
 
 UserGroup 的当前成员关系与对象直接授权共同决定权限。Problem 的 TRANSLATOR 仅处理授权语言稿件及共享图片，不能读写程序、测试、整题修订或包；Contest 授权不授予源题编辑权。至少保留一位直接 OWNER，用户组不能间接成为 OWNER。权限不进入可回滚清单。
 
-修订评论和 ReviewDecision 绑定不可变版本。提交/批准/要求修改检查当前 reviewHash，内容和判题依赖改变会过期。仅模板绑定变更可继承审核，但需要新的出版构建。FREEZE 核对完整工作清单、启用题面、内容策略及匹配的成功 Judge 依赖/验收，记录其 run ID。已冻结修订不因后续草稿改变而漂移。
+修订评论绑定不可变版本，审批流程已移除。负责人通过独立 freeze 接口直接冻结草稿；事务内重新核对权限、完整工作清单、启用题面、内容策略及匹配的成功 Judge 依赖/验收，记录其 run ID 和审计。旧审批记录与指纹仅作为历史数据保留，不参与新流程；旧未冻结状态对外统一显示为草稿。已冻结修订不因后续草稿改变而漂移。
 
 ContestData 保存比赛信息、语言、题号/顺序、独立讲解顺序、三模板版本和所选 ProblemRevision。ContestRevision 固定题目清单和模板字节。构建按 kind 建立同 bundle ID 的独立 Build，按题命名空间处理资源、样例与引用，再由同一 XeLaTeX 源码工程生成；没有拼接 PDF。缺稿先返回逐题报告，只有显式 subset 才跳过题目；两类题解可出现 PARTIAL_FAILED，并保留成功产物和失败日志。
 

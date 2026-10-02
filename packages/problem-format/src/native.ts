@@ -47,7 +47,7 @@ export function selectManifest(source:ProblemManifest,purpose:Purpose):ProblemMa
  return m;
 }
 export const nativeExporter:Exporter={id:'NATIVE',async export(source,purpose,read){
- const m=selectManifest(source,purpose),files=new Map<string,Buffer>(),report:Issue[]=[{area:'native',status:'MAPPED',message:`ProblemForge v1；模板仅引用 ID/版本/哈希。${purpose==='FULL'?'完整包导入为未审核私有副本，必须重新绑定缺失模板并验收；本地任务定位信息与原成员不迁移。':'此用途包供分发；只有完整包可恢复为工作副本。'}`}];
+ const m=selectManifest(source,purpose),files=new Map<string,Buffer>(),report:Issue[]=[{area:'native',status:'MAPPED',message:`ProblemForge v1；模板仅引用 ID/版本/哈希。${purpose==='FULL'?'完整包导入为私有工作副本，必须重新绑定缺失模板并验收；本地任务定位信息与原成员不迁移。':'此用途包供分发；只有完整包可恢复为工作副本。'}`}];
  for(const b of blobs(m)){const bytes=await read(b.key);if(bytes.length!==b.bytes||digest(bytes)!==b.hash)throw new PackageError('私有资源与固定修订哈希不匹配');b.key=`blobs/${b.hash}`;files.set(b.key,bytes);}
  files.set('problemforge.json',Buffer.from(JSON.stringify({format:'problemforge',version:1,purpose,manifest:m},null,2)));return{files,report};
 }};
@@ -55,5 +55,5 @@ export function importNative(files:Map<string,Buffer>):ImportResult{
  const doc=files.get('problemforge.json');if(!doc)throw new PackageError('缺少 problemforge.json');const root=parseJson(doc);
  if(root.format!=='problemforge'||root.version!==1||root.purpose!=='FULL'||Object.keys(root).some(k=>!['format','version','purpose','manifest'].includes(k)))throw new PackageError('仅完整的 ProblemForge v1 包可恢复为工作副本');validateManifest(root.manifest);
  for(const b of blobs(root.manifest)){const bytes=files.get(b.key);if(!bytes||bytes.length!==b.bytes||digest(bytes)!==b.hash)throw new PackageError(`资源缺失或哈希不匹配：${b.key}`);}
- return{manifest:root.manifest,report:[{area:'native',status:'MAPPED',message:'已校验清单、原始字节与 SHA-256；审核、成员、发布和验收记录不导入。'}]};
+ return{manifest:root.manifest,report:[{area:'native',status:'MAPPED',message:'已校验清单、原始字节与 SHA-256；成员、发布和验收记录不导入。'}]};
 }

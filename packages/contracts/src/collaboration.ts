@@ -9,7 +9,6 @@ export const MemberDelete = Type.Object({ targetType: Type.Union([Type.Literal('
 export const UserGroupInput = Type.Object({ name: Type.String({minLength:1,maxLength:80}), userIds: Type.Array(id,{maxItems:200,uniqueItems:true}), expectedVersion: Type.Integer({minimum:0}) },strict);
 export const ProblemMetaInput = Type.Object({ expectedVersion:Type.Integer({minimum:1}), title:Type.String({minLength:1,maxLength:160}),tags:Type.Array(Type.String({minLength:1,maxLength:40}),{maxItems:30,uniqueItems:true}),notes:text(10000),responsibleId:Type.Union([id,Type.Null()]),archived:Type.Boolean() },strict);
 export const RevisionInput = Type.Object({expectedHash:Type.String({pattern:'^[a-f0-9]{64}$'}),label:Type.String({minLength:1,maxLength:160})},strict);
-export const ReviewInput = Type.Object({action:Type.Union((['SUBMIT','REQUEST_CHANGES','APPROVE','FREEZE'] as const).map(v=>Type.Literal(v))),message:text(10000)},strict);
 export const CommentInput = Type.Object({body:Type.String({minLength:1,maxLength:10000}),anchor:text(240)},strict);
 const kind = Type.Union((['STATEMENT','EDITORIAL_DOCUMENT','EDITORIAL_BEAMER'] as const).map(v=>Type.Literal(v)));
 export const ContestData = Type.Object({

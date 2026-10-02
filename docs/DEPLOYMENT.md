@@ -10,11 +10,12 @@ P5 提供单机 Linux Compose 部署。API 同时提供 Vite 的实际生产静�
 pnpm install --frozen-lockfile
 pnpm ops init --env .local/production.env --name problemforge-prod --port 5181
 docker compose --env-file .local/production.env -f infra/compose.prod.yml build api tex-sandbox judge-sandbox
+# 在配置中填写 ASSOCIATION_APP_KEY、PF_ADMIN_EMAIL、PF_ADMIN_EXTERNAL_USER_ID
 pnpm ops up --env .local/production.env
 pnpm ops init-admin --env .local/production.env
 ```
 
-`init` 在忽略目录生成互不相同的随机数据库密码、Redis 密码、沙箱令牌和管理员密码，已有配置拒绝覆盖。查看该本地文件取得登录信息，不将其提交。`init-admin` 不会更改已有管理员密码。`up` 先初始化私有卷所有权、应用全部待执行迁移，再启动 API/Worker 并等待健康。迁移不会重置数据库；失败会阻止应用启动。
+`init` 在忽略目录生成互不相同的随机数据库密码、Redis 密码和沙箱令牌，并预留协会 APPKEY、管理员邮箱及协会 userId，已有配置拒绝覆盖。密钥不提交。填写协会配置后，`init-admin` 创建已绑定协会身份的管理员；已有账号使用显式绑定命令，不覆盖身份或角色。`up` 先初始化私有卷所有权、应用全部待执行迁移，再启动 API/Worker 并等待健康。迁移不会重置数据库；失败会阻止应用启动。
 
 默认访问 `http://localhost:5181`；只有 API 的 `127.0.0.1:5181` 映射到宿主机。API 加入入口网络和 internal 后端网络；数据库、Redis、Worker、沙箱没有宿主机端口。API/Worker 使用 uid/gid 10001、只读根目录、删除全部 capabilities、禁止提权和有界 tmpfs/进程/内存，仅挂载本项目私有卷。沙箱服务是专用受信执行组件，容器需要 privileged；作者进程另外运行在非 root、只读工具链和独立命名空间内，沙箱不挂载业务卷或 Docker socket。Docker 主机本身应为可信的 Linux 执行主机。
 
@@ -59,7 +60,7 @@ pnpm ops restore --env .local/restore.env --from .local/backups/snapshot-01
 
 恢复只接受不同 project 名称、未运行过应用、无表的数据库和空私有卷；不提供覆盖原库模式。先校验摘要、tar 路径和文件类型，再恢复数据库与文件；逐项核对所有 ready 对象字节/哈希、八个迁移的 SQL 校验和及业务计数，相同后才启动应用。恢复失败保留现场，不能跳过检查继续运行。不要使用 `down -v` 删除来源卷。
 
-恢复的是原数据库账号：原用户密码继续有效，恢复配置中随机生成的初始化管理员密码不替换原密码。数据库/Redis/沙箱连接凭据用恢复实例的新配置。Redis 不从备份复制，数据库中的排队记录重新配送；历史成功/失败、冻结修订、发布/撤回状态保留。镜像升级应在相同版本恢复验收后另行执行迁移。
+恢复的是原数据库账号及已绑定的协会身份。本版本登录仍需在 API 配置有效的 ASSOCIATION_APP_KEY；旧版备份恢复并升级后，旧账号须显式绑定协会 userId，不再使用本地密码。数据库/Redis/沙箱连接凭据用恢复实例的新配置。Redis 不从备份复制，数据库中的排队记录重新配送；历史成功/失败、冻结修订、发布/撤回状态保留。镜像升级应在相同版本恢复验收后另行执行迁移。
 
 本机 `p5-proof` 备份对应的镜像已另标为 `problemforge-app:p5-backup-20261001`，恢复配置固定使用该标签。当前 5181 部署的 `problemforge-app:p5` 在收尾加入取消时序修复；不要用移动后的 p5 标签代替备份清单中的原镜像 ID。要把已验收的恢复实例升级到当前版本，应另行修改其镜像配置并执行 `ops up`，保留原备份及卷。
 

@@ -78,6 +78,9 @@ services:
     restart: "no"
   api:
     <<: *app
+    environment:
+      <<: *app-env
+      ASSOCIATION_APP_KEY: ${ASSOCIATION_APP_KEY:-}
     networks: [backend, ingress]
     ports: ["127.0.0.1:${PF_HTTP_PORT:-5181}:3100"]
     depends_on:

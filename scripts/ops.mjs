@@ -14,7 +14,7 @@ if(command==='init'){
  const name=option('name')??'problemforge-prod',port=option('port')??'5181';
  if(!/^problemforge-[a-z0-9-]{2,40}$/.test(name)||!/^\d{4,5}$/.test(port)||Number(port)>65535)throw new Error('需要本项目专用名称和有效端口');
  const secret=()=>randomBytes(32).toString('hex');
- const config={COMPOSE_PROJECT_NAME:name,APP_ORIGIN:`http://localhost:${port}`,PF_HTTP_PORT:port,PF_APP_IMAGE:'problemforge-app:p5',POSTGRES_PASSWORD:secret(),REDIS_PASSWORD:secret(),TEX_SANDBOX_TOKEN:secret(),JUDGE_SANDBOX_TOKEN:secret(),PF_ADMIN_EMAIL:'admin@problemforge.local',PF_ADMIN_PASSWORD:secret(),STORAGE_QUOTA_BYTES:'10000000000'};
+ const config={COMPOSE_PROJECT_NAME:name,APP_ORIGIN:`http://localhost:${port}`,PF_HTTP_PORT:port,PF_APP_IMAGE:'problemforge-app:p5',POSTGRES_PASSWORD:secret(),REDIS_PASSWORD:secret(),TEX_SANDBOX_TOKEN:secret(),JUDGE_SANDBOX_TOKEN:secret(),ASSOCIATION_APP_KEY:'',PF_ADMIN_EMAIL:'',PF_ADMIN_EXTERNAL_USER_ID:'',STORAGE_QUOTA_BYTES:'10000000000'};
  await mkdir(dirname(envPath),{recursive:true});await writeFile(envPath,Object.entries(config).map(([k,v])=>`${k}=${v}`).join('\n')+'\n',{flag:'wx',mode:0o600});console.log('已创建忽略范围内的本地部署配置；凭据不输出。');process.exit(0);
 }
 const settings=Object.fromEntries((await readFile(envPath,'utf8')).split(/\r?\n/).filter(l=>/^[A-Z_]+=/.test(l)).map(l=>{const i=l.indexOf('=');return[l.slice(0,i),l.slice(i+1)];}));
@@ -37,7 +37,7 @@ function run(tail,{input,output,capture=false}={}){return new Promise((resolvePr
 const digest=async path=>{const hash=createHash('sha256');for await(const b of createReadStream(path))hash.update(b);return hash.digest('hex');};
 const tool=(script,extra=[],options={})=>run(['run','--rm','-T','--no-deps','toolbox','node','--import','tsx',script,...extra],options);
 if(command==='up'){await run(['up','-d','--no-build','--wait','--wait-timeout','180']);}
-else if(command==='init-admin'){await run(['run','--rm','-T','--no-deps','-e','PF_ADMIN_EMAIL','-e','PF_ADMIN_PASSWORD','toolbox','node','--import','tsx','scripts/init-admin.ts']);}
+else if(command==='init-admin'){await run(['run','--rm','-T','--no-deps','-e','PF_ADMIN_EMAIL','-e','PF_ADMIN_EXTERNAL_USER_ID','toolbox','node','--import','tsx','scripts/init-admin.ts']);}
 else if(command==='state'){await tool('scripts/ops-state.ts');}
 else if(command==='storage-check'){
  const out=local(option('out')??`.local/maintenance/storage-${Date.now()}.json`);if(await exists(out))throw new Error('报告已存在，不覆盖');await mkdir(dirname(out),{recursive:true});

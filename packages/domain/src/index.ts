@@ -16,6 +16,7 @@ export const config = {
   origin: process.env.APP_ORIGIN ?? 'http://localhost:5180',
   port: Number(process.env.API_PORT ?? 3100), host: process.env.API_HOST ?? '127.0.0.1',
   production: process.env.NODE_ENV === 'production', appName: process.env.APP_NAME ?? 'ProblemForge',
+  associationAppKey: process.env.ASSOCIATION_APP_KEY?.trim() ?? '',
   storageRoot: resolve(root, process.env.STORAGE_ROOT ?? './storage'),
   redisUrl: required('REDIS_URL'), sandboxUrl: process.env.TEX_SANDBOX_URL ?? 'http://127.0.0.1:15050',
   sandboxToken: required('TEX_SANDBOX_TOKEN'),
