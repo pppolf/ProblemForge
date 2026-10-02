@@ -23,6 +23,7 @@ function apply(mode: StatementFormatApplication['mode']) {
   <NModal v-model:show="show" preset="card" title="套用交互题正文格式" style="width: min(800px, 95vw)">
     <NFormItem label="正文格式"><NSelect v-model:value="formatId" :options="statementFormats.map(format => ({ label: format.label, value: format.id }))" :disabled="disabled"/></NFormItem>
     <p>{{ selected.description }}</p>
+    <p class="muted">正文使用模板章节命令，如 \Description、\interactor、\InteractionNotes。请选择已支持这些命令的新版题面模板。</p>
     <NAlert v-if="hasContent" type="warning" :show-icon="false" class="spaced">当前已有正文。「替换当前正文」会替换编辑器中的内容；也可以追加到末尾。应用后请检查并保存题面。</NAlert>
     <NInput :value="selected.body" type="textarea" readonly :autosize="{ minRows: 10, maxRows: 16 }" aria-label="交互题正文格式预览" class="statement-format-preview"/>
     <div v-if="selected.title" class="statement-format-option"><NCheckbox v-model:checked="useTitle" :disabled="disabled">同时将题面标题设为「{{ selected.title }}」</NCheckbox></div>

@@ -1,4 +1,4 @@
-\section*{题目描述}
+\Description
 
 有一台神秘的多项式机器。
 
@@ -28,7 +28,7 @@ f^{(0)}(x)=f(x).
 a_0,a_1,\ldots,a_n.
 \]
 
-\section*{交互格式}
+\interactor
 
 这是一道交互题。
 
@@ -38,7 +38,7 @@ a_0,a_1,\ldots,a_n.
 1\le n\le 9.
 \]
 
-\subsection*{询问}
+\InteractionQuery
 
 若你想询问 $f^{(k)}(0)$，请输出：
 \begin{verbatim}
@@ -58,7 +58,7 @@ y=f^{(k)}(0).
 整个交互过程中，你最多可以进行 $n+1$ 次询问。
 所有交互器返回的整数均不超过 $10^{16}$。
 
-\subsection*{回答}
+\InteractionAnswer
 
 当你已经确定所有系数后，请输出：
 \begin{verbatim}
@@ -68,7 +68,7 @@ y=f^{(k)}(0).
 其中 $a_i$ 表示 $x^i$ 的系数。
 输出最终答案后，你的程序应立即结束。
 
-\section*{交互注意事项}
+\InteractionNotes
 
 每次输出询问后，都必须立即刷新标准输出缓冲区。
 例如在 C++ 中可以使用：
@@ -85,7 +85,7 @@ cout << "? " << k << '\n' << flush;
 
 如果询问次数超过限制、询问格式错误或最终答案错误，将得到 Wrong Answer。
 
-\section*{示例}
+\InteractionExample
 
 假设机器中的多项式为
 \[

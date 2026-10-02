@@ -5,7 +5,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { DocumentKind, AdminStyle } from '@problemforge/contracts';
 
-export const POLICY_VERSION = 'pf-content-3';
+export const POLICY_VERSION = 'pf-content-4';
 export const TEX_PROFILE = 'xelatex-2022-bookworm-v1';
 export const SAMPLE_RENDERER_VERSION = 'pf-samples-2';
 export type TemplateFiles = Record<string, string>;
@@ -47,7 +47,7 @@ const commonMacros = new Set((
 ).split(/\s+/).filter(Boolean));
 commonMacros.add(' ');
 const beamerMacros = new Set('frametitle framesubtitle pause only uncover visible alert onscreen onslide column item'.split(' '));
-const statementMacros = new Set('InputFile OutputFile Examples Example Note Notes Explanation Explanations Constraints Background Specification Interaction Scoring Illustration exmp mat'.split(' '));
+const statementMacros = new Set('InputFile OutputFile Examples Example Note Notes Explanation Explanations Constraints Background Specification Interaction Scoring Illustration Description interactor InteractionStart InteractionQuery InteractionAnswer InteractionNotes InteractionExample exmp mat'.split(' '));
 const environments = new Set('itemize enumerate description center quote quotation tabular table figure equation equation* align align* aligned gather gather* cases matrix pmatrix bmatrix vmatrix Vmatrix smallmatrix verbatim'.split(' '));
 const beamerEnvs = new Set('frame block alertblock exampleblock columns column overlayarea cwnublock'.split(' '));
 

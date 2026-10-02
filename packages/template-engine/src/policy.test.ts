@@ -34,6 +34,22 @@ test('images resolve only approved immutable assets and bounded local dimensions
   assert.throws(() => validateBody('\\includegraphics{/etc/passwd}', 'STATEMENT', [path]), ContentPolicyError);
   assert.throws(() => validateBody(`\\includegraphics[width=0.8\\linewidth,command=\\input{secret}]{${path}}`, 'STATEMENT', [path]), ContentPolicyError);
 });
+
+test('interactive statement headings stay in template-owned macros without allowing author definitions', async () => {
+  const body = '\\Description\n描述。\n\\interactor\n协议。\n\\InteractionStart\n初始信息。\n\\InteractionQuery\n询问。\n\\InteractionAnswer\n回答。\n\\InteractionNotes\n注意事项。\n\\InteractionExample\n示例。';
+  assert.doesNotThrow(() => validateBody(body, 'STATEMENT'));
+  assert.throws(() => validateBody(body, 'EDITORIAL_DOCUMENT'), ContentPolicyError);
+  assert.throws(() => validateBody('\\renewcommand{\\interactor}{\\input{secret}}', 'STATEMENT'), ContentPolicyError);
+  for (const folder of ['statement', 'statement-compact']) {
+    const files = await loadTemplateDirectory(fileURLToPath(new URL(`../../../templates/builtin/${folder}/`, import.meta.url)));
+    const single = render(files, 'STATEMENT', body, { title: '多项式机器', author: '' });
+    assert.equal(single['content.tex'], body);
+    assert.match(single['headings.tex'], /\\createsection\{\\interactor\}/);
+    assert.match(single['main.tex'], /\\def\\ShortProblemTitle\{\}/);
+    const booklet = render(files, 'STATEMENT', body, { title: '多项式机器', author: '' }, [], 'booklet');
+    assert.match(booklet['problem.tex'], /A\. 多项式机器/);
+  }
+});
 test('sample slots use platform file paths while authors cannot read files', async () => {
   const files = await loadTemplateDirectory(fileURLToPath(new URL('../../../templates/builtin/statement/', import.meta.url)));
   const result = render(files, 'STATEMENT', '计算 $a+b$。', { title: '样例', author: '作者' }, [], 'single', [{ inputPath: 'samples/sample-1.in', answerPath: 'samples/sample-1.ans' }]);

@@ -1,0 +1,16 @@
+\ctexset{
+  section/format += \raggedright,
+  subsection/format += \raggedright,
+  subsubsection/format += \raggedright,
+  paragraph/format += \raggedright,
+  subparagraph/format += \raggedright
+}
+\makeatletter
+\renewcommand{\maketitle}{%
+  \par\begingroup\raggedright
+  {\LARGE\bfseries\@title\par}\medskip
+  {\normalsize\@author\par}%
+  \ifx\@date\@empty\else\smallskip{\normalsize\@date\par}\fi
+  \endgroup\bigskip
+}
+\makeatother

@@ -423,3 +423,19 @@ P6.0—P6.2、P7.0—P7.1 本轮范围完成。按用户明确要求，P7.2 独�
 **修复：**JudgeReport 按任务自身的固定配置区分交互与批处理，交互标签改为「输入与交互记录」；DIRECT 将原「答案」明确为「Interactor 附加输出」，0 字节注明允许为空，CHECKER 标为「比较用输出（tout）」。增加直接判定/Checker 说明，每组提供本次主标程 stdout 及通信记录入口，日志也标明双方输出来源。沿用既有授权下载和收集接口，不将通信内容自动转换成静态答案，不修改 Judge 语义、源码、数据或快照。USER_GUIDE / JUDGE 补充文件语义和查看路径。
 
 **实际验证与边界：**`pnpm check web` 通过；原 5180 的更新组件经 Vite 转换返回 HTTP 200。临时登录原管理员，通过原 5180 读取该任务及第 1 组的答案、主标程 stdout 和 transcript，下载均 HTTP 200，长度分别为 0 / 30 / 909 字节，stdout/transcript 哈希与登记值一致，随后退出本次会话；证据 `.local/interactive-empty-answer-api-check.json`。仅核对已有结果，没有提交新验收、Judge、TeX 或全量/E2E；浏览器标签切换与点击由用户手动验证。主目录现有服务未重启，无新端口、数据库、容器或工作树。交接及差异检查后单独本地提交，不 push，没有环境阻塞。
+
+## 交互章节命令、标题对齐与连续 PDF 预览（2026-10-02）
+
+**用户范围：**交互正文按原模板的章节命令编写，包含小写 `\interactor`；题面和文档题解标题左对齐，Beamer 版式不变；所有 PDF 预览上下连续滚动；单题题面只展示题名，比赛题册保留题号。直接修改主目录，继续使用原 5180 / 3100、`problemforge_f054` 和 `.local/p3-storage`，未新增端口、实例、容器或工作树。
+
+**实现：**两份交互正文格式改用 `\Description`、`\interactor`、`\InteractionStart`、`\InteractionQuery`、`\InteractionAnswer`、`\InteractionNotes`、`\InteractionExample`。两套题面在 `headings.tex` 中通过原 olymp 章节机制定义主标题，子标题与普通 ctex 章节左对齐；仅 STATEMENT 批准这些固定命令，正文仍不能定义宏或读取文件，策略升为 `pf-content-4`。单题 main.tex 启用 `\ShortProblemTitle`，比赛 item.tex 保留 CODE。两套文档题解的题名及各级章节左对齐，保留字体、配色和页边距；原题册封面、两套 Beamer 未改。
+
+共享 PdfRenderer 改为完整页列，保留总页数、适应宽度、缩放和下载，移除页码选择与上一页/下一页。PdfPage 保留所有页面在连续布局中，仅渲染视口附近的画布，远页释放位图；限制每页像素量，取消旧渲染，处理文档切换、缩放、容器宽度变化和重载。题目三类稿件、模板中心、比赛与任务详情均复用此组件。
+
+**原库模板更新：**先读取并保存原 7 个版本指纹，将四套模板各复制为新版本，只改对应入口和 headings.tex，其余文件与当前原模板逐文件一致。经原 5180 管理员接口真实验证、下载并逐页查看样稿后发布：CWNU 比赛题面 v3 `cmuqiohuu002pkt0olhiux7w5`、简洁蓝色题面 v2 `cmuqiokj8002wkt0olwqiim3j`、经典书面题解 v2 `cmuqiom6k0033kt0ojjxgrk3t`、蓝色书面题解 v2 `cmuqionu4003akt0ot378jy7i`。原 7 个版本的状态、登记哈希与实际文件哈希均不变，现在共 6 套 / 11 个发布版本。没有原地修改历史模板或历史 PDF，也没有公开发布题目材料。
+
+**当前题目：**为使用户在原页面直接看到排版，显式将「交互 Easy」`cmuplnkvz001kktd8oppq13ki` 的题面绑定 CWNU v3、文档题解绑定蓝色 v2，按保存时 expectedVersion 保护并发。题面内容版本由 3 到 4，文档题解由 1 到 2；正文、元信息、启用状态和样例具体版本逐项保留，Beamer 不变。题面构建 `cmuqiue7a003ykt0ojrvlx9p4` / 产物 `cmuqiufx6000bkt5gxle4dfgu`（3 页），文档题解构建 `cmuqiugsv0045kt0oecc0zxv6` / 产物 `cmuqiuhaq000dkt5gqp4lfph0`（1 页），均成功。其他题目/比赛没有批量换绑。
+
+**实际验证：**`pnpm check template-engine web` 通过，`node --import tsx --test packages/template-engine/src/policy.test.ts packages/template-engine/src/contest.test.ts` 共 6 项通过，覆盖新命令类型限制、禁止作者宏定义、模板渲染及比赛题号保留。复用现有 Linux TeX 沙箱编译四份单题样稿（新交互命令正文与两种书面题解）、四份模板比赛样稿，以及上述两份当前稿件，共 10 份 PDF / 20 页均渲染并逐页查看；无缺字、裁切或溢出问题，比赛 A 题号保留。没有宿主机 TeX 回退。原 5180 浏览器以原 P2 账号实际查看 3 页题面，检查滚动到末页、返回首页重新渲染、150% 缩放、切换文档题解及加载新产物。证据、保存前稿件和原模板指纹位于 Git 忽略目录 `.local/presentation-update/`。
+
+**运行加载与未验证：**用户当前 `pnpm dev` 的 API / Worker 使用非 watch 的 tsx，仍运行 `pf-content-3`；已请用户在原终端 Ctrl+C 后重新执行 `pnpm dev`，本轮没有擅自替换其终端进程。新的格式插入内容与命令已实现并在现有 Linux 沙箱编译通过，但原运行中 API 尚不能接受新命令。当前题目暂保留原 `\section*` 正文，使用新模板也已左对齐；用户重启后可用新版交互格式，若继续协助转换现有稿件，应先重读最新版本，只替换章节命令，保留用户正文和样例。现有成功构建仍固定 `pf-content-3`，不得写成新策略在线 API / Worker 已验证。未做全量/E2E、Judge、超长 PDF 压力或各浏览器兼容性测试，比赛/模板/Beamer 的所有页面入口没有逐个点击。USER_GUIDE / TEMPLATES 已更新，差异检查后本地提交，不 push；P7.2/P8 继续暂缓。

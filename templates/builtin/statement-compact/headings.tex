@@ -1,0 +1,15 @@
+% Keep ordinary ctex headings aligned with the olymp section commands.
+\ctexset{
+  section/format += \raggedright,
+  subsection/format += \raggedright,
+  subsubsection/format += \raggedright,
+  paragraph/format += \raggedright,
+  subparagraph/format += \raggedright
+}
+\createsection{\Description}{题目描述}
+\createsection{\interactor}{交互格式}
+\createsection{\InteractionNotes}{交互注意事项}
+\createsection{\InteractionExample}{交互示例}
+\newcommand{\InteractionStart}{\subsection*{初始信息}}
+\newcommand{\InteractionQuery}{\subsection*{询问}}
+\newcommand{\InteractionAnswer}{\subsection*{回答}}

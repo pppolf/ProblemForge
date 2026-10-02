@@ -1,32 +1,77 @@
 <script setup lang="ts">
-import { ref, shallowRef, watch, onBeforeUnmount, nextTick } from 'vue';
-import { NButton, NInputNumber, NSelect, NSpin, NAlert, NEmpty } from 'naive-ui';
-import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy, type RenderTask } from 'pdfjs-dist';
+import { ref, shallowRef, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
+import { NButton, NSelect, NSpin, NAlert, NEmpty } from 'naive-ui';
+import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy, type PDFDocumentLoadingTask } from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import PdfPage from './PdfPage.vue';
+
 GlobalWorkerOptions.workerSrc = workerUrl;
 const props = defineProps<{ artifactId?: string }>();
 const emit = defineEmits<{ loaded: [] }>();
-const pdf = shallowRef<PDFDocumentProxy>(); const page = ref(1); const zoom = ref(0); const busy = ref(false); const error = ref(''); const canvas = ref<HTMLCanvasElement>(); let rendering: RenderTask | undefined; let request = 0;
-let drawing = 0;
-async function draw() {
-  const document = pdf.value; if (!document) return;
-  const current = ++drawing; const previous = rendering;
-  previous?.cancel(); await previous?.promise.catch(() => {}); await nextTick();
+const pdf = shallowRef<PDFDocumentProxy>();
+const zoom = ref(0), busy = ref(false), error = ref('');
+const scrollArea = ref<HTMLDivElement>(), availableWidth = ref(560);
+const firstPageSize = ref({ width: 595, height: 842 });
+let loading: PDFDocumentLoadingTask | undefined, request = 0, previewed = false;
+let resize: ResizeObserver | undefined;
+
+async function load() {
+  const current = ++request, previous = loading;
+  loading = undefined; pdf.value = undefined; error.value = ''; previewed = false;
+  void previous?.destroy().catch(() => {});
+  const id = props.artifactId;
+  busy.value = !!id;
+  if (!id) return;
   try {
-    const p = await document.getPage(page.value);
-    if (current !== drawing || document !== pdf.value || !canvas.value) return;
-    const element = canvas.value;
-    const fit = Math.max(0.25, ((element.parentElement?.clientWidth ?? 600) - 32) / p.getViewport({ scale: 1 }).width);
-    const viewport = p.getViewport({ scale: zoom.value || fit });
-    const ratio = window.devicePixelRatio || 1; element.width = viewport.width * ratio; element.height = viewport.height * ratio;
-    element.style.width = `${viewport.width}px`; element.style.height = `${viewport.height}px`;
-    const task = p.render({ canvas: element, viewport, transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0] });
-    rendering = task; await task.promise;
-    if (current === drawing && document === pdf.value) emit('loaded');
-  } catch (e) { if (current === drawing && (e as Error).name !== 'RenderingCancelledException') error.value = (e as Error).message; }
+    const task = getDocument({ url: `/api/artifacts/${id}/pdf`, withCredentials: true, isEvalSupported: false });
+    loading = task;
+    const document = await task.promise;
+    if (current !== request) return;
+    const first = await document.getPage(1);
+    if (current !== request) return;
+    const size = first.getViewport({ scale: 1 });
+    firstPageSize.value = { width: size.width, height: size.height };
+    pdf.value = document;
+    await nextTick();
+    if (current === request && scrollArea.value) scrollArea.value.scrollTop = 0;
+  } catch (e) {
+    if (current === request) error.value = (e as Error).message;
+  } finally {
+    if (current === request) busy.value = false;
+  }
 }
-watch(() => props.artifactId, async id => { const current = ++request; drawing++; rendering?.cancel(); await pdf.value?.destroy(); pdf.value = undefined; page.value = 1; error.value = ''; if (!id) { busy.value = false; return; } busy.value = true; try { const loaded = await getDocument({ url: `/api/artifacts/${id}/pdf`, withCredentials: true, isEvalSupported: false }).promise; if (current !== request) { await loaded.destroy(); return; } pdf.value = loaded; await draw(); } catch (e) { if (current === request) error.value = (e as Error).message; } finally { if (current === request) busy.value = false; } }, { immediate: true });
-watch([page, zoom], draw);
-onBeforeUnmount(() => { request++; drawing++; rendering?.cancel(); pdf.value?.destroy(); });
+function pageLoaded() { if (!previewed) { previewed = true; emit('loaded'); } }
+watch(() => props.artifactId, load, { immediate: true });
+onMounted(() => {
+  resize = new ResizeObserver(() => {
+    const width = scrollArea.value?.clientWidth ?? 0;
+    if (width > 36) availableWidth.value = width - 36;
+  });
+  if (scrollArea.value) resize.observe(scrollArea.value);
+});
+onBeforeUnmount(() => { request++; resize?.disconnect(); void loading?.destroy().catch(() => {}); });
 </script>
-<template><div class="pdf-preview"><div class="pdf-toolbar" v-if="pdf"><NButton size="small" :disabled="page <= 1" @click="page--">上一页</NButton><NInputNumber v-model:value="page" :min="1" :max="pdf.numPages" size="small" style="width: 75px" /><span>/ {{ pdf.numPages }}</span><NButton size="small" :disabled="page >= pdf.numPages" @click="page++">下一页</NButton><NSelect v-model:value="zoom" size="small" style="width: 110px" :options="[{ label: '适应宽度', value: 0 }, { label: '75%', value: 0.75 }, { label: '110%', value: 1.1 }, { label: '150%', value: 1.5 }]"/><a :href="`/api/artifacts/${artifactId}/pdf`" target="_blank" rel="noopener">下载 PDF</a></div><NAlert v-if="error" type="error">{{ error }}</NAlert><NSpin :show="busy"><div class="pdf-canvas"><canvas v-show="pdf" ref="canvas"></canvas><NEmpty v-if="!pdf && !busy && !error" description="选择成功构建，预览真实 PDF" /></div></NSpin></div></template>
+
+<template>
+  <div class="pdf-preview">
+    <div v-if="pdf" class="pdf-toolbar">
+      <span>共 {{ pdf.numPages }} 页 · 上下滚动浏览</span>
+      <NSelect v-model:value="zoom" size="small" style="width: 110px" :options="[{ label: '适应宽度', value: 0 }, { label: '75%', value: 0.75 }, { label: '110%', value: 1.1 }, { label: '150%', value: 1.5 }]"/>
+      <a :href="`/api/artifacts/${artifactId}/pdf`" target="_blank" rel="noopener">下载 PDF</a>
+    </div>
+    <NAlert v-if="error" type="error">{{ error }} <NButton size="small" @click="load">重新加载</NButton></NAlert>
+    <NSpin :show="busy">
+      <div ref="scrollArea" class="pdf-canvas pdf-scroll" tabindex="0" aria-label="PDF 全部页面，上下滚动浏览">
+        <div v-if="pdf" class="pdf-pages">
+          <PdfPage v-for="number in pdf.numPages" :key="`${artifactId}:${number}`" :document="pdf" :number="number" :zoom="zoom" :available-width="availableWidth" :default-size="firstPageSize" :scroll-area="scrollArea" @loaded="pageLoaded"/>
+        </div>
+        <NEmpty v-else-if="!busy && !error" description="选择成功构建，预览真实 PDF"/>
+      </div>
+    </NSpin>
+  </div>
+</template>
+
+<style scoped>
+.pdf-scroll{display:block;text-align:left;overflow-anchor:none}
+.pdf-pages{display:flex;flex-direction:column;align-items:center;gap:18px;min-width:100%;width:max-content}
+</style>
