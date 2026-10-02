@@ -7,7 +7,7 @@ export { interactionVerdict, INTERACTION_POLICY } from './interaction.ts';
 export { scoreGroups, scoreExpectation, groupOrder, GroupError, type ScoreReport, type GroupScore } from './scoring.ts';
 export const TESTLIB_COMMIT = '68f9f300b6abebec82d2a68d8ca04394f2664fb6';
 export const TESTLIB_HASH = '70f74c570f2b45d63086ae6e4c41bbb5c5ffd4428cba9914bbc0396d29be10d8';
-export const JUDGE_TOOLCHAIN = `debian12-gcc12.2.0-14+deb12u1-python3.11.2-6+deb12u8-testlib0.9.41-${TESTLIB_HASH}`;
+export const JUDGE_TOOLCHAIN = `debian12-gcc12.2.0-14+deb12u1-python3.11.2-6+deb12u8-openjdk17.0.20.1+1-1~deb12u1-compile2-testlib0.9.41-${TESTLIB_HASH}`;
 export const solutionRoles = new Set<ProgramRole>(['MAIN_SOLUTION', 'CORRECT_SOLUTION', 'WRONG_SOLUTION', 'TIME_LIMIT_SOLUTION', 'BRUTE_FORCE']);
 export const testlibRoles = new Set<ProgramRole>(['VALIDATOR', 'EXTRA_VALIDATOR', 'CHECKER', 'INTERACTOR']);
 export type BlobRef = { key: string; hash: string; bytes: number };

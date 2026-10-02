@@ -1,8 +1,8 @@
 import { db, Prisma } from '@problemforge/database';
-import { defaultJudgeSettings, defaultInteractionSettings, generatorPlanCommands, generatorPlanProgramIds, type JudgePurpose, type JudgeSettingsValue, type GeneratorPlanSave, type StressConfigValue, type TestGroupsValue } from '@problemforge/contracts';
+import { defaultJudgeSettings, defaultInteractionSettings, generatorPlanCommands, generatorPlanProgramIds, programLanguages, isCppLanguage, type JudgePurpose, type JudgeSettingsValue, type GeneratorPlanSave, type StressConfigValue, type TestGroupsValue } from '@problemforge/contracts';
 import { hashObject, HttpError } from '@problemforge/domain';
 import { GO_JUDGE_VERSION } from '@problemforge/judge-adapter';
-import { JUDGE_POLICY, GENERATOR_COMMAND_POLICY, JUDGE_TOOLCHAIN, INTERACTION_POLICY, groupOrder, GroupError, solutionRoles, type JudgeSnapshot, type ProgramSnapshot, type CaseSnapshot, type SelfTestSnapshot, type ProfileSnapshot } from '@problemforge/judge-core';
+import { JUDGE_POLICY, GENERATOR_COMMAND_POLICY, JUDGE_TOOLCHAIN, INTERACTION_POLICY, groupOrder, GroupError, solutionRoles, testlibRoles, type JudgeSnapshot, type ProgramSnapshot, type CaseSnapshot, type SelfTestSnapshot, type ProfileSnapshot } from '@problemforge/judge-core';
 
 export async function judgeSnapshot(tx: Prisma.TransactionClient, problemId: string, purpose: JudgePurpose, programId?: string, budgetMs = 300000): Promise<JudgeSnapshot> {
   const problem = await tx.problem.findUniqueOrThrow({ where: { id: problemId } });
@@ -78,6 +78,7 @@ export function validateJudgeSnapshot(input: JudgeSnapshot) {
   }
   if (input.purpose === 'COMPILE' && (!input.programId || input.programs.length !== 1)) throw new HttpError(422, '编译任务需要选择本题程序');
   if (input.programs.some(p => !p.profile.enabled)) throw new HttpError(422, '所选程序的编译 profile 已停用，请选择管理员提供的启用版本');
+  if (input.programs.some(p => testlibRoles.has(p.role) && !isCppLanguage(p.profile.language))) throw new HttpError(422, 'Validator / Checker / Interactor 必须选择 C++ 编译配置');
   if (['ANSWERS', 'ACCEPTANCE'].includes(input.purpose)) {
     if (input.settings.scoringMode === 'PARTIAL' && !input.groups?.data.groups.some(g=>g.points>0)) throw new HttpError(422, '部分分需要有正分数的数据组');
     if (input.settings.scoringMode === 'ACM' && input.programs.some(p=>p.expectedScore)) throw new HttpError(422, '分数预期适用于部分分模式，请显式选择部分分或移除分数声明');
@@ -115,7 +116,8 @@ export function validateJudgeSnapshot(input: JudgeSnapshot) {
     } else if (t.kind !== 'CHECKER' || input.settings.checkerMode === 'CUSTOM') throw new HttpError(422, '自定义工具自测必须指定本题程序');
   }
 }
-export const builtinProfiles: Omit<ProfileSnapshot, 'version'>[] = (['CPP17', 'CPP20', 'PYTHON3'] as const).map(language => {
+export const builtinProfiles: Omit<ProfileSnapshot, 'version'>[] = programLanguages.map(language => {
   const config = { optimization: 'O2' as const, warnings: true, compileTimeMs: 10000, compileMemoryMb: 512 };
-  return { id: `builtin-${language.toLowerCase()}`, name: language === 'PYTHON3' ? 'Python 3.11' : `GNU C++${language === 'CPP17' ? '17' : '20'}`, language, config, hash: hashObject({ language, config }), enabled: true };
+  const names = { CPP17: 'GNU C++17', CPP20: 'GNU C++20', CPP23: 'GNU C++23', C17: 'GNU C17', JAVA17: 'Java (OpenJDK 17)', PYTHON3: 'Python 3.11' };
+  return { id: `builtin-${language.toLowerCase()}`, name: names[language], language, config, hash: hashObject({ language, config }), enabled: true };
 });

@@ -7,8 +7,11 @@ export const programRoleLabels: Record<ProgramRole, string> = {
   MAIN_SOLUTION: '主标程', CORRECT_SOLUTION: '正确解', WRONG_SOLUTION: '错误解', TIME_LIMIT_SOLUTION: '预期超时解',
   BRUTE_FORCE: '暴力解', GENERATOR: '生成器', VALIDATOR: 'Validator', EXTRA_VALIDATOR: '额外 Validator', CHECKER: 'Checker', INTERACTOR: 'Interactor',
 };
-export const programLanguages = ['CPP17', 'CPP20', 'PYTHON3'] as const;
+export const programLanguages = ['CPP17', 'CPP20', 'CPP23', 'C17', 'JAVA17', 'PYTHON3'] as const;
 export type ProgramLanguage = typeof programLanguages[number];
+export const programLanguageLabels: Record<ProgramLanguage, string> = { CPP17: 'C++17', CPP20: 'C++20', CPP23: 'C++23', C17: 'C (C17)', JAVA17: 'Java (JDK 17)', PYTHON3: 'Python 3' };
+export const programFileExtensions: Record<ProgramLanguage, string> = { CPP17: 'cpp', CPP20: 'cpp', CPP23: 'cpp', C17: 'c', JAVA17: 'java', PYTHON3: 'py' };
+export const isCppLanguage = (language: string) => ['CPP17', 'CPP20', 'CPP23'].includes(language);
 export const verdicts = ['AC', 'WA', 'PE', 'TLE', 'MLE', 'OLE', 'RE'] as const;
 export type ExpectedVerdict = typeof verdicts[number];
 export const judgePurposes = ['COMPILE', 'GENERATE', 'VALIDATE', 'ANSWERS', 'SELF_TEST', 'ACCEPTANCE', 'STRESS', 'REPLAY'] as const;

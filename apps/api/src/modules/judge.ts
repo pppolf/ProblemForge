@@ -1,7 +1,7 @@
 import { Type } from '@sinclair/typebox';
 import { randomUUID } from 'node:crypto';
 import {
-  JudgeSettingsInput, defaultJudgeSettings, ProfileInput, ProfileUpdateInput, ProgramInput, ProgramUpdateInput,
+  JudgeSettingsInput, defaultJudgeSettings, ProfileInput, ProfileUpdateInput, ProgramInput, ProgramUpdateInput, isCppLanguage,
   TestCaseInput, TestCaseUpdateInput, TestCasesDeleteInput, TestZipInput, GeneratorPlanInput, GeneratorPlanUpdateInput, ToolSelfTestInput, ToolSelfTestUpdateInput, generatorPlanCommands, generatorPlanProgramIds,
   type ProgramSave, type GeneratorPlanSave, type ToolSelfTestSave, type JudgeSettingsValue, type TestGroupsValue,
 } from '@problemforge/contracts';
@@ -19,7 +19,7 @@ const Id = Type.Object({ id: Type.String() });
 async function programInput(problemId: string, data: ProgramSave) {
   const profile = await db.compileProfile.findUnique({ where: { id: data.profileId } });
   if (!profile?.enabled) throw new HttpError(422, '请选择管理员启用的编译 profile');
-  if (testlibRoles.has(data.role) && profile.language === 'PYTHON3') throw new HttpError(422, 'Validator / Checker / Interactor 使用固定 testlib 的 C++ profile；Python 可用于解法和生成器');
+  if (testlibRoles.has(data.role) && !isCppLanguage(profile.language)) throw new HttpError(422, 'Validator / Checker / Interactor 使用固定 testlib 的 C++ profile；C、Java 和 Python 可用于解法和生成器');
   if (['MAIN_SOLUTION', 'CORRECT_SOLUTION'].includes(data.role) && (data.expectedVerdicts.length !== 1 || data.expectedVerdicts[0] !== 'AC')) throw new HttpError(422, '主标程与正确解必须声明 AC');
   if (data.role === 'TIME_LIMIT_SOLUTION' && (data.expectedVerdicts.length !== 1 || data.expectedVerdicts[0] !== 'TLE')) throw new HttpError(422, '预期超时解必须声明 TLE');
   if (data.role === 'WRONG_SOLUTION' && data.expectedVerdicts.includes('AC')) throw new HttpError(422, '错误解必须声明非 AC 的预期判定');
@@ -81,7 +81,7 @@ export async function judgeRoutes(app: Api) {
     const s = req.body.settings;
     if (s.interactionMode === 'INTERACTIVE' && s.ioMode !== 'STDIO') throw new HttpError(422, '交互执行必须使用标准管道 I/O');
     if (s.interaction && s.interaction.idleTimeMs > s.interaction.wallTimeMs) throw new HttpError(422, '空闲时限不能大于总墙钟时限');
-    const reserved = ['source.cpp', 'source.py', 'program', 'stdout', 'stderr', 'testlib.h', 'checker-input', 'checker-answer', 'checker-output'];
+    const reserved = ['source.cpp', 'source.c', 'source.py', 'Main.java', 'program', 'program.jar', 'stdout', 'stderr', 'testlib.h', 'checker-input', 'checker-answer', 'checker-output'];
     if (s.ioMode === 'FILES' && (s.inputFile === s.outputFile || reserved.includes(s.inputFile) || reserved.includes(s.outputFile))) throw new HttpError(422, '文件 I/O 需要不同文件名，且不能覆盖执行器的保留文件');
     await db.$transaction(async tx => {
       await lockProblem(tx, req.params.id);

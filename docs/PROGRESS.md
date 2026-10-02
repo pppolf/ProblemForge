@@ -515,3 +515,19 @@ P6.0—P6.2、P7.0—P7.1 本轮范围完成。按用户明确要求，P7.2 独�
 **实现：**按用户截图要求，删除模板编辑区关于原 main.tex 版式的蓝色说明、相邻的发布版本说明，以及配置旁“重新生成 style.tex”的常驻提示；移除专用 archivePreset 判断及无用样式。保留模板名称、版本状态、重命名/复制/保存/验证等操作及错误、未保存反馈，功能约束不变。
 
 **实际验证与范围：**确认原 5180（Vite PID 70312）/3100（API PID 76712）进程来自主目录；无需重启服务。`pnpm check web` 和差异检查通过，原 5180 的 Templates.vue 模块转换 HTTP 200，核对三处文案及 archivePreset 已移除，重命名/复制入口和加载失败反馈仍在。没有写数据库、模板内容或运行配置；未重新进行浏览器、集成、TeX/Judge、全量/E2E 检查。完成交接后本地提交，不 push。
+
+## 增加 C17、C++23 和 Java 17 编译与执行（2026-10-02）
+
+**用户要求与实现：**编译配置增加 C、Java 和 C++23，Java 固定 JDK 17。C 采用 C17；共享语言枚举、数据库枚举、管理员 API、内置 profile、程序选择与源码编辑器同步支持六种语言。新建未修改源码的语言样板可自动切换，已编写或保存的源码保留。C / C++ 仍支持 O0 / O2，Java / Python 页面不显示不适用的优化选项；原三套 profile 的 ID、配置、版本和哈希保持不变。
+
+**编译与运行：**C 使用 GCC 12 的 `-std=c17` 并链接 libm，C++23 使用现有 G++ 12 的 `-std=c++23`，不声称支持所有 C++23 新特性。Judge 镜像新增固定 `openjdk-17-jdk-headless` / `openjdk-17-jre-headless` 包 `17.0.20.1+1-1~deb12u1`，Java 入口为默认包中的 `public class Main`。可信助手仅在独立 go-judge 内以 `--release 17` 编译 UTF-8 源码，关闭注解处理，打包全部生成类；执行器支持 JAR 缓存、JVM 资源限制、生成器 argv/种子、文件 I/O 和交互选手。更新工具链/缓存标识，旧快照与缓存不被静默当作新工具链复用。没有宿主机执行作者源码或降级路径。
+
+testlib 工具只允许 C++（含 C++23），API、任务快照、题包导入及执行器同步检查，C / Java / Python 用于解法与生成器。增加源码/JAR 文件 I/O 保留名。原生 FULL 题包支持新增三种语言往返；Polygon 尚未建立它们的语言映射，明确报告 BLOCKED 并以正确扩展名保留源码，不伪装成 C++17 或完整外部兼容。
+
+**迁移与原环境：**确认原 `pnpm dev` 运行树来自主目录且无活动 Build / TestRun 后，停止该树以释放 Prisma DLL。第 13 个迁移 `20261002010000_more_program_languages` 已应用到原 `problemforge_f054`，只添加三个枚举值；Prisma 客户端生成成功。使用原 Compose 构建并替换原 `judge-sandbox`，实测 `java -version` 为 OpenJDK 17.0.20.1；PostgreSQL、Redis 和 TeX 容器未重建。恢复原目录 `pnpm dev`，仍为 5180/3100、Redis DB 1、`.local/p3-storage` 和原四个基础服务。当前终端会话 64561，API PID 58468、Vite PID 71064；服务记录 `.local/language-services.json`，下次先重新核对命令行，不盲用历史 PID。没有新端口、数据库或工作树。
+
+**实际验证：**`pnpm check contracts database judge-core problem-format api web judge-worker` 全部通过。新增显式 `pnpm verify:languages` 并通过：真实 Fastify 路由、验收 pipeline 与执行器使用原库必定回滚事务，六种语言经现有 Linux go-judge 实际编译和判题全部 AC，包含 C17 标准/libm、C++23 `if consteval` / `std::expected` 和 Java 17 record / 多类打包。覆盖六语言缓存复用、新三语言 CE 诊断、Java 生成器带空格参数与 PF_SEED、文件 I/O、Java 选手与 C++23 testlib Interactor 双向执行、TLE、MLE、管理员 profile 新建/修改与普通用户拒绝、C / Java testlib 角色拒绝、保留文件名、原生包往返及 Polygon 阻塞说明。首次脚本因夹具漏传 provenance 在执行前失败，补齐后完整通过；不是产品编译故障。证据 `.local/verify-program-languages.json`。测试产物仅保存在内存，沙箱临时文件已清理，夹具账号、题目、程序、任务、profile 和审计全部回滚；默认快查范围不变。
+
+浏览器经原 `localhost:5180` 使用原超级管理员登录，编译配置显示六套启用项，语言下拉含 C17 / C++23 / Java 17；Java 无原生优化项，切换 C17 出现 O2。关闭表单未保存临时选择，退出本次会话并关闭临时标签，无浏览器控制台错误。证据 `.local/program-languages-browser.json` / `.local/program-languages-profiles.png`。运行前后数据指纹核对：原一个管理员、6 套模板 / 13 个发布版本及原三套 profile 完全一致，题目/程序/比赛/TestRun 均为 0，保留 16 个模板构建、活动任务 0；仅持久增加三套预期内置 profile，证据 `.local/language-runtime-before.json` / `.local/language-runtime-after.json`。
+
+**未验证与收尾：**此次真实验收直接调用 pipeline，没有持久提交队列任务；浏览器验证配置显示与表单切换，未创建真实题目走完整出题页面。没有运行 TeX、全量/E2E、对拍专项、生产部署、恢复演练或外部 Polygon/OJ 兼容验证；C++23 全标准覆盖及 Java 第三方依赖/自定义入口不在此次支持范围。没有环境阻塞，协会 APPKEY 仍待用户提供。JUDGE、PACKAGES、USER_GUIDE、PLAN、README 和任务书已同步，差异检查后本地提交，不 push；P7.2/P8 继续暂缓。

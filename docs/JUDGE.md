@@ -6,9 +6,22 @@ P2 支持普通批处理题与自定义 SPJ；P3 增加对拍、真实交互、�
 
 API 只保存数据、鉴权和提交不可变任务。独立 Judge Worker 调用独立 Linux go-judge v1.8.5，编译与运行作者程序均不使用宿主机进程。沙箱不可用明确失败。默认 Judge 与 TeX 使用不同服务、令牌及端口（15051 / 15050）；执行环境不挂载业务存储、数据库凭据或 Docker socket。
 
-镜像和请求协议在 `infra/judge-sandbox.Dockerfile`、`infra/judge-mount.yaml` 固定。工具链为 Debian 12 / GCC 12.2.0 / Python 3.11.2；具体 Debian 修订记录在 Dockerfile 与 `JUDGE_TOOLCHAIN`，镜像内另存包清单。固定 testlib 0.9.41 的提交、头文件哈希、许可与官方来源见 [vendor/testlib/SOURCE.md](../vendor/testlib/SOURCE.md)。不从作者请求执行 Shell 编译命令。
+镜像和请求协议在 `infra/judge-sandbox.Dockerfile`、`infra/judge-mount.yaml` 固定。工具链为 Debian 12 / GCC 12.2.0 / Python 3.11.2 / OpenJDK 17.0.20.1；具体 Debian 修订记录在 Dockerfile 与 `JUDGE_TOOLCHAIN`，镜像内另存包清单。固定 testlib 0.9.41 的提交、头文件哈希、许可与官方来源见 [vendor/testlib/SOURCE.md](../vendor/testlib/SOURCE.md)。不从作者请求执行 Shell 编译命令。
 
-管理员独占编译 profile 维护。配置仅包含语言 C++17 / C++20 / Python 3、O0 / O2、警告、编译 CPU 与内存限制；程序和任务固定具体 profile 版本与哈希。testlib 工具角色使用 C++ profile。Python 先在沙箱内做语法编译，运行使用隔离解释器参数。
+管理员独占编译 profile 维护，内置六种语言。配置限定语言、O0 / O2、警告、编译 CPU 与内存限制；程序和任务固定具体 profile 版本与哈希。O0 / O2 仅用于 C / C++，Java 的警告开关映射到 `javac -Xlint`。
+
+| 语言 | 固定编译 / 运行方式 |
+| --- | --- |
+| C17 | `gcc -std=c17`，链接 `-lm`，执行生成的原生程序 |
+| C++17 / C++20 / C++23 | `g++ -std=c++17` / `c++20` / `c++23`，执行原生程序 |
+| Java (JDK 17) | UTF-8 `Main.java`，`javac --release 17 -proc:none`，打包全部生成类为 JAR 后由 Java 17 执行 |
+| Python 3 | 沙箱内语法编译，使用隔离解释器参数运行源码 |
+
+C++23 使用现有 GCC 12，支持范围以 [GCC 官方状态表](https://gcc.gnu.org/projects/cxx-status.html#cxx23) 为准，不能假定所有 C++23 语言与标准库特性均已实现。Java 使用默认包中的 `public class Main` 及 `public static void main(String[] args)`；允许同一源码中的内部类、匿名类和其他非 public 类，暂不提供自定义入口类、外部依赖或多源码上传。可信编译助手 `infra/java17-compile.sh` 只在 go-judge 内运行，参数限定为堆大小和警告开关，缓存完整 JAR。运行采用 Serial GC、单个活动处理器和有界堆/线程数，JVM 启动、原生内存与堆一起计入实际时间/内存限制，不额外放宽题目限制。
+
+testlib 的 Validator / 额外 Validator / Checker / Interactor 只使用 C++ profile（含 C++23）；C、Java 和 Python 可用于解法及生成器。API、导入与执行器均检查该约束。新建程序切换语言会替换尚未修改的初始样板，已编写源码保留；编辑器分别使用 C / C++ / Java / Python 高亮。
+
+新工具链标识与 `pf-compile-2` 缓存策略使旧编译缓存失效，不改写历史 profile、任务或产物。旧工具链快照须重新提交当前任务，不能通过重试把旧快照静默换成新工具链。
 
 ## 程序与数据版本
 
@@ -56,6 +69,8 @@ Checker 正常退出 0 / 1 / 2 或 4 对应 AC / WA / PE。testlib `_fail=3`、�
 ## 定向验证入口
 
 `pnpm test:quick judge` 只检查比较语义、故障/预期归因与受限 ZIP，默认 test 仍是固定的模板/存储轻量检查。`pnpm verify:sandbox --judge` 独立检查真实 Linux Judge 隔离。`pnpm verify:p2` 需要 API、DB、Redis 和 Judge Worker，会创建普通题、多解 SPJ 与严格行格式代表题，执行真实编译和判题。
+
+`pnpm verify:languages` 是显式六语言验证，需要当前配置的数据库、Redis 和独立 Linux Judge 沙箱。真实 API 路由、验收 pipeline 与执行器在原库必定回滚事务中运行，验证编译、判题、缓存、编译错误、C++23 testlib、Java 生成器参数/文件 I/O/交互/TLE/MLE，以及原生题包往返。产物仅存于内存，沙箱临时文件随后清理，不持久新增测试账号、题目或任务，不新开端口，不加入默认快查。
 
 `node --import tsx --test scripts/generator-plans.test.ts` 是逐行生成计划的单独纯数据检查，覆盖命令解析/还原、旧参数语义、命令边界和原生包/程序 ID 映射，不连接数据库或执行作者程序，不加入默认快查。
 

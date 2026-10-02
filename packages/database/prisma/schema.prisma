@@ -410,6 +410,9 @@ enum ProgramLanguage {
   CPP17
   CPP20
   PYTHON3
+  C17
+  CPP23
+  JAVA17
 }
 enum JudgePurpose {
   COMPILE

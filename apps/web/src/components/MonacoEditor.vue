@@ -4,6 +4,7 @@ import * as monaco from 'monaco-editor/esm/vs/editor/editor.api';
 import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import 'monaco-editor/esm/vs/basic-languages/cpp/cpp.contribution';
 import 'monaco-editor/esm/vs/basic-languages/python/python.contribution';
+import 'monaco-editor/esm/vs/basic-languages/java/java.contribution';
 const props = withDefaults(defineProps<{ modelValue: string; language?: string; readonly?: boolean }>(), { language: 'latex', readonly: false });
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>();
 const container = ref<HTMLDivElement>(); let editor: monaco.editor.IStandaloneCodeEditor | undefined; let updating = false;

@@ -64,7 +64,7 @@ worker.on('error', e => console.error('Judge Worker:', e.message));
 worker.on('failed', async (job, error) => {
   console.error('Judge queue delivery failed:', job?.id, error.message); // DB lease recovery owns terminal state.
 });
-console.log('ProblemForge Judge Worker started; C++ / Python / testlib execute only through independent Linux go-judge.');
+console.log('ProblemForge Judge Worker started; C / C++ / Java 17 / Python / testlib execute only through independent Linux go-judge.');
 for (const event of ['SIGINT', 'SIGTERM'] as const) process.on(event, async () => {
   for (const controller of active) controller.abort('WORKER_SHUTDOWN');
   await worker.close(); await stopHeartbeat(); await db.$disconnect(); process.exit(0);

@@ -20,6 +20,8 @@ DATA 及 Polygon FULL 可补入该冻结修订所绑定成功验收的输入/答
 
 `problemforge.json` 顶层字段为 `format: problemforge`、`version: 1`、`purpose`、`manifest`。清单包含原对象 ID / 修订 ID / 版本；资源的 `key` 在包中改为相对路径 `blobs/{sha256}`，并带哈希与字节数。输入和答案始终是二进制文件，保留 NUL、非法 UTF-8、CRLF 与末尾空白。源程序记录语言、有限 profile 配置和哈希，普通包不能创建编译 profile 或提交 shell 命令。
 
+原生包支持 C17、C++17 / C++20 / C++23、Java 17 和 Python 3 的程序及 profile 往返。导入必须匹配同语言的本地启用 profile；C / Java / Python 不能用作 testlib 工具，不因来自题包而放宽校验。
+
 只有 FULL 可恢复为工作副本。API 先有界解析并校验结构、引用、源码/资源哈希、内容策略、分组 DAG 与本地 profile，再保存持久兼容报告和隔离原包。用户核对报告后提交其 `reportHash`；重复提交同一检查记录返回同一新题目。新题目归导入人私有，所有内部引用重映射，建立 DRAFT 聚合修订，不继承成功验收或审批。
 
 模板仅引用模板 ID、版本号和哈希。匹配的本地 PUBLISHED 版本可以沿用；缺失或不匹配时保持未绑定并明确提示在工作区重选，不导入或覆盖系统模板。profile 先按语言与哈希匹配；跨实例不匹配时可提供原 profile ID → 本地启用 profile ID 映射，改变配置会记录警告并要求重新验收。无法安全转换的正文保持在隔离原包，新稿为空且停用。
@@ -33,7 +35,7 @@ DATA 及 Polygon FULL 可补入该冻结修订所绑定成功验收的输入/答
 | 领域 | 本阶段映射与边界 |
 | --- | --- |
 | 题名、语言、题面 | names；en/ru/zh-CN 与标准语言代码；application/x-tex 正文。完整文档壳、HTML、PDF 或未批准 TeX 留在隔离包，人工转为作者正文 |
-| 程序 | solutions 的 main / accepted / wrong-answer / time-limit-exceeded / slow；C++17、C++20、Python 3 源码。旧 cpp.g++ 明确提示本地 CPP17 选择；不执行预编译二进制 |
+| 程序 | solutions 的 main / accepted / wrong-answer / time-limit-exceeded / slow；C++17、C++20、Python 3 源码。旧 cpp.g++ 明确提示本地 CPP17 选择；C17、C++23、Java 17 尚未建立 Polygon 映射，导出明确 BLOCKED，仍按 .c / .cpp / .java 保留源码，完整往返使用原生包；不执行预编译二进制 |
 | 工具 | testlib Checker / Validator / Interactor 源码；无源码 std::wcmp.cpp 显式映射为 TOKENS；其他标准比较器需可用源码。交互模式和本地限制有警告，必须重新验收 |
 | 数据 | 唯一名为 tests 的 testset，time-limit 毫秒、memory-limit 字节、文件 I/O、manual/generated、sample；一个 %d 或 %01d…%06d 的相对路径模式；保留原字节 |
 | 生成计划 | 已匹配 executable，简单无引号命令词和参数，末尾整数种子。映射 argv + seed；计划初始停用以避免覆盖已有编号。shell、重定向、宏和非整数种子会阻塞 |

@@ -11,7 +11,7 @@ if (`interaction-v1-${sha256(Buffer.concat([relay, runner]))}` !== INTERACTION_P
 export async function runInteraction(executor: Executor, contestant: Compiled, interactor: Compiled, input: Buffer, answer: Buffer | null, settings: JudgeSettingsValue, caseRef: string, main: boolean) {
   executor.checkCanceled();
   const limits = { ...defaultInteractionSettings, ...settings.interaction };
-  const player = executor.command(executor.runArgs(contestant, []), { [contestant.fileName]: { fileId: contestant.executable } }, settings.timeLimitMs, settings.memoryLimitMb, settings.outputLimitBytes, limits.wallTimeMs);
+  const player = executor.programCommand(contestant, [], settings.timeLimitMs, settings.memoryLimitMb, settings.outputLimitBytes, limits.wallTimeMs);
   const tool = executor.command(['/usr/bin/python3', '-I', '-B', '/w/interactor-runner.py', ...executor.runArgs(interactor, ['hidden-input', 'interaction-output', 'jury-answer'])], {
     'interactor-runner.py': { fileId: await executor.upload(runner) },
     [interactor.fileName]: { fileId: interactor.executable }, 'hidden-input': { fileId: await executor.upload(input) }, 'jury-answer': { fileId: await executor.upload(answer ?? Buffer.alloc(0)) },

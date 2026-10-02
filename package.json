@@ -44,6 +44,7 @@
     "verify:p5:restore": "tsx scripts/verify-p5-restore.ts",
     "verify:access": "tsx scripts/verify-access-simplification.ts --rollback",
     "verify:templates": "tsx scripts/verify-template-management.ts --rollback",
+    "verify:languages": "tsx scripts/verify-program-languages.ts --rollback --sandbox",
     "verify:p6:accounts": "tsx scripts/verify-p6-accounts.ts",
     "verify:p6:history": "tsx scripts/verify-p6-history.ts",
     "verify:p6:editing": "tsx scripts/verify-p6-editing.ts",

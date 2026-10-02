@@ -5,6 +5,7 @@ mount:
   - {type: bind, source: /lib64, target: /lib64, readonly: true}
   - {type: bind, source: /etc/ld.so.cache, target: /etc/ld.so.cache, readonly: true}
   - {type: bind, source: /etc/alternatives, target: /etc/alternatives, readonly: true}
+  - {type: bind, source: /etc/java-17-openjdk, target: /etc/java-17-openjdk, readonly: true}
   - {type: bind, source: /dev/null, target: /dev/null}
   - {type: bind, source: /dev/urandom, target: /dev/urandom}
   - {type: bind, source: /dev/random, target: /dev/random}

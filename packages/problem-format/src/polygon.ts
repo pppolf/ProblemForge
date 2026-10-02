@@ -1,4 +1,4 @@
-import{defaultInteractionSettings,type ManifestProgram,type ProblemManifest,type ProgramRole,type StoredBlob}from'@problemforge/contracts';
+import{programFileExtensions,defaultInteractionSettings,type ManifestProgram,type ProblemManifest,type ProgramRole,type StoredBlob}from'@problemforge/contracts';
 import{PackageError,safePath}from'./archive.ts';import{readXml,escapeXml as x,type Xml}from'./xml.ts';import{blankManifest,selectManifest,digest}from'./native.ts';import type{Exporter,ImportResult,Issue,Profile}from'./types.ts';
 const languageNames:Record<string,string>={english:'en',russian:'ru',chinese:'zh-CN'};
 const sourceTypes:Record<string,Profile['language']>={'cpp.g++17':'CPP17','cpp.g++20':'CPP20','cpp.g++':'CPP17','python.3':'PYTHON3'};
@@ -52,9 +52,9 @@ export const polygonExporter:Exporter={id:'POLYGON',async export(source,purpose,
  const m=selectManifest(source,purpose),files=new Map<string,Buffer>(),report:Issue[]=[{area:'compatibility',status:'WARNING',message:'Polygon problem.xml 离线明确子集；未向外部 Polygon/OJ 上传验证。扩展信息单独保存于 compatibility.json。'}];
  const add=(area:string,message:string)=>report.push({area,status:'BLOCKED',message});const put=(path:string,text:string)=>files.set(path,Buffer.from(text));
  const blob=async(path:string,b:StoredBlob)=>{const bytes=await read(b.key);if(digest(bytes)!==b.hash||bytes.length!==b.bytes)throw new PackageError('固定资源哈希不匹配');files.set(path,bytes);};
- const types={CPP17:'cpp.g++17',CPP20:'cpp.g++20',PYTHON3:'python.3'},paths=new Map<string,string>();
- for(const [i,p]of m.programs.entries()){const path=`files/p${i+1}.${p.profile.language==='PYTHON3'?'py':'cpp'}`;paths.set(p.id,path);put(path,p.source);if(p.expectedScore)add('expectations',`${p.name} 的分数范围保留在兼容报告，Polygon 预期标签不等价`);}
- const sourceXml=(p:ManifestProgram)=>`<source path="${paths.get(p.id)}" type="${types[p.profile.language]}"/>`;
+ const types:Partial<Record<Profile['language'],string>>={CPP17:'cpp.g++17',CPP20:'cpp.g++20',PYTHON3:'python.3'},paths=new Map<string,string>();
+ for(const [i,p]of m.programs.entries()){const path=`files/p${i+1}.${programFileExtensions[p.profile.language]}`;paths.set(p.id,path);put(path,p.source);if(!types[p.profile.language])add('programs',`${p.name} 的 ${p.profile.language} 未纳入 Polygon 映射，请使用原生题包；源码已保留`);if(p.expectedScore)add('expectations',`${p.name} 的分数范围保留在兼容报告，Polygon 预期标签不等价`);}
+ const sourceXml=(p:ManifestProgram)=>`<source path="${paths.get(p.id)}"${types[p.profile.language]?` type="${types[p.profile.language]}"`:""}/>`;
  const solutions=m.programs.filter(p=>['MAIN_SOLUTION','CORRECT_SOLUTION','WRONG_SOLUTION','TIME_LIMIT_SOLUTION','BRUTE_FORCE'].includes(p.role)).map(p=>`<solution tag="${({MAIN_SOLUTION:'main',CORRECT_SOLUTION:'accepted',WRONG_SOLUTION:'wrong-answer',TIME_LIMIT_SOLUTION:'time-limit-exceeded',BRUTE_FORCE:'slow'}as Record<string,string>)[p.role]}">${sourceXml(p)}</solution>`).join('');
  const tools=m.programs.filter(p=>['CHECKER','VALIDATOR','INTERACTOR'].includes(p.role)).map(p=>`<${p.role.toLowerCase()} type="testlib">${sourceXml(p)}</${p.role.toLowerCase()}>`).join('');
  const generators=m.programs.filter(p=>p.role==='GENERATOR').map(p=>`<executable>${sourceXml(p)}</executable>`).join('');

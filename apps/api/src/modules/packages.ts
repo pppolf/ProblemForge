@@ -1,5 +1,5 @@
 import{randomUUID}from'node:crypto';import{Type}from'@sinclair/typebox';
-import{ExportInput,type ProblemManifest}from'@problemforge/contracts';import{db,Prisma}from'@problemforge/database';
+import{ExportInput,isCppLanguage,type ProblemManifest}from'@problemforge/contracts';import{db,Prisma}from'@problemforge/database';
 import{problemAccess,contestAccess,hashObject,sha256,HttpError,audit}from'@problemforge/domain';
 import{PackageError,readArchive,writeArchive,nativeExporter,polygonExporter,importNative,importPolygon,blobs,validateManifest,type Issue,type ImportResult}from'@problemforge/problem-format';
 import{validateBody}from'@problemforge/template-engine';import{groupOrder}from'@problemforge/judge-core';
@@ -25,7 +25,7 @@ async function prepareImport(format:'NATIVE'|'POLYGON',files:Map<string,Buffer>,
  const profiles=await db.compileProfile.findMany({where:{enabled:true}});const result=format==='NATIVE'?importNative(files):importPolygon(files,profiles as unknown as Parameters<typeof importPolygon>[1]);const {manifest:m,report}=result;
  for(const p of m.programs){const mapped=mapping[p.profile.id];const profile=profiles.find(v=>v.id===mapped&&v.language===p.profile.language)??(!mapped?profiles.find(v=>v.language===p.profile.language&&v.hash===p.profile.hash):undefined);if(!profile){report.push({area:`profile:${p.profile.id}`,status:'BLOCKED',message:`${p.profile.name} 需要显式匹配本地 ${p.profile.language} profile`});continue;}if(profile.hash!==p.profile.hash)report.push({area:'profile',status:'WARNING',message:`${p.name} 按本次显式选择改用 ${profile.name}；必须重新验收`});p.profile=profile as unknown as typeof p.profile;
   // Do not allow imports to bypass regular source-role constraints.
-  if(['CHECKER','VALIDATOR','EXTRA_VALIDATOR','INTERACTOR'].includes(p.role)&&p.profile.language==='PYTHON3')report.push({area:'programs',status:'BLOCKED',message:'testlib 工具必须使用本地 C++ profile'});
+  if(['CHECKER','VALIDATOR','EXTRA_VALIDATOR','INTERACTOR'].includes(p.role)&&!isCppLanguage(p.profile.language))report.push({area:'programs',status:'BLOCKED',message:'testlib 工具必须使用本地 C++ profile'});
  }
  for(const a of m.assets){const bytes=files.get(a.blob.key);if(!bytes||!imageValid(bytes,a.mediaType))throw new PackageError(`资源 ${a.path} 不是受支持的有界 PNG/JPEG`);}
  // Convert only referenced, bounded images; other package resources stay quarantined.
