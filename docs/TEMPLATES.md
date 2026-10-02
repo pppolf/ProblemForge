@@ -24,7 +24,7 @@ metadata.schema.json 为不执行代码的声明子集：type: object、addition
 
 交互题正文使用 `\Description`、`\interactor`、`\InteractionStart`、`\InteractionQuery`、`\InteractionAnswer`、`\InteractionNotes`、`\InteractionExample`，均为不带参数的题面章节命令；仅对 STATEMENT 开放。内置两套题面模板的 `headings.tex` 用原 olymp 的 `\createsection` 定义主章节，子章节使用左对齐的 `\subsection*`，兼容普通 `\section*` 标题。正文不能定义或重定义这些命令。原开发库从 CWNU v3 / 简洁蓝色 v2 开始支持，旧版本不会被原地补写。
 
-两套题面单题入口设置 `\ShortProblemTitle`，只显示题名；比赛入口通过 item.tex 保留 CODE。文档题解的 `headings.tex` 将题名及各级章节设为左对齐，同时保留字体、颜色和页边距。原题册封面和 Beamer 模板保持原样。发布版本与历史 PDF 不自动改变，使用者需选择新版并重新构建。
+两套题面单题入口设置 `\ShortProblemTitle`，只显示题名；比赛入口通过 item.tex 显式输出 `Problem {{CODE}}. {{TITLE}}`，目录使用同样的完整前缀，不依赖 olymp 自动递增题号，因此选定子集或调整顺序仍保留原 CODE。此格式从原库 CWNU v4 / 简洁蓝色 v3 开始。文档题解的 `headings.tex` 将题名及各级章节设为左对齐，同时保留字体、颜色和页边距。原题册封面和 Beamer 模板保持原样。发布版本与历史 PDF 不自动改变，使用者需选择新版并重新构建。
 
 图片仅通过本题私有资源的 assets/{id}.png 或 .jpg 引用。includegraphics 参数只允许有上限的 width / height 字面尺寸及 linewidth / textwidth 比例。未授权路径、宏生成路径、附加执行参数被拒绝。资产字节、哈希与存储键随内容构建固定。
 

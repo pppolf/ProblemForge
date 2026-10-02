@@ -47,7 +47,7 @@ test('interactive statement headings stay in template-owned macros without allow
     assert.match(single['headings.tex'], /\\createsection\{\\interactor\}/);
     assert.match(single['main.tex'], /\\def\\ShortProblemTitle\{\}/);
     const booklet = render(files, 'STATEMENT', body, { title: '多项式机器', author: '' }, [], 'booklet');
-    assert.match(booklet['problem.tex'], /A\. 多项式机器/);
+    assert.match(booklet['problem.tex'], /Problem A\. 多项式机器/);
   }
 });
 test('sample slots use platform file paths while authors cannot read files', async () => {

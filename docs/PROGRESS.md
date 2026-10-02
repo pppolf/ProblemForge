@@ -439,3 +439,13 @@ P6.0—P6.2、P7.0—P7.1 本轮范围完成。按用户明确要求，P7.2 独�
 **实际验证：**`pnpm check template-engine web` 通过，`node --import tsx --test packages/template-engine/src/policy.test.ts packages/template-engine/src/contest.test.ts` 共 6 项通过，覆盖新命令类型限制、禁止作者宏定义、模板渲染及比赛题号保留。复用现有 Linux TeX 沙箱编译四份单题样稿（新交互命令正文与两种书面题解）、四份模板比赛样稿，以及上述两份当前稿件，共 10 份 PDF / 20 页均渲染并逐页查看；无缺字、裁切或溢出问题，比赛 A 题号保留。没有宿主机 TeX 回退。原 5180 浏览器以原 P2 账号实际查看 3 页题面，检查滚动到末页、返回首页重新渲染、150% 缩放、切换文档题解及加载新产物。证据、保存前稿件和原模板指纹位于 Git 忽略目录 `.local/presentation-update/`。
 
 **运行加载与未验证：**用户当前 `pnpm dev` 的 API / Worker 使用非 watch 的 tsx，仍运行 `pf-content-3`；已请用户在原终端 Ctrl+C 后重新执行 `pnpm dev`，本轮没有擅自替换其终端进程。新的格式插入内容与命令已实现并在现有 Linux 沙箱编译通过，但原运行中 API 尚不能接受新命令。当前题目暂保留原 `\section*` 正文，使用新模板也已左对齐；用户重启后可用新版交互格式，若继续协助转换现有稿件，应先重读最新版本，只替换章节命令，保留用户正文和样例。现有成功构建仍固定 `pf-content-3`，不得写成新策略在线 API / Worker 已验证。未做全量/E2E、Judge、超长 PDF 压力或各浏览器兼容性测试，比赛/模板/Beamer 的所有页面入口没有逐个点击。USER_GUIDE / TEMPLATES 已更新，差异检查后本地提交，不 push；P7.2/P8 继续暂缓。
+
+## 比赛题面保留完整 Problem 前缀（2026-10-02）
+
+**用户纠正与实现：**比赛题目标题需显示 `Problem A. 题名`，单题仍仅题名。两套题面仅修改 item.tex 的题名和目录条目，显式拼接 `Problem {{CODE}}. {{TITLE}}`，继续禁用 olymp 自增前缀，保证选择子集或改变顺序时仍使用比赛配置的题号。单题入口、正文、文档题解和 Beamer 均未改。同步收紧原有检查对 `Problem A.` / 非首个题号 `Problem C.` 的断言，没有新增测试套件。
+
+**原开发环境落地：**核对主目录原 5180 / 3100；用户已重启 pnpm dev，新模板验证和比赛构建的 API / Worker 固定策略均为 `pf-content-4`，上一条的旧进程加载限制已解除。本轮未重启进程或新增端口。通过原管理员接口复制并验证、逐页预览后发布 CWNU 比赛题面 v4 `cmuqk5qf5005gktv0dc766mco`、简洁蓝色题面 v3 `cmuqk5t46005nktv0vyrmu24y`。与各自上一版仅 item.tex 不同，原 11 个版本的状态及文件哈希逐一核对不变，当前共 6 套 / 13 个发布版本。
+
+用户当前比赛 `test`（`cmuqjnu41000iktv0u3o1wfcv`）原选 CWNU v3。按最新 expectedVersion 将比赛数据 v3 → v4，仅换绑题面模板为 CWNU v4，原 A/B 题号、题目冻结修订、顺序、比赛元信息及两套题解绑定全部保留。正常冻结接口确认原题目验收与修订有效后创建比赛冻结 #2 `cmuqkb1sg0063ktv0d11r7idq`，只生成题面，构建 `cmuqkb1vy0067ktv0dwjstino` 成功，PDF 产物 `cmuqkb3n3000fkt3ksxuzpxmx`（6 页）。已确认当前冻结匹配新编排、旧冻结哈希不变，没有改源题、建立新题或新比赛，也没有公开发布材料。
+
+**实际验证与边界：**原 policy / contest 两个测试文件共 6 项通过；两份新模板样稿共 5 页及当前比赛题册 6 页均由现有 Linux TeX 沙箱编译，并渲染逐页查看。实际标题为 `Problem A. A+B`、`Problem B. 多项式机器（Easy Version）`，简洁模板目录也包含 Problem 前缀；当前题册的交互命令正文在 `pf-content-4` 在线构建通过。单题相关文件逐字保持上一版，沿用其已通过的单题 PDF 检查。没有重新执行前端、浏览器、Judge 或全量/E2E 检查，也没有执行宿主机 TeX。保存前比赛配置、原模板指纹及 PDF 证据位于 Git 忽略目录 `.local/contest-title-update/`。USER_GUIDE / TEMPLATES 同步说明格式及最新版本，差异检查后本地提交，不 push。
