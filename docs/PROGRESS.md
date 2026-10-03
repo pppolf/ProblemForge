@@ -660,3 +660,15 @@ Hydro / NovaJudge 测试数据 ZIP、原生 DATA 与 Polygon FULL 判题测试�
 **协议与验证边界：**按 PACKAGES 固定的 Hydro / NovaJudge 官方源码复核配置与工具引用；交互 cases 省略 output 可由两站归一化为空输出流，ZIP 无需提供答案占位文件。没有访问或修改用户现有 OJ，没有真实上传两站或运行其完整判题服务。本轮仅改打包与命名，未重新执行作者程序、Judge / TeX、全量/E2E、浏览器操作或部署；默认快查清单不变。源码检查与本地 API 导出不声称为外部 OJ 上线验收。
 
 **运行环境与收尾：**检查主目录原服务进程树、确认活动 Build/TestRun 均为 0 后，仅重启原 `pnpm dev` 加载 API。沿用 5180/3100、原数据库/Redis/存储/沙箱，无迁移、依赖或新增实例。根进程 52372，Vite 81208、API 59080，两个 Worker 25276 / 59200，监听和 Worker 均属于此进程树、无额外 Worker；原 5180 首页 200、代理健康接口 ok，stderr 为空。记录 `.local/interactive-export/services.json`、services-verified.json、dev.out/err.log，后续重新核对 PID。无阻塞，差异检查后本地提交，不 push；P7.2/P8 继续暂缓。
+
+## Hydro 交互配置按用户提供的 subtasks 格式导出（2026-10-03）
+
+**用户纠正与实现：**用户给出完整 Hydro 交互题 config.yaml，要求 `interactor.file: interactor.cc`、`lang: auto`，用例放入 `subtasks` 下的 `score: 100`、`id: 1`、`type: sum` 组，每条用例显式 `output: /dev/null`。本轮按此格式修正，去除 Hydro 交互配置的顶层 cases。时间与内存来自实际导出版本的题目设置，用例仅取启用的非样例输入，按原编号升序排列；不硬编码用户示例的 2–54 或 1000ms/256m。ZIP 仍只有 `.in` 与交互器/依赖/配置，不导出 `.ans`，也不创建 `/dev/null` 文件。NovaJudge 配置及普通题判题内容不变，部分分组无法自动映射的报告继续保留。
+
+Hydro config.yaml 改用常规缩进 YAML，工具编译说明同步 `lang: auto`。problem-format 显式依赖仓库已有且锁定的 yaml 2.8.1，用离线安装复用，不引入新版本；普通 Hydro 配置也使用此序列化，NovaJudge 保留原 JSON 兼容 YAML 写法。PACKAGES / USER_GUIDE 已同步，历史 ZIP 不改写，需重新点击导出。
+
+**实际检查：**`pnpm check problem-format api` 通过。`node --import tsx --test scripts/test-data-export.test.ts` 七项通过；新增用户给定 2.in–54.in 完整 YAML 的逐字比对，并通过独立 YAML 解析检查工具、单组满分和 `/dev/null`。另检查改为不连续编号 3/10 及 2500ms/512m 时动态输出正确，包中引用的输入均存在、无答案与占位文件。原普通题、NovaJudge、样例排除、工具源码、字节/哈希和不可读交互答案回归保留。
+
+`node --import tsx scripts/verify-test-data-export.ts --rollback` 通过真实 API / 原库回滚事务，两站当前数据与固定修订四个交互 ZIP 均下载并解析；Hydro 明确检查 auto、subtasks 单组和 output 空流，NovaJudge 保持原结构，夹具全部回滚、存储仅内存、零入队任务。证据复制至 `.local/hydro-interactive-config/verification.json`。`verify-interactive-samples.ts` 的解析和期望同步，本轮没有重新运行其沙箱判题部分。未执行浏览器、作者程序、Judge / TeX、全量/E2E 或外部 OJ 上传/判题，未部署或访问用户其他项目；没有将本地格式检查称为 Hydro 实站验收。
+
+**运行环境与收尾：**再次核对原主目录进程树并确认无活动 Build/TestRun 后，重启原 `pnpm dev` 加载后端。原 5180/3100、数据库/Redis/存储/沙箱保持不变，无迁移或新增实例；新根进程 74336，Vite 62248、API 42944，两个 Worker 58496 / 81916，均属于同一进程树且无多余 Worker。首页 200、代理健康 ok、stderr 为空。证据 `.local/hydro-interactive-config/previous-processes.json`、services.json、services-verified.json、dev.out/err.log，后续重新核对 PID。差异检查通过后本地 Git 提交，不 push；无阻塞，P7.2/P8 继续暂缓。

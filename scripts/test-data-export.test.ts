@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { createRequire } from 'node:module';
 import { blankManifest, digest, exportTestData, nativeExporter, polygonExporter, selectManifest, readArchive, writeArchive } from '@problemforge/problem-format';
 import { defaultInteractionSettings, type ManifestProgram } from '@problemforge/contracts';
 
+const { parse: parseYaml } = createRequire(new URL('../packages/problem-format/package.json', import.meta.url))('yaml');
 const support = { testlib: Buffer.from('test header'), license: Buffer.from('test license') };
 function fixture() {
   const m = blankManifest('Private title'), store = new Map<string, Buffer>();
@@ -23,7 +25,7 @@ test('flat ZIP preserves large/binary bytes, sample, numbers and omits private m
   assert.deepEqual(files.get('2.in'), await read(m.tests[0].input.key));
   assert.deepEqual(files.get('1.ans'), await read(m.tests[1].answer!.key));
   assert.deepEqual(m, before);
-  const config = JSON.parse(files.get('config.yaml')!.toString());
+  const config = parseYaml(files.get('config.yaml')!.toString());
   assert.equal(config.type, 'default'); assert.equal(config.time, '1000ms'); assert.equal(config.memory, '256m');
   assert.deepEqual(config.checker, { file: 'checker.cc', lang: 'cc' });
   assert.deepEqual(config.cases, [{ input: '1.in', output: '1.ans' }, { input: '2.in', output: '2.ans' }]);
@@ -40,7 +42,7 @@ test('target-specific checker names preserve custom sources and dependencies', a
     assert.equal(files.get('testlib.h'), support.testlib); assert.equal(files.get('testlib.LICENSE'), support.license);
     assert(!files.has('interactor.cpp')); assert(!files.has('interactor.cc'));
     assert(!files.has(target === 'HYDRO' ? 'checker.cpp' : 'checker.cc'));
-    const config = JSON.parse(files.get(target === 'HYDRO' ? 'config.yaml' : 'problem.yml')!.toString());
+    const config = parseYaml(files.get(target === 'HYDRO' ? 'config.yaml' : 'problem.yml')!.toString());
     assert.deepEqual(config.checker, target === 'HYDRO' ? { file: name, lang: 'cc' } : name);
     assert.equal(config.cases.length, 2);
     if (target === 'NOVAJUDGE') { assert.equal(config.type, 'spj'); assert(report.some(r => r.area === '时间与内存' && r.status === 'WARNING')); }
@@ -71,10 +73,13 @@ test('interaction packages only inputs and the target-named interactor, never re
     assert(![...files.keys()].some(p => p.endsWith('.ans')));
     assert(!files.has('checker.cpp')); assert(!files.has('checker.cc')); assert(!files.has('1.in'));
     assert(!files.has(target === 'HYDRO' ? 'interactor.cpp' : 'interactor.cc'));
-    const config = JSON.parse(files.get(target === 'HYDRO' ? 'config.yaml' : 'problem.yml')!.toString());
+    const config = parseYaml(files.get(target === 'HYDRO' ? 'config.yaml' : 'problem.yml')!.toString());
     assert.equal(config.type, 'interactive'); assert(!report.some(r => r.area === '交互答案'));
-    assert.deepEqual(config.interactor, target === 'HYDRO' ? { file: name, lang: 'cc' } : name);
-    assert.deepEqual(config.cases, [{ input: '2.in' }, { input: '3.in' }]);
+    assert.deepEqual(config.interactor, target === 'HYDRO' ? { file: name, lang: 'auto' } : name);
+    if (target === 'HYDRO') {
+      assert.deepEqual(config.subtasks, [{ score: 100, id: 1, type: 'sum', cases: [{ input: '2.in', output: '/dev/null' }, { input: '3.in', output: '/dev/null' }] }]);
+      assert(!('cases' in config));
+    } else assert.deepEqual(config.cases, [{ input: '2.in' }, { input: '3.in' }]);
     if (target === 'NOVAJUDGE') assert(report.some(r => r.area === '交互协议'));
     assert.deepEqual(m, before);
   }
@@ -82,6 +87,25 @@ test('interaction packages only inputs and the target-named interactor, never re
   const result = await exportTestData(m, 'HYDRO', read, support);
   assert(result.files.has('checker.cc')); assert(![...result.files.keys()].some(p => p.endsWith('.ans')));
   assert(result.report.some(r => r.area === '交互判定' && r.status === 'BLOCKED'));
+});
+
+test('Hydro interactive YAML follows the supplied subtask layout with actual case numbers and limits', async () => {
+  const { m, read } = fixture();
+  m.judgeSettings.interactionMode = 'INTERACTIVE'; m.programs = [program('INTERACTOR')];
+  const hidden = m.tests[0];
+  m.tests = Array.from({ length: 53 }, (_, i) => ({ ...hidden, id: `t${i + 2}`, revisionId: `r${i + 2}`, number: i + 2 }));
+  const { files } = await exportTestData(m, 'HYDRO', read, support);
+  const yaml = files.get('config.yaml')!.toString();
+  const expected = `type: interactive\ntime: 1000ms\nmemory: 256m\ninteractor:\n  file: interactor.cc\n  lang: auto\nsubtasks:\n  - score: 100\n    id: 1\n    type: sum\n    cases:\n${Array.from({ length: 53 }, (_, i) => `      - input: ${i + 2}.in\n        output: /dev/null\n`).join('')}`;
+  assert.equal(yaml, expected);
+  const config = parseYaml(yaml);
+  for (const c of config.subtasks[0].cases) { assert(files.has(c.input)); assert.equal(c.output, '/dev/null'); }
+  assert(!files.has('/dev/null')); assert(![...files.keys()].some(name => name.endsWith('.ans')));
+  // The pasted example is a format, not a hard-coded set of case numbers or limits.
+  m.tests = [m.tests[8], m.tests[1]]; m.judgeSettings.timeLimitMs = 2500; m.judgeSettings.memoryLimitMb = 512;
+  const changed = parseYaml((await exportTestData(m, 'HYDRO', read, support)).files.get('config.yaml')!.toString());
+  assert.equal(changed.time, '2500ms'); assert.equal(changed.memory, '512m');
+  assert.deepEqual(changed.subtasks[0].cases.map((c: any) => c.input), ['3.in', '10.in']);
 });
 
 test('interactive examples stay in statements and native backups, never in judging archives', async () => {

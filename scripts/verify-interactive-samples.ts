@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { db, Prisma } from '@problemforge/database';
 import { config, sha256, hashObject } from '@problemforge/domain';
@@ -12,6 +13,7 @@ import { problemSnapshot } from '../apps/api/src/modules/revision-snapshot.ts';
 import { Executor } from '../workers/judge/src/executor.ts';
 import { pipeline, emptyReport } from '../workers/judge/src/pipeline.ts';
 
+const { parse: parseYaml } = createRequire(new URL('../packages/problem-format/package.json', import.meta.url))('yaml');
 if (!process.argv.includes('--rollback') || !process.argv.includes('--sandbox')) throw new Error('请显式指定 --rollback --sandbox；夹具回滚，作者程序仅在现有 Linux 沙箱执行');
 const rollback = new Error('ROLLBACK_INTERACTIVE_SAMPLES'), userId = randomUUID(), problemId = randomUUID();
 const app = await createApp(false), sandbox = new SandboxClient(config.judgeSandboxUrl, config.judgeSandboxToken);
@@ -91,9 +93,10 @@ try {
         assert(![...files.keys()].some(p => p.endsWith('.ans')));
         const interactorName = target === 'HYDRO' ? 'interactor.cc' : 'interactor.cpp';
         assert(files.has(interactorName)); assert(!files.has(target === 'HYDRO' ? 'interactor.cpp' : 'interactor.cc'));
-        const config = JSON.parse(files.get(target === 'HYDRO' ? 'config.yaml' : 'problem.yml')!.toString());
-        assert.deepEqual(config.interactor, target === 'HYDRO' ? { file: interactorName, lang: 'cc' } : interactorName);
-        assert.deepEqual(config.cases, [{ input: '2.in' }]);
+        const config = parseYaml(files.get(target === 'HYDRO' ? 'config.yaml' : 'problem.yml')!.toString());
+        assert.deepEqual(config.interactor, target === 'HYDRO' ? { file: interactorName, lang: 'auto' } : interactorName);
+        if (target === 'HYDRO') assert.deepEqual(config.subtasks, [{ score: 100, id: 1, type: 'sum', cases: [{ input: '2.in', output: '/dev/null' }] }]);
+        else assert.deepEqual(config.cases, [{ input: '2.in' }]);
         assert(!files.has('1.in')); assert(!files.has('99.in'));
         evidence.push({ target, entries: [...files.keys()], legacySampleExcluded: true });
       }

@@ -53,14 +53,14 @@ DATA 及 Polygon FULL 可补入该冻结修订所绑定成功验收的输入/答
 
 题目「题包与发布」提供独立「测试数据 ZIP」入口。`POST /api/problems/:id/test-data-exports` 接收 `target: HYDRO | NOVAJUDGE`，可选 `revisionId`；省略时以 RepeatableRead 固定当前已保存工作副本，报告记录快照哈希。无需冻结或验收，已有匹配成功验收时可补入其固定生成输入/答案；导出不执行作者程序，不修改题目或自动保存修订。未保存的页面编辑应先保存，固定修订则始终导出该版本。下载继续逐次检查当前题目权限，不能通过公开发布接口发布这些测试数据包。
 
-ZIP 根目录按原编号放数据文件：普通题导出 `1.in` / `1.ans`，包含全部启用正式数据及样例；交互题只导出启用的非样例 `*.in`，即使已保存答案也不读取或打包 `.ans`，不补空答案。两站交互配置的 cases 仅列 input，不引用答案文件。不包含停用数据、历史样例、题面、题解、参考解、生成器或 Validator。逐个导出文件核验原字节、大小和 SHA-256。普通题缺答案、编号冲突、缺少/同时启用多个所需工具时拒绝生成；只有展示样例而无隐藏测试时直接提示补充数据。
+ZIP 根目录按原编号放数据文件：普通题导出 `1.in` / `1.ans`，包含全部启用正式数据及样例；交互题只导出启用的非样例 `*.in`，即使已保存答案也不读取或打包 `.ans`，不补空答案。Hydro 交互用例明确设 `output: /dev/null`，NovaJudge 交互 cases 仅列 input；均不引用答案文件。不包含停用数据、历史样例、题面、题解、参考解、生成器或 Validator。逐个导出文件核验原字节、大小和 SHA-256。普通题缺答案、编号冲突、缺少/同时启用多个所需工具时拒绝生成；只有展示样例而无隐藏测试时直接提示补充数据。
 
 | 目标 | 配置与上传 |
 | --- | --- |
-| Hydro | 根目录 `config.yaml`，明确 cases、time、memory；普通题 `checker_type: testlib`，交互题 `type: interactive`。工具源码命名为 `checker.cc` / `interactor.cc`，配置引用相同文件并使用 `cc` 语言配置，用户自定义工具需核对目标站 C++ 标准 |
+| Hydro | 根目录 `config.yaml`，time、memory 取题目限制。普通题 `checker_type: testlib`、`checker.cc` / `lang: cc`；交互题 `type: interactive`、`interactor.cc` / `lang: auto`，用例置于 `subtasks` 的 `score: 100`、`id: 1`、`type: sum` 组，每项显式 `output: /dev/null`。用户自定义工具需核对目标站 C++ 标准 |
 | NovaJudge | 根目录 `problem.yml`，明确 cases、`type: spj` / `interactive` 及 `checker.cpp` / `interactor.cpp` 工具文件名。上传入口为目标题目的测试数据管理；上传数据不会更新题目时空限制，报告给出需填写的毫秒和 MiB |
 
-配置使用 YAML 兼容的 JSON 写法，避免名称被解释成 YAML 语法。EXACT / TOKENS / FLOAT 自动生成 C++11 可编译、testlib 返回协议兼容的 Checker，按目标命名为 `.cc` 或 `.cpp`，维持原始字节、六种 ASCII 空白、尾随 token、有限数值与误差规则；因此 NovaJudge 中普通比较也使用 SPJ。自定义 Checker / Interactor 保留当前版本源码，随包附固定 `testlib.h` 与原 MIT 许可证；两站可能使用自带 testlib，目标编译配置及头文件版本仍需核对。
+Hydro 使用常规缩进 YAML，复用仓库固定的 yaml 2.8.1 序列化；NovaJudge 保留 YAML 兼容的 JSON 写法。Hydro 交互用例按实际编号升序放入上述单组，不写顶层 cases、不写入 `/dev/null` 占位文件；这不自动转换本地部分分组，原分组评分兼容阻塞仍保留。EXACT / TOKENS / FLOAT 自动生成 C++11 可编译、testlib 返回协议兼容的 Checker，按目标命名为 `.cc` 或 `.cpp`，维持原始字节、六种 ASCII 空白、尾随 token、有限数值与误差规则；因此 NovaJudge 中普通比较也使用 SPJ。自定义 Checker / Interactor 保留当前版本源码，随包附固定 `testlib.h` 与原 MIT 许可证；两站可能使用自带 testlib，目标编译配置及头文件版本仍需核对。
 
 分组权重/依赖评分、文件 I/O、交互结束后再 Checker 的流程尚不自动转换，报告标记 `BLOCKED`，包可下载用于人工调整；不声称可以直接投入判题。NovaJudge 当前只向 Interactor 传 input/output 两个路径，不传参考答案，读取 `ans` / `argv[3]` 的交互器需修改。独立交互限制和输出限制无法完全随配置还原，报告明确提示；NovaJudge 对非法 UTF-8 数据的转换标记阻塞，ZIP 本身保留原始字节。
 

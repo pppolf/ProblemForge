@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { db, Prisma } from '@problemforge/database';
 import { config, sha256 } from '@problemforge/domain';
@@ -10,6 +11,7 @@ import { SandboxClient, type SandboxCommand } from '../packages/judge-adapter/sr
 import { createApp, storage } from '../apps/api/src/app.ts';
 import { problemSnapshot } from '../apps/api/src/modules/revision-snapshot.ts';
 
+const { parse: parseYaml } = createRequire(new URL('../packages/problem-format/package.json', import.meta.url))('yaml');
 if (!process.argv.includes('--rollback')) throw new Error('请显式指定 --rollback；所有数据库夹具均回滚');
 const rollback = new Error('ROLLBACK_TEST_DATA_EXPORT'), userId = randomUUID(), outsiderId = randomUUID(), problemId = randomUUID();
 const app = await createApp(false), memory = new Map<string, Buffer>(), savedPut = storage.put, savedGet = storage.get;
@@ -58,7 +60,7 @@ try {
         const files = await readArchive(download.rawPayload);
         assert.deepEqual(files.get('7.in'), Buffer.from('1 2\r\n')); assert.deepEqual(files.get('7.ans'), Buffer.from('3\r\n'));
         const configName = target === 'HYDRO' ? 'config.yaml' : 'problem.yml', checkerName = target === 'HYDRO' ? 'checker.cc' : 'checker.cpp';
-        const config = JSON.parse(files.get(configName)!.toString());
+        const config = parseYaml(files.get(configName)!.toString());
         assert(files.has(checkerName)); assert(!files.has(target === 'HYDRO' ? 'checker.cpp' : 'checker.cc'));
         assert.deepEqual(config.checker, target === 'HYDRO' ? { file: checkerName, lang: 'cc' } : checkerName);
         await call('GET', `/exports/${artifact.id}/file`, undefined, 404, outsideToken);
@@ -88,9 +90,13 @@ try {
         const configName = target === 'HYDRO' ? 'config.yaml' : 'problem.yml', interactorName = target === 'HYDRO' ? 'interactor.cc' : 'interactor.cpp';
         assert.deepEqual([...files.keys()].sort(), ['8.in', interactorName, 'testlib.h', 'testlib.LICENSE', configName].sort());
         assert.deepEqual(files.get('8.in'), Buffer.from('1 2\r\n'));
-        const config = JSON.parse(files.get(configName)!.toString());
-        assert.equal(config.type, 'interactive'); assert.deepEqual(config.cases, [{ input: '8.in' }]);
-        assert.deepEqual(config.interactor, target === 'HYDRO' ? { file: interactorName, lang: 'cc' } : interactorName);
+        const config = parseYaml(files.get(configName)!.toString());
+        assert.equal(config.type, 'interactive');
+        if (target === 'HYDRO') {
+          assert.deepEqual(config.subtasks, [{ score: 100, id: 1, type: 'sum', cases: [{ input: '8.in', output: '/dev/null' }] }]);
+          assert(!('cases' in config));
+        } else assert.deepEqual(config.cases, [{ input: '8.in' }]);
+        assert.deepEqual(config.interactor, target === 'HYDRO' ? { file: interactorName, lang: 'auto' } : interactorName);
         evidence.push({ target, source: revisionId ? 'fixed' : 'working', entries: [...files.keys()] });
       }
       assert.deepEqual((await problemSnapshot(tx, problemId)).manifest, interactive.manifest);

@@ -1,4 +1,5 @@
 import { isCppLanguage, isJudgingData, type ProblemManifest, type StoredBlob, type TestDataTargetValue } from '@problemforge/contracts';
+import { stringify as stringifyYaml } from 'yaml';
 import { PackageError, limits } from './archive.ts';
 import { digest } from './native.ts';
 import type { Issue, PackageResult } from './types.ts';
@@ -120,7 +121,7 @@ export async function exportTestData(
     if (digest(p.source) !== p.sourceHash) throw new PackageError(`${name} 源码哈希校验失败`);
     put(name, Buffer.from(p.source)); usesTestlib = true;
     report.push({ area: name, status: 'MAPPED', message: `已保留 ${p.name} 的固定源码（${p.profile.language}）。` });
-    if (target === 'HYDRO') report.push({ area: '工具编译', status: 'WARNING', message: `${name} 使用 Hydro 的 cc 编译配置；上传后请确认该配置支持 ${p.profile.language.replace('CPP', 'C++')}，自定义编译参数需在目标站设置。` });
+    if (target === 'HYDRO') report.push({ area: '工具编译', status: 'WARNING', message: `${name} ${role === 'INTERACTOR' ? '使用 lang: auto，由 Hydro 按 .cc 扩展名选择编译配置' : '使用 Hydro 的 cc 编译配置'}；上传后请确认该配置支持 ${p.profile.language.replace('CPP', 'C++')}，自定义编译参数需在目标站设置。` });
   };
   if (!interactive || settings.interaction?.verdictMode === 'CHECKER') {
     if (settings.checkerMode === 'CUSTOM') tool('CHECKER', checkerName);
@@ -137,17 +138,21 @@ export async function exportTestData(
   }
   if (usesTestlib) { put('testlib.h', support.testlib); put('testlib.LICENSE', support.license); }
   const cases = tests.map(t => ({ input: `${t.number}.in`, ...(!interactive ? { output: `${t.number}.ans` } : {}) }));
-  // JSON is a strict subset of YAML, accepted by both official YAML readers.
-  // Using its serializer also prevents filenames or labels becoming YAML syntax.
   const config: Record<string, unknown> = target === 'HYDRO'
-    ? { type: interactive ? 'interactive' : 'default', time: `${settings.timeLimitMs}ms`, memory: `${settings.memoryLimitMb}m`, ...(interactive ? { interactor: { file: interactorName, lang: 'cc' } } : { checker_type: 'testlib', checker: { file: checkerName, lang: 'cc' } }), cases }
+    ? {
+      type: interactive ? 'interactive' : 'default', time: `${settings.timeLimitMs}ms`, memory: `${settings.memoryLimitMb}m`,
+      ...(interactive ? {
+        interactor: { file: interactorName, lang: 'auto' },
+        subtasks: [{ score: 100, id: 1, type: 'sum', cases: tests.map(t => ({ input: `${t.number}.in`, output: '/dev/null' })) }],
+      } : { checker_type: 'testlib', checker: { file: checkerName, lang: 'cc' }, cases }),
+    }
     : { type: interactive ? 'interactive' : 'spj', ...(interactive ? { interactor: interactorName } : { checker: checkerName }), cases };
   if (settings.ioMode === 'FILES') report.push({ area: '文件输入输出', status: 'BLOCKED', message: `当前使用 ${settings.inputFile} / ${settings.outputFile}；此导出只自动配置标准输入输出，需先调整目标题目的文件 I/O 设置。` });
   if (settings.scoringMode === 'PARTIAL') report.push({ area: '分组评分', status: 'BLOCKED', message: '当前题目采用分组、权重或依赖评分，不能直接作为普通逐点测试上传；需在目标站配置对应评分规则。此包保留全部数据和工具。' });
   report.push({ area: '输出限制', status: 'WARNING', message: `原输出上限为 ${settings.outputLimitBytes.toLocaleString('zh-CN')} 字节，上传后请在目标判题环境核对。` });
   if (target === 'NOVAJUDGE') report.push({ area: '时间与内存', status: 'WARNING', message: `NovaJudge 上传测试数据不会更新题目时空限制，请在题目设置中填写 ${settings.timeLimitMs} ms / ${settings.memoryLimitMb} MiB。` });
   const configName = target === 'HYDRO' ? 'config.yaml' : 'problem.yml';
-  put(configName, Buffer.from(JSON.stringify(config, null, 2) + '\n'));
+  put(configName, Buffer.from(target === 'HYDRO' ? stringifyYaml(config) : JSON.stringify(config, null, 2) + '\n'));
   report.push({ area: '上传位置', status: 'MAPPED', message: `${target === 'HYDRO' ? 'Hydro' : 'NovaJudge'}：在对应题目的测试数据管理中上传此 ZIP；${configName} 已指定全部${interactive ? '输入和交互器' : '输入、答案和判题工具'}。` });
   return { files, report };
 }
