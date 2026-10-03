@@ -7,7 +7,7 @@ import type { DocumentKind, AdminStyle } from '@problemforge/contracts';
 
 export const POLICY_VERSION = 'pf-content-4';
 export const TEX_PROFILE = 'xelatex-2022-bookworm-v1';
-export const SAMPLE_RENDERER_VERSION = 'pf-samples-2';
+export const SAMPLE_RENDERER_VERSION = 'pf-samples-3';
 export type TemplateFiles = Record<string, string>;
 export async function loadTemplateDirectory(directory: string, prefix = ''): Promise<TemplateFiles> {
   const files: TemplateFiles = {};
@@ -245,7 +245,11 @@ export function render(files: TemplateFiles, kind: DocumentKind, body: string, m
     // rows and leave vertical rules below the bottom border. Suppress only these
     // source newlines; the input/answer files keep their original bytes.
     result['samples.tex'] = '\\Examples\n\\begin{example}%\n' + samples.map(s => `\\exmpfile{${s.inputPath}}{${s.answerPath}}%`).join('\n') + '\n\\end{example}\n';
-    result['content.tex'] += '\n\\input{samples.tex}\n';
+    // Insert bound samples before the closing Note section. Only real top-level
+    // headings count: comments, literal code and macro arguments stay untouched.
+    const note = parse(body).content.find(node => node.type === 'macro' && ['Note', 'Notes'].includes(node.content));
+    const sampleOffset = note?.position?.start.offset ?? body.length;
+    result['content.tex'] = body.slice(0, sampleOffset) + '\n\\input{samples.tex}\n' + body.slice(sampleOffset);
   }
   delete result['preview.tex'];
   return result;

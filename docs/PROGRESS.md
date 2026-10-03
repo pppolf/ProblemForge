@@ -571,3 +571,15 @@ testlib 工具只允许 C++（含 C++23），API、任务快照、题包导入�
 **运行环境与数据边界：**本轮开始时主目录原 `pnpm dev` 的 API、前端、两个 Worker 均在运行。确认无活动 Build/TestRun 后，为加载后端修复短暂重启同一入口；收尾 Vite PID 79908 / API PID 67264，两个 Worker 亦正常启动，健康接口正常。隐藏启动进程及日志记录于 `.local/template-preview-fix/services.json` / `dev.out.log`；后续必须重新核对实际进程，不能沿用旧 PID。保持原 5180/3100、数据库、Redis、私有存储、容器和 .env，没有新增环境。
 
 运行期间观察到用户开发数据继续更新：实测前后均为 7 套模板、22 个 Build、0 题目，现有源码哈希与 Build/产物一致；目标版本在本轮验证操作之外从 editVersion 8 / VALIDATED 变为 editVersion 9 / PUBLISHED，未回退这些变化，不能将快照记为全库指纹不变。本轮没有持久创建夹具、修改源码或提交新 TeX/Judge。新构建从队列到完成的自动切换、网络失败重试和快速切版本的浏览器故障注入未单独实测；已验证的是重复使用真实已有 PDF 与回滚接口边界。无阻塞，未跑全量/E2E、生产构建或部署，完成交接后本地提交，不 push；P7.2/P8 继续暂缓。
+
+## 题面样例排在 Note 提示之前（2026-10-03）
+
+**原因与实现：**用户反馈 Note 在样例之前，要求提示放在最后。读取当前「还差几个座位」题面发现作者已将 `\Note` 放在正文末尾，但平台将绑定的正式数据样例追加在整段正文后，产生“提示 → 样例”。模板引擎现通过已有 LaTeX AST 找到首个顶层 `\Note` / `\Notes`，将受控 samples.tex 插入其前面；没有提示时仍追加到正文末尾。单题、单题册及多题比赛共用此规则，生成顺序为描述 → 输入 → 输出 → 样例 → 提示。原正文切片保留，注释、verbatim / centerverbatim、宏参数和转义文本中的同名内容不会被当成章节。样例内容及文件权限规则不变。
+
+样例渲染版本升级为 `pf-samples-3`，进入既有构建快照和缓存哈希，新构建不会复用旧顺序 PDF；原任务及发布模板版本仍不可变。TEMPLATES 和 USER_GUIDE 同步说明，无模板数据库迁移、源码改写或手动样例复制。
+
+**实际验证：**指定 policy.test.ts / contest.test.ts 的 8 项检查通过，覆盖两套题面模板、Note / Notes、CRLF、单题/题册、多题命名空间、无提示/无绑定样例、注释/字面代码/嵌套参数及现有安全边界。`pnpm check template-engine api tex-worker` 与 `git diff --check` 通过。
+
+经原 5180 代理与原管理员登录，为现有「还差几个座位」文稿 `cmus2d9770002kt5sxpnd8238` 新建一次真实题面构建：Build `cmus43rzb0004ktt830u3i1zi`、Artifact `cmus43tgk0001ktikmx7fpiqb`，使用原 CWNU 挑战赛比赛题面 v2、原稿件 revision `cmus3vfho0033kt5s9muntf8h` 及绑定样例。Linux go-judge 返回 Accepted，CPU 1568ms、222MiB，PDF 51898 字节，cacheSourceId 为 null。新旧 PDF 文本检查确认旧版“提示在样例前”，新版“样例在提示前”；Poppler 渲染完整单页并目视确认样例表格后为提示三段，内容、边框、页眉页脚完整。构建前后文稿、当前修订、模板记录深度比较一致，没有改动原正文、样例绑定或模板版本。验证会话已退出；证据位于 `.local/note-order/` 的 live-result.json、order-check.txt、statement-before/after.pdf、statement-after-1.png。
+
+**环境与收尾：**原 5180 / 3100 及两个 Worker 确认来自主目录，活动 Build/TestRun 均为 0 后重启同一 `pnpm dev`，同步加载 API 与 Worker 的新渲染版本。收尾 Vite PID 40132、API PID 39932，两个 Worker 正常，健康接口正常；启动记录和日志在 `.local/note-order/services.json` / dev.out.log，后续重新核对 PID。沿用原数据库、存储、Redis、容器和端口，无新增实例。仅执行这一个真实 TeX 构建，未跑 Judge、全量/E2E、部署或发布；比赛题册顺序由定向渲染检查覆盖，未新增比赛实测。无阻塞，交接后本地提交，不 push，P7.2/P8 继续暂缓。

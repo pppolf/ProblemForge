@@ -54,7 +54,35 @@ test('sample slots use platform file paths while authors cannot read files', asy
   const files = await loadTemplateDirectory(fileURLToPath(new URL('../../../templates/builtin/statement/', import.meta.url)));
   const result = render(files, 'STATEMENT', '计算 $a+b$。', { title: '样例', author: '作者' }, [], 'single', [{ inputPath: 'samples/sample-1.in', answerPath: 'samples/sample-1.ans' }]);
   assert.match(result['samples.tex'], /\\exmpfile\{samples\/sample-1\.in\}\{samples\/sample-1\.ans\}/);
+  assert.equal(result['content.tex'], '计算 $a+b$。\n\\input{samples.tex}\n');
   assert.throws(() => validateBody('\\exmpfile{secret}{secret}', 'STATEMENT'), ContentPolicyError);
   assert.throws(() => render(files, 'STATEMENT', '', { title: '', author: '' }, [], 'single', [{ inputPath: '../secret', answerPath: 'samples/sample-1.ans' }]));
   assert.throws(() => printableSample(Buffer.from([0, 255])));
+});
+
+test('bound samples precede the closing Note section in single and booklet statements', async () => {
+  const samples = [{ inputPath: 'samples/sample-1.in', answerPath: 'samples/sample-1.ans' }];
+  for (const folder of ['statement', 'statement-compact']) {
+    const files = await loadTemplateDirectory(fileURLToPath(new URL(`../../../templates/builtin/${folder}/`, import.meta.url)));
+    for (const heading of ['Note', 'Notes']) {
+      const beforeNote = '题目描述。\r\n\\InputFile\r\n输入格式。\r\n\\OutputFile\r\n输出格式。\r\n\r\n';
+      const note = `\\${heading}\r\n第一组样例的解释。\r\n\r\n第二组样例的解释。`;
+      const body = beforeNote + note;
+      for (const mode of ['single', 'booklet'] as const) {
+        const result = render(files, 'STATEMENT', body, { title: '样例顺序', author: '' }, [], mode, samples);
+        assert.equal(result['content.tex'], beforeNote + '\n\\input{samples.tex}\n' + note);
+        assert.equal(render(files, 'STATEMENT', body, { title: '', author: '' }, [], mode)['content.tex'], body);
+      }
+    }
+  }
+});
+
+test('sample insertion ignores Note text in comments, literal code and nested arguments', async () => {
+  const files = await loadTemplateDirectory(fileURLToPath(new URL('../../../templates/builtin/statement/', import.meta.url)));
+  const literals = '% \\Note is a comment\n\\begin{verbatim}\n\\Notes\n\\end{verbatim}\n\\begin{centerverbatim}\n\\Note\n\\end{centerverbatim}\n\\texttt{\\Note}\n\\\\Note is escaped text\n';
+  const samples = [{ inputPath: 'samples/sample-1.in', answerPath: 'samples/sample-1.ans' }];
+  for (const note of ['', '\\Note\n真正的提示。']) {
+    const result = render(files, 'STATEMENT', literals + note, { title: '', author: '' }, [], 'single', samples);
+    assert.equal(result['content.tex'], literals + '\n\\input{samples.tex}\n' + note);
+  }
 });

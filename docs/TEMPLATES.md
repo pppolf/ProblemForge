@@ -22,6 +22,8 @@ metadata.schema.json 为不执行代码的声明子集：type: object、addition
 
 题面额外允许原 olymp 的 InputFile、OutputFile、Examples、exmp、Note 等宏及 example 环境。exmp 参数仍作为 TeX 遍历检查，不能借样例读取文件。verbatim / centerverbatim 为字面代码；原模板 listings 启用 escapeinside，故没有将 lstlisting 作为可跳过检查的字面环境开放。
 
+绑定样例由 `pf-samples-3` 在首个正文顶层 `\Note` / `\Notes` 前插入，没有提示章节时追加到正文末尾，使单题及比赛题册均先显示样例、最后显示提示。插入点通过 LaTeX AST 识别，不匹配注释、字面代码或宏参数中的同名文本；作者正文和样例字节不改写。样例渲染版本进入构建快照及缓存哈希，更新顺序后需创建新构建，历史 PDF 保留。
+
 交互题正文使用 `\Description`、`\interactor`、`\InteractionStart`、`\InteractionQuery`、`\InteractionAnswer`、`\InteractionNotes`、`\InteractionExample`，均为不带参数的题面章节命令；仅对 STATEMENT 开放。内置两套题面模板的 `headings.tex` 用原 olymp 的 `\createsection` 定义主章节，子章节使用左对齐的 `\subsection*`，兼容普通 `\section*` 标题。正文不能定义或重定义这些命令。原开发库从 CWNU v3 / 简洁蓝色 v2 开始支持，旧版本不会被原地补写。
 
 两套题面单题入口设置 `\ShortProblemTitle`，只显示题名；比赛入口通过 item.tex 显式输出 `Problem {{CODE}}. {{TITLE}}`，目录使用同样的完整前缀，不依赖 olymp 自动递增题号，因此选定子集或调整顺序仍保留原 CODE。此格式从原库 CWNU v4 / 简洁蓝色 v3 开始。文档题解的 `headings.tex` 将题名及各级章节设为左对齐，同时保留字体、颜色和页边距。原题册封面和 Beamer 模板保持原样。发布版本与历史 PDF 不自动改变，使用者需选择新版并重新构建。
