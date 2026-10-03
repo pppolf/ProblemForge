@@ -53,7 +53,7 @@ test('interactive statement headings stay in template-owned macros without allow
 test('sample slots use platform file paths while authors cannot read files', async () => {
   const files = await loadTemplateDirectory(fileURLToPath(new URL('../../../templates/builtin/statement/', import.meta.url)));
   const result = render(files, 'STATEMENT', '计算 $a+b$。', { title: '样例', author: '作者' }, [], 'single', [{ inputPath: 'samples/sample-1.in', answerPath: 'samples/sample-1.ans' }]);
-  assert.match(result['samples.tex'], /\\exmpfile\{samples\/sample-1\.in\}\{samples\/sample-1\.ans\}/);
+  assert.match(result['samples.tex'], /\\pfsamplepair\{samples\/sample-1\.in\}\{samples\/sample-1\.ans\}/);
   assert.equal(result['content.tex'], '计算 $a+b$。\n\\input{samples.tex}\n');
   assert.throws(() => validateBody('\\exmpfile{secret}{secret}', 'STATEMENT'), ContentPolicyError);
   assert.throws(() => render(files, 'STATEMENT', '', { title: '', author: '' }, [], 'single', [{ inputPath: '../secret', answerPath: 'samples/sample-1.ans' }]));

@@ -22,7 +22,9 @@ metadata.schema.json 为不执行代码的声明子集：type: object、addition
 
 题面额外允许原 olymp 的 InputFile、OutputFile、Examples、exmp、Note 等宏及 example 环境。exmp 参数仍作为 TeX 遍历检查，不能借样例读取文件。verbatim / centerverbatim 为字面代码；原模板 listings 启用 escapeinside，故没有将 lstlisting 作为可跳过检查的字面环境开放。
 
-绑定样例由 `pf-samples-3` 在首个正文顶层 `\Note` / `\Notes` 前插入，没有提示章节时追加到正文末尾，使单题及比赛题册均先显示样例、最后显示提示。插入点通过 LaTeX AST 识别，不匹配注释、字面代码或宏参数中的同名文本；作者正文和样例字节不改写。样例渲染版本进入构建快照及缓存哈希，更新顺序后需创建新构建，历史 PDF 保留。
+绑定样例由 `pf-samples-5` 在首个正文顶层 `\Note` / `\Notes` 前插入，没有提示章节时追加到正文末尾，使单题及比赛题册均先显示样例、最后显示提示。插入点通过 LaTeX AST 识别，不匹配注释、字面代码或宏参数中的同名文本；作者正文和样例字节不改写。样例渲染版本进入构建快照及缓存哈希，更新排版后需创建新构建，历史 PDF 保留。
+
+每组绑定样例在 Linux TeX 编译时按实际等宽字体测量输入、输出各行；任一行超过对应列宽，就改为输入在上、输出在下的单列表格，短样例保留左右排列。两种布局的表格整体居中，数据内容保持左对齐。表格宽度受当前正文宽度约束，上下布局内超过整行的文本继续自动折行，不缩小字号。平台注入受控排版宏，沿用模板的样例宽度、文件名标题和边框；长行使用沙箱已包含的 fvextra，样例仍按字面文件读取，不能执行其中的 TeX。现有已发布模板无需改源码或重新发布。
 
 交互题正文使用 `\Description`、`\interactor`、`\InteractionStart`、`\InteractionQuery`、`\InteractionAnswer`、`\InteractionNotes`、`\InteractionExample`，均为不带参数的题面章节命令；仅对 STATEMENT 开放。内置两套题面模板的 `headings.tex` 用原 olymp 的 `\createsection` 定义主章节，子章节使用左对齐的 `\subsection*`，兼容普通 `\section*` 标题。正文不能定义或重定义这些命令。原开发库从 CWNU v3 / 简洁蓝色 v2 开始支持，旧版本不会被原地补写。
 

@@ -4,10 +4,11 @@ import { parse as parseYaml } from 'yaml';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { DocumentKind, AdminStyle } from '@problemforge/contracts';
+import { SAMPLE_LAYOUT_PREAMBLE, renderSamplePairs } from './samples.ts';
 
 export const POLICY_VERSION = 'pf-content-4';
 export const TEX_PROFILE = 'xelatex-2022-bookworm-v1';
-export const SAMPLE_RENDERER_VERSION = 'pf-samples-3';
+export const SAMPLE_RENDERER_VERSION = 'pf-samples-5';
 export type TemplateFiles = Record<string, string>;
 export async function loadTemplateDirectory(directory: string, prefix = ''): Promise<TemplateFiles> {
   const files: TemplateFiles = {};
@@ -206,6 +207,7 @@ export function renderContest(files:TemplateFiles,kind:DocumentKind,input:Contes
   const fill=(source:string,values:Record<string,string>)=>source.replace(/\{\{([A-Z_]+)\}\}/g,(_,k:string)=>values[k]??context[k]??`{{${k}}}`);
   for(const [name,source]of Object.entries(files))if(/\.(tex|sty|cls|def)$/.test(name)&&!['preview.tex','item.tex'].includes(name))result[name]=fill(source,context);
   result['main.tex']=result['booklet.tex'];
+  if(input.entries.some(entry=>entry.samples.length))result['main.tex']=SAMPLE_LAYOUT_PREAMBLE+result['main.tex'];
   for(const entry of input.entries){
     if(!/^p[1-9][0-9]*$/.test(entry.namespace)||!/^[A-Z][A-Z0-9]{0,7}$/.test(entry.code))throw new Error('不合法的比赛题目命名空间或题号');
     const single=render(files,kind,entry.body,entry.metadata,entry.assetPaths,'single',entry.samples);
@@ -239,12 +241,10 @@ export function render(files: TemplateFiles, kind: DocumentKind, body: string, m
   result['content.tex'] = body;
   if (samples.length) {
     if (kind !== 'STATEMENT' || samples.length > 10 || samples.some(s => !/^samples\/sample-[1-9][0-9]*\.in$/.test(s.inputPath) || !/^samples\/sample-[1-9][0-9]*\.ans$/.test(s.answerPath))) throw new Error('样例文件必须使用平台固定的题面命名空间');
-    // The trusted template supplies exmpfile/verbatiminput. Author body validation
-    // still forbids file-reading macros; bytes never enter an executable TeX slot.
-    // olymp's example uses obeylines: structural newlines would add empty table
-    // rows and leave vertical rules below the bottom border. Suppress only these
-    // source newlines; the input/answer files keep their original bytes.
-    result['samples.tex'] = '\\Examples\n\\begin{example}%\n' + samples.map(s => `\\exmpfile{${s.inputPath}}{${s.answerPath}}%`).join('\n') + '\n\\end{example}\n';
+    // Select the template's side-by-side or stacked table from actual font
+    // measurements at compile time. Raw bytes remain in literal sample files.
+    result['main.tex'] = SAMPLE_LAYOUT_PREAMBLE + result['main.tex'];
+    result['samples.tex'] = renderSamplePairs(samples);
     // Insert bound samples before the closing Note section. Only real top-level
     // headings count: comments, literal code and macro arguments stay untouched.
     const note = parse(body).content.find(node => node.type === 'macro' && ['Note', 'Notes'].includes(node.content));

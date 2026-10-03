@@ -609,3 +609,15 @@ testlib 工具只允许 C++（含 C++23），API、任务快照、题包导入�
 用户在验证之后自行收集本次答案并提交完整验收 `cmus6i3w8000vkt2gnnj41i5f`。浏览器只读确认新验收 SUCCEEDED / 符合预期、四组 AC、#4 正式输入 1,977,573 字节、跳过三份重复生成输入；原答案任务因已收集产生新数据版本而正确显示历史结果，未回退用户更新。浏览器无 error/warn，临时会话退出、标签关闭。证据 `.local/large-test-data/` 包含 api-result.json、live-result.json、before/after.json、max.in、report-after.png、acceptance-after.png 和 browser-result.json。
 
 **环境 / 未验证 / 收尾：**确认活动任务为 0 后，仅重启主目录同一 `pnpm dev`；保持 5180/3100、原数据库/Redis/私有存储/容器/.env。收尾 Vite PID 68044、API PID 53224，两个 Worker 正常启动，根进程 68056 与日志见 `.local/large-test-data/services.json` / dev.out.log；后续重新核对 PID。本轮没有迁移、安装依赖、调整用户判题配置或缩小极限数据。8 MB 的精确文件边界通过 API 事务检查，真实沙箱实测到上述 1.98 MB；未另跑满 8 MB 沙箱、对拍/交互/TeX、全量/E2E、生产构建或部署。无阻塞，差异检查后本地提交，不 push，P7.2/P8 继续暂缓。
+
+## 过宽样例自动上下排列并居中（2026-10-03）
+
+**原因与实现：**「连号免单券」样例一行五个 1000000000 超过左右表格输入列宽，原 verbatim 文本不折行而越过边框。模板引擎新增受控排版宏，在 Linux TeX 编译时按模板实际等宽字体逐行测量输入、输出，任一侧过宽则该组改为输入在上、输出在下；短样例仍左右排列，各组独立判断。按用户后续要求，两种布局的表格整体居中，数据内容仍左对齐。表格宽度受当前正文宽度约束，上下布局通过沙箱已有的 fvextra 折行，支持无空格长串，不缩小字号。测量和输出均按字面文件读取，特殊字符及 TeX 命令不执行。上下表格抑制结构空白，保留原文件名标题、字体和边框。
+
+单题、单题册和多题比赛共用逻辑，样例仍排在 Note / Notes 前。宏随构建注入，不改已发布模板文件。渲染版本最终为 `pf-samples-5`：本轮先验证上下布局的 v4，用户补充居中后再升级，确保新构建不复用刚生成的左对齐 PDF。历史构建保留；TEMPLATES / USER_GUIDE 已同步。
+
+**定向与 PDF 验证：**policy.test.ts / contest.test.ts 的 8 项定向检查及 `pnpm check template-engine api tex-worker` 通过。通过原独立 Linux TeX 沙箱编译默认题面单题和紧凑版比赛题册夹具，覆盖短样例左右、用户实际长输入、仅输出过宽、200 位无空格数字、空输出、字面 `\input{secret.tex}` 和特殊字符；最终均 Accepted、无 Overfull hbox。夹具只有沙箱临时文件，未写业务记录，临时缓存结束后清理。Poppler 渲染并目视检查 PDF 各页，确认居中、折行、边框、页眉页脚和末尾提示正常。PDF、日志及 PNG 留在 Git 忽略的 `.local/sample-layout/`。
+
+经原 5180 API 为现有文稿 `cmus5sbt2001dkti0q5457yvp` 生成上下布局 Build `cmus75zn20003ktcsbbppi00w`，用户补充居中后生成最终 Build `cmus794m90003ktgonb236jqy` / Artifact `cmus7962l0001ktm0szt0h6te`。最终沿用修订 `cmus6j2wf0017kt2g13ltri6y`、CWNU 挑战赛比赛题面 v2 及原样例，Linux 返回 Accepted，CPU 1603 ms、226 MiB，PDF 57435 字节、cacheSourceId 为 null。完整两页检查确认样例上下居中、五个大整数未越界，全部四段提示自然位于第二页。两次构建前后文稿、修订、模板及目录记录深度比较一致，没有改动用户内容。验证登录均已退出，证据 live-result.json、build-after.json、before/after.pdf、after-1/2.png；中途左对齐产物另存 left-aligned.pdf。
+
+**环境 / 未验证 / 收尾：**每次加载修复前核实原开发进程并确认活动 Build/TestRun 均为 0，仅重启主目录同一 `pnpm dev`。收尾 Vite PID 53552、API PID 71880，根进程 43160 与日志在 `.local/sample-layout/services.json` / dev-centered.out.log，后续重新核对 PID。沿用 5180/3100、原库、Redis、存储及容器，没有新增端口、实例、依赖或迁移。未另跑浏览器交互、真实多题比赛记录、Judge、全量/E2E、部署或发布；多题命名空间由定向检查覆盖，题册版式由沙箱夹具覆盖。无阻塞，差异检查后本地提交，不 push，P7.2/P8 继续暂缓。
