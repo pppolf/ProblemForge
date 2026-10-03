@@ -1,7 +1,7 @@
 import { db, Prisma } from '@problemforge/database';
 import { hashObject, sha256 } from '@problemforge/domain';
 import { GO_JUDGE_VERSION } from '@problemforge/judge-adapter';
-import { JUDGE_POLICY, GENERATOR_COMMAND_POLICY, JUDGE_TOOLCHAIN, INTERACTION_POLICY, scoreGroups, scoreExpectation, type ScoreReport, checkExpectation, compareOutput, solutionRoles, type JudgeSnapshot, type ProgramSnapshot, type BlobRef } from '@problemforge/judge-core';
+import { JUDGE_POLICY, GENERATOR_DEDUP_POLICY, JUDGE_TOOLCHAIN, INTERACTION_POLICY, scoreGroups, scoreExpectation, type ScoreReport, checkExpectation, compareOutput, solutionRoles, type JudgeSnapshot, type ProgramSnapshot, type BlobRef } from '@problemforge/judge-core';
 import { defaultJudgeSettings, generatorPlanCommands, type JudgeSettingsValue } from '@problemforge/contracts';
 import { Executor, JudgeFailure, type Captured, type Compiled } from './executor.ts';
 import { stressPipeline } from './stress.ts';
@@ -11,6 +11,7 @@ export type Report = {
   scores: ScoreReport[];
   stress?: { outcome: string; completedIterations: number; counterexamples: number; lastSeed: string | null; iterations: { seed: string; verdict: string; inputHash: string; caseId: string | null; reproduced?: boolean }[] };
   warnings: string[];
+  skippedGeneratedInputs?: { ref: string; number: number; retainedRef: string; retainedNumber: number }[];
   compilations: { programId: string; name: string; version: number; verdict: string; invocationId: string; diagnostic: string }[];
   selfTests: { id: string; name: string; expected: string; actual: string; passed: boolean; invocationId?: string; diagnostic: string }[];
   matrix: MatrixCell[];
@@ -18,7 +19,7 @@ export type Report = {
 };
 export async function pipeline(runId: string, input: JudgeSnapshot, executor: Executor, report: Report) {
   const settings = { ...defaultJudgeSettings, ...input.settings } as JudgeSettingsValue;
-  const policy = input.plans.some(plan => plan.commands !== undefined) ? GENERATOR_COMMAND_POLICY : JUDGE_POLICY;
+  const policy = input.plans.length ? GENERATOR_DEDUP_POLICY : JUDGE_POLICY;
   if (input.policy !== policy || input.toolchain !== JUDGE_TOOLCHAIN || input.sandboxVersion !== GO_JUDGE_VERSION) throw new JudgeFailure('TOOLCHAIN_MISMATCH', '任务策略/工具链已改变，请创建新任务');
   if (settings.interactionMode === 'INTERACTIVE' && input.interactionPolicy !== INTERACTION_POLICY) throw new JudgeFailure('INTERACTION_POLICY_MISMATCH', '交互策略已改变，请创建新任务');
   for (const p of input.programs) if (sha256(p.source) !== p.sourceHash || hashObject({ language: p.profile.language, config: p.profile.config }) !== p.profile.hash) throw new JudgeFailure('SOURCE_HASH_MISMATCH', '源码或编译 profile 快照哈希不匹配');
@@ -30,11 +31,11 @@ export async function pipeline(runId: string, input: JudgeSnapshot, executor: Ex
   const interactor = input.programs.find(p => p.role === 'INTERACTOR' && p.enabled);
   const directInteraction = settings.interactionMode === 'INTERACTIVE' && (settings.interaction?.verdictMode ?? 'DIRECT') === 'DIRECT';
   const solutions = input.programs.filter(p => p.enabled && solutionRoles.has(p.role));
-  let total = input.programs.length + input.tests.length + input.plans.reduce((n, p) => n + p.count + 1, 0);
-  if (['VALIDATE', 'ANSWERS', 'ACCEPTANCE'].includes(input.purpose)) total += casesCount * validators.length;
-  if (['ANSWERS', 'ACCEPTANCE'].includes(input.purpose)) total += casesCount * (1 + (settings.checkerMode === 'CUSTOM' ? 1 : 0));
+  let caseSteps = ['VALIDATE', 'ANSWERS', 'ACCEPTANCE'].includes(input.purpose) ? validators.length : 0;
+  if (['ANSWERS', 'ACCEPTANCE'].includes(input.purpose)) caseSteps += 1 + (settings.checkerMode === 'CUSTOM' ? 1 : 0);
+  if (input.purpose === 'ACCEPTANCE') caseSteps += (solutions.length - 1) * (1 + (settings.checkerMode === 'CUSTOM' ? 1 : 0));
+  let total = input.programs.length + (input.purpose === 'GENERATE' ? 0 : input.tests.length) + input.plans.reduce((n, p) => n + p.count + 1, 0) + casesCount * caseSteps;
   total += input.selfTests.length;
-  if (input.purpose === 'ACCEPTANCE') total += casesCount * (solutions.length - 1) * (1 + (settings.checkerMode === 'CUSTOM' ? 1 : 0));
   if (input.stress) total = input.programs.length + (input.replay ? 1 : input.stress.data.iterations) * (validators.length + 3 + (settings.checkerMode === 'CUSTOM' ? 2 : 0)) + (input.replay?.regenerate ? 1 : 0);
   await executor.progress({ data: { total, stage: '编译固定源码快照' } });
   const persist = async (stage?: string) => {
@@ -42,6 +43,7 @@ export async function pipeline(runId: string, input: JudgeSnapshot, executor: Ex
     await executor.progress({ data: { report: report as unknown as Prisma.InputJsonValue, ...(stage ? { stage } : {}), log: [
       ...report.compilations.map(c => `${c.name} v${c.version}: ${c.verdict}${c.diagnostic ? `\n${c.diagnostic}` : ''}`),
       ...report.warnings.map(w => `提醒：${w}`),
+      ...(report.skippedGeneratedInputs?.length ? [`已跳过 ${report.skippedGeneratedInputs.length} 份重复生成输入，沿用相同输入的已有数据。`] : []),
       ...report.selfTests.map(t => `自测 ${t.name}: ${t.actual} / 预期 ${t.expected}`),
       ...report.expectations.map(e => `${e.name}: ${e.passed ? '符合预期' : '未符合预期'} · ${e.diagnostic}`),
     ].join('\n').slice(0, 200000) } });
@@ -60,14 +62,21 @@ export async function pipeline(runId: string, input: JudgeSnapshot, executor: Ex
   if (input.purpose === 'COMPILE') return { accepted: null };
   if (input.stress) return stressPipeline(runId, input, executor, compiled, report);
   const caseData: { ref: string; id: string; number: number; groupName: string; input: Buffer; suppliedAnswer: Buffer | null; answer?: Buffer; mainRun?: Captured }[] = [];
-  const hashes = new Map<string, string>(), numbers = new Set<number>();
+  const hashes = new Map<string, { number: number; ref: string }>(), numbers = new Set<number>();
   const duplicates = (hash: string, number: number, ref: string) => {
-    if (hashes.has(hash)) report.warnings.push(`重复输入：#${number} 与 ${hashes.get(hash)} 的 SHA-256 相同；均保留`);
-    else hashes.set(hash, `#${number} (${ref})`);
+    const prior = hashes.get(hash);
+    if (prior) report.warnings.push(`重复输入：#${number} 与 #${prior.number} (${prior.ref}) 的 SHA-256 相同；均保留`);
+    else hashes.set(hash, { number, ref });
     if (numbers.has(number)) report.warnings.push(`数据编号 #${number} 重复，矩阵用不可变来源引用区分；收集前需调整编号`);
     numbers.add(number);
   };
   for (const t of input.tests) {
+    // Standalone generation uses saved inputs only as a deduplication index;
+    // it must not offer those existing records for input-only collection again.
+    if (input.purpose === 'GENERATE') {
+      if (!hashes.has(t.input.hash)) hashes.set(t.input.hash, { number: t.number, ref: t.ref });
+      numbers.add(t.number); continue;
+    }
     const groupName = input.groups?.data.groups.find(g=>g.members.some(m=>m.revisionId===t.revisionId))?.id ?? t.groupName;
     const bytes = await executor.blob(t.input), suppliedAnswer = t.answer ? await executor.blob(t.answer) : null;
     const c = await db.runCase.create({ data: { runId, ref: t.ref, number: t.number, groupName, isSample: t.isSample,
@@ -85,13 +94,22 @@ export async function pipeline(runId: string, input: JudgeSnapshot, executor: Ex
       const execution = await executor.generate(generator, argv, seed, ref);
       if (execution.verdict !== 'AC' || !execution.outputRef) throw new JudgeFailure('GENERATOR_FAILED', `${plan.name} seed=${seed}: ${execution.verdict}\n${execution.diagnostic}`);
       const blob = execution.outputRef;
-      const c = await db.runCase.create({ data: { runId, ref, number, groupName: plan.groupName, isSample: plan.isSample, inputKey: blob.key, inputHash: blob.hash, inputBytes: blob.bytes,
-        origin: { type: 'GENERATOR', planId: plan.id, planVersion: plan.version, generatorRevisionId: generator.program.revisionId, profileHash: generator.program.profile.hash, argv, seed, invocationId: execution.id } } });
-      caseData.push({ ref, id: c.id, number, groupName: plan.groupName, input: execution.output!, suppliedAnswer: null }); duplicates(blob.hash, number, ref);
       if (i === 0) {
         const repeated = await executor.generate(generator, argv, seed, ref, true);
         if (repeated.verdict !== 'AC') throw new JudgeFailure('GENERATOR_FAILED', `${plan.name} 重复生成失败：${repeated.verdict}`);
         if (repeated.outputRef?.hash !== blob.hash) report.warnings.push(`生成器 ${plan.name} 在相同 argv / seed=${seed} 下产生不同输入；本任务保留第一次输入，不承诺确定性`);
+      }
+      // Prefer the saved test (including its answer and grouping), then the
+      // first generated copy. Number collisions alone never discard new input.
+      const prior = hashes.get(blob.hash);
+      if (prior) {
+        (report.skippedGeneratedInputs ??= []).push({ ref, number, retainedRef: prior.ref, retainedNumber: prior.number });
+        total -= caseSteps;
+        await executor.progress({ data: { total } });
+      } else {
+        const c = await db.runCase.create({ data: { runId, ref, number, groupName: plan.groupName, isSample: plan.isSample, inputKey: blob.key, inputHash: blob.hash, inputBytes: blob.bytes,
+          origin: { type: 'GENERATOR', planId: plan.id, planVersion: plan.version, generatorRevisionId: generator.program.revisionId, profileHash: generator.program.profile.hash, argv, seed, invocationId: execution.id } } });
+        caseData.push({ ref, id: c.id, number, groupName: plan.groupName, input: execution.output!, suppliedAnswer: null }); duplicates(blob.hash, number, ref);
       }
       await persist(`生成输入 #${number} · seed=${seed}`);
     }

@@ -583,3 +583,15 @@ testlib 工具只允许 C++（含 C++23），API、任务快照、题包导入�
 经原 5180 代理与原管理员登录，为现有「还差几个座位」文稿 `cmus2d9770002kt5sxpnd8238` 新建一次真实题面构建：Build `cmus43rzb0004ktt830u3i1zi`、Artifact `cmus43tgk0001ktikmx7fpiqb`，使用原 CWNU 挑战赛比赛题面 v2、原稿件 revision `cmus3vfho0033kt5s9muntf8h` 及绑定样例。Linux go-judge 返回 Accepted，CPU 1568ms、222MiB，PDF 51898 字节，cacheSourceId 为 null。新旧 PDF 文本检查确认旧版“提示在样例前”，新版“样例在提示前”；Poppler 渲染完整单页并目视确认样例表格后为提示三段，内容、边框、页眉页脚完整。构建前后文稿、当前修订、模板记录深度比较一致，没有改动原正文、样例绑定或模板版本。验证会话已退出；证据位于 `.local/note-order/` 的 live-result.json、order-check.txt、statement-before/after.pdf、statement-after-1.png。
 
 **环境与收尾：**原 5180 / 3100 及两个 Worker 确认来自主目录，活动 Build/TestRun 均为 0 后重启同一 `pnpm dev`，同步加载 API 与 Worker 的新渲染版本。收尾 Vite PID 40132、API PID 39932，两个 Worker 正常，健康接口正常；启动记录和日志在 `.local/note-order/services.json` / dev.out.log，后续重新核对 PID。沿用原数据库、存储、Redis、容器和端口，无新增实例。仅执行这一个真实 TeX 构建，未跑 Judge、全量/E2E、部署或发布；比赛题册顺序由定向渲染检查覆盖，未新增比赛实测。无阻塞，交接后本地提交，不 push，P7.2/P8 继续暂缓。
+
+## 生成计划重复输入自动跳过（2026-10-03）
+
+**原因与实现：**用户在「成对亮灯」先执行生成计划并收集输入，再点击生成答案；启用的计划重新生成 #2～#4，旧 pipeline 将正式输入和生成结果同时保留，出现三组重复输入及三组编号提醒。新 pipeline 按原始输入 SHA-256 跳过新生成的重复项，优先沿用已启用正式数据，再保留本任务首份生成结果。去重适用于 GENERATE / VALIDATE / ANSWERS / ACCEPTANCE，跳过项不创建 RunCase、不重复校验和计算答案，进度扣除相应后续步骤。报告保存跳过/保留来源，页面和日志只汇总一条数量提示。
+
+单独 GENERATE 也固定已启用正式输入作为去重索引，但不将其再次列为可收集的生成结果，全部重复可以正常完成。已有正式数据逐条处理，保留其分组、样例、答案与 TEST 来源，答案仍可按对应记录显式收集；不会自动停用计划、删除数据或收集答案。同编号但不同字节仍保留并提示编号冲突；保留每个计划首组的确定性重复执行及已有答案冲突检查。含计划任务升级为 `problemforge-judge-generated-input-dedup-v1`，防止新旧 Worker 静默改变固定快照语义；历史报告保留，旧任务需按当前版本重新提交。JUDGE 与 USER_GUIDE 已同步。
+
+**实际验证：**`pnpm check judge-core api judge-worker web` 通过。`node --import tsx --test scripts/generator-dedup.test.ts scripts/generator-plans.test.ts` 的 10 项定向检查通过；新增检查以内存替身运行生产 pipeline，覆盖正式输入/计划内/跨计划重复、全部重复、不同换行、编号冲突、已有答案不一致、确定性检查、进度和两种旧策略拒绝，不连接数据库或执行作者代码。`git diff --check` 通过，未扩大默认快查。
+
+经原 5180 代理提交两个真实 Linux Judge 任务：GENERATE `cmus5i5qs0003kti0gkbfuukc` 成功，5/5 步、跳过 3 份、0 新输入；ANSWERS `cmus5i6o20007kti0nedl2pn8` 成功，24/24 步、跳过 3 份、仅 #1～#4 四条 TEST 来源，全部 ACCEPT 且生成答案（14 / 49 / 219 / 3 字节），两任务 warnings 均为空、依赖均有效。浏览器在原 localhost:5180 打开新答案任务，确认一条跳过提示、四条数据和答案下载链接，无 error/warn；验证会话退出、临时标签关闭。没有点击收集、验收或冻结。原题目、四条正式数据及其修订、程序、计划、文稿前后指纹一致。证据为 Git 忽略目录 `.local/generator-dedup/` 的 before/after.json、live-result.json、browser-result.json、report-after.png。
+
+**运行环境 / 未验证：**确认原开发入口无活动任务后，在主目录重启同一 `pnpm dev` 加载 API 与 Worker；沿用原 5180/3100、数据库、Redis、存储、容器和 .env。收尾 Vite PID 72528、API PID 66744，两个 Worker 正常启动；根进程 33424 及日志记于 `.local/generator-dedup/services.json` / dev.out.log，后续重新核对实际进程。未新增端口、实例、测试用户、题目或模板。真实验证限于上述两个任务，完整验收去重由定向 pipeline 检查覆盖，未另跑完整验收/交互/评分/TeX、全量/E2E、部署或发布；固定评分组仍按原规则先收集并停用计划。无阻塞，完成交接后本地提交，不 push，P7.2/P8 继续暂缓。

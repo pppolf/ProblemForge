@@ -2,7 +2,7 @@ import { db, Prisma } from '@problemforge/database';
 import { defaultJudgeSettings, defaultInteractionSettings, generatorPlanCommands, generatorPlanProgramIds, programLanguages, isCppLanguage, type JudgePurpose, type JudgeSettingsValue, type GeneratorPlanSave, type StressConfigValue, type TestGroupsValue } from '@problemforge/contracts';
 import { hashObject, HttpError } from '@problemforge/domain';
 import { GO_JUDGE_VERSION } from '@problemforge/judge-adapter';
-import { JUDGE_POLICY, GENERATOR_COMMAND_POLICY, JUDGE_TOOLCHAIN, INTERACTION_POLICY, groupOrder, GroupError, solutionRoles, testlibRoles, type JudgeSnapshot, type ProgramSnapshot, type CaseSnapshot, type SelfTestSnapshot, type ProfileSnapshot } from '@problemforge/judge-core';
+import { JUDGE_POLICY, GENERATOR_DEDUP_POLICY, JUDGE_TOOLCHAIN, INTERACTION_POLICY, groupOrder, GroupError, solutionRoles, testlibRoles, type JudgeSnapshot, type ProgramSnapshot, type CaseSnapshot, type SelfTestSnapshot, type ProfileSnapshot } from '@problemforge/judge-core';
 
 export async function judgeSnapshot(tx: Prisma.TransactionClient, problemId: string, purpose: JudgePurpose, programId?: string, budgetMs = 300000): Promise<JudgeSnapshot> {
   const problem = await tx.problem.findUniqueOrThrow({ where: { id: problemId } });
@@ -19,7 +19,7 @@ export async function judgeSnapshot(tx: Prisma.TransactionClient, problemId: str
     ? await tx.generatorPlan.findMany({ where: { problemId, enabled: true }, orderBy: { id: 'asc' } }) : [];
   const selfTests = ['SELF_TEST', 'ACCEPTANCE'].includes(purpose)
     ? await tx.toolSelfTest.findMany({ where: { problemId, enabled: true }, orderBy: { id: 'asc' } }) : [];
-  const tests = ['VALIDATE', 'ANSWERS', 'ACCEPTANCE'].includes(purpose)
+  const tests = ['GENERATE', 'VALIDATE', 'ANSWERS', 'ACCEPTANCE'].includes(purpose)
     ? await tx.testCase.findMany({ where: { problemId, enabled: true, deletedAt: null }, include: { currentRevision: true }, orderBy: [{ number: 'asc' }, { id: 'asc' }] }) : [];
   const include = (p: typeof allPrograms[number]) => {
     if (['STRESS', 'REPLAY'].includes(purpose)) return !!stressData && ([stressData.generatorId, stressData.referenceId, stressData.candidateId, stressData.checkerId].includes(p.id) || (p.enabled && (p.role === 'VALIDATOR' || p.role === 'EXTRA_VALIDATOR' && (p.validatorScope !== 'GROUPS' || extraIds.has(p.id)))));
@@ -49,7 +49,7 @@ export async function judgeSnapshot(tx: Prisma.TransactionClient, problemId: str
   if (['ANSWERS', 'ACCEPTANCE', 'STRESS', 'REPLAY'].includes(purpose)) Object.assign(scopedSettings, settings);
   else if (purpose === 'SELF_TEST') Object.assign(scopedSettings, { checkerMode: settings.checkerMode, absoluteTolerance: settings.absoluteTolerance, relativeTolerance: settings.relativeTolerance });
   return {
-    problemId, purpose, ...(programId ? { programId } : {}), budgetMs: stressData?.budgetMs ?? budgetMs, policy: plans.some(plan => (plan.data as GeneratorPlanSave).commands !== undefined) ? GENERATOR_COMMAND_POLICY : JUDGE_POLICY, toolchain: JUDGE_TOOLCHAIN, sandboxVersion: GO_JUDGE_VERSION,
+    problemId, purpose, ...(programId ? { programId } : {}), budgetMs: stressData?.budgetMs ?? budgetMs, policy: plans.length ? GENERATOR_DEDUP_POLICY : JUDGE_POLICY, toolchain: JUDGE_TOOLCHAIN, sandboxVersion: GO_JUDGE_VERSION,
     ...(stress ? { stress: { version: stress.version, hash: stress.hash, data: stressData! } } : {}),
     ...(groupConfig && !stressData ? { groups: { version: groupConfig.version, hash: groupConfig.hash, data: groupData! } } : {}),
     ...(stressGroups ? { stressGroups } : {}),
