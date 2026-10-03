@@ -1,9 +1,9 @@
-import{randomUUID}from'node:crypto';import{Type}from'@sinclair/typebox';
-import{ExportInput,isCppLanguage,type ProblemManifest}from'@problemforge/contracts';import{db,Prisma}from'@problemforge/database';
-import{problemAccess,contestAccess,hashObject,sha256,HttpError,audit}from'@problemforge/domain';
-import{PackageError,readArchive,writeArchive,nativeExporter,polygonExporter,importNative,importPolygon,blobs,validateManifest,type Issue,type ImportResult}from'@problemforge/problem-format';
-import{validateBody}from'@problemforge/template-engine';import{groupOrder}from'@problemforge/judge-core';
-import{authenticate,storage,type Api}from'../app.ts';import{revisionAccess}from'./revisions.ts';import{contestRevision,type FrozenContest}from'./contests.ts';import{restoreManifest}from'./restore-manifest.ts';import{problemSnapshot}from'./revision-snapshot.ts';
+import{randomUUID}from'node:crypto';import{readFile}from'node:fs/promises';import{join}from'node:path';import{Type}from'@sinclair/typebox';
+import{ExportInput,TestDataExportInput,isCppLanguage,type ProblemManifest}from'@problemforge/contracts';import{db,Prisma}from'@problemforge/database';
+import{problemAccess,contestAccess,hashObject,sha256,HttpError,audit,root}from'@problemforge/domain';
+import{PackageError,readArchive,writeArchive,nativeExporter,polygonExporter,exportTestData,importNative,importPolygon,blobs,validateManifest,type Issue,type ImportResult}from'@problemforge/problem-format';
+import{validateBody}from'@problemforge/template-engine';import{groupOrder,TESTLIB_HASH}from'@problemforge/judge-core';
+import{authenticate,storage,type Api}from'../app.ts';import{revisionAccess}from'./revisions.ts';import{contestRevision,type FrozenContest}from'./contests.ts';import{restoreManifest}from'./restore-manifest.ts';import{problemSnapshot,readProblemSnapshot}from'./revision-snapshot.ts';
 const Id=Type.Object({id:Type.String()}),strict={additionalProperties:false};
 const ImportInput=Type.Object({format:Type.Union([Type.Literal('NATIVE'),Type.Literal('POLYGON')]),base64:Type.String({minLength:1,maxLength:32_000_000,pattern:'^[A-Za-z0-9+/]+={0,2}$'}),profileMap:Type.Record(Type.String({maxLength:80}),Type.String({maxLength:80}),{maxProperties:50})},strict);
 const ConfirmInput=Type.Object({reportHash:Type.String({pattern:'^[a-f0-9]{64}$'}),title:Type.String({minLength:1,maxLength:160}),acceptWarnings:Type.Literal(true)},strict);
@@ -42,6 +42,28 @@ async function prepareImport(format:'NATIVE'|'POLYGON',files:Map<string,Buffer>,
  return result;
 }
 export async function packageRoutes(app:Api){
+ app.post('/api/problems/:id/test-data-exports',{preHandler:authenticate,schema:{params:Id,body:TestDataExportInput}},async req=>{
+  await problemAccess(req.user,req.params.id);
+  let manifest:ProblemManifest,acceptanceRunId:string|null,revisionId:string,source:string;
+  if(req.body.revisionId){
+   const r=await revisionAccess(req.user,req.body.revisionId);
+   if(r.problemId!==req.params.id)throw new HttpError(404,'本题修订不存在');
+   if(hashObject(r.manifest)!==r.hash)throw new HttpError(409,'修订清单校验失败');
+   manifest=r.manifest as unknown as ProblemManifest;acceptanceRunId=r.acceptanceRunId;revisionId=r.id;source=`固定修订 #${r.number}（${r.hash}）`;
+  }else{
+   const snapshot=await readProblemSnapshot(req.params.id);
+   manifest=snapshot.manifest;acceptanceRunId=snapshot.acceptanceRunId;revisionId=`WORKING:${snapshot.hash}`;source=`当前已保存工作副本（${snapshot.hash}）`;
+  }
+  const prepared=await exportManifest(manifest,'DATA',req.body.target,acceptanceRunId);
+  const testlib=await readFile(join(root,'vendor/testlib/testlib.h'));
+  if(sha256(testlib)!==TESTLIB_HASH)throw new HttpError(503,'testlib 头文件校验失败，无法导出');
+  const result=await exportTestData(prepared.manifest,req.body.target,key=>storage.get(key),{testlib,license:await readFile(join(root,'vendor/testlib/LICENSE'))});
+  const report:Issue[]=[{area:'数据来源',status:'MAPPED',message:`${source}。导出时已固定内容，不要求冻结，也不会执行生成器或改写工作数据。`},...prepared.report,...result.report];
+  const bytes=await writeArchive(result.files),key=`exports/${randomUUID()}`;
+  await storage.put(key,bytes);
+  const row=await db.exportArtifact.create({data:{problemId:req.params.id,revisionId,requestedById:req.user.id,purpose:'DATA',format:`${req.body.target}_DATA`,key,hash:sha256(bytes),bytes:bytes.length,report:report as unknown as Prisma.InputJsonValue}});
+  await audit(req.user.id,'EXPORT_TEST_DATA',row.id,{target:req.body.target,revisionId});return exportView(row);
+ });
  app.get('/api/imports',{preHandler:authenticate},async req=>(await db.exportArtifact.findMany({where:{requestedById:req.user.id,purpose:'QUARANTINE'},orderBy:{createdAt:'desc'},take:50})).map(receiptView));
  app.get('/api/imports/:id',{preHandler:authenticate,schema:{params:Id}},async req=>{const record=await db.exportArtifact.findUnique({where:{id:req.params.id}});if(!record||record.purpose!=='QUARANTINE'||record.requestedById!==req.user.id)throw new HttpError(404,'导入记录不存在');return receiptView(record);});
  for(const scope of ['problems','contests']as const){const contest=scope==='contests';

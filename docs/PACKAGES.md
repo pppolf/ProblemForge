@@ -47,6 +47,25 @@ DATA 及 Polygon FULL 可补入该冻结修订所绑定成功验收的输入/答
 
 实际验证包括自建 Polygon 样包的导入、Linux 真实程序验收和 Validator 自测、分组依赖、生成计划 argv/seed、样式隔离、导出 XML 解析。原生 FULL 的内部往返成功不代表外部 Polygon 导入成功；本阶段没有外部上传或兼容认证。
 
+## Hydro / NovaJudge 测试数据 ZIP
+
+题目「题包与发布」提供独立「测试数据 ZIP」入口。`POST /api/problems/:id/test-data-exports` 接收 `target: HYDRO | NOVAJUDGE`，可选 `revisionId`；省略时以 RepeatableRead 固定当前已保存工作副本，报告记录快照哈希。无需冻结或验收，已有匹配成功验收时可补入其固定生成输入/答案；导出不执行作者程序，不修改题目或自动保存修订。未保存的页面编辑应先保存，固定修订则始终导出该版本。下载继续逐次检查当前题目权限，不能通过公开发布接口发布这些测试数据包。
+
+ZIP 根目录直接放 `1.in` / `1.ans` 等原编号文件；只包含启用正式数据（含启用样例），不包含停用数据、历史样例、题面、题解、参考解、生成器或 Validator。逐文件核验原字节、大小和 SHA-256。普通题缺答案、编号冲突、缺少/同时启用多个所需工具时拒绝生成；交互题无答案时配空 `.ans` 并提示。
+
+| 目标 | 配置与上传 |
+| --- | --- |
+| Hydro | 根目录 `config.yaml`，明确 cases、time、memory；普通题 `checker_type: testlib`，交互题 `type: interactive`。工具文件明确使用 `cc` 语言配置，用户自定义工具需核对目标站 C++ 标准 |
+| NovaJudge | 根目录 `problem.yml`，明确 cases、`type: spj` / `interactive` 及工具文件名。上传入口为目标题目的测试数据管理；上传数据不会更新题目时空限制，报告给出需填写的毫秒和 MiB |
+
+配置使用 YAML 兼容的 JSON 写法，避免名称被解释成 YAML 语法。EXACT / TOKENS / FLOAT 自动生成 C++11 可编译、testlib 返回协议兼容的 `checker.cpp`，维持原始字节、六种 ASCII 空白、尾随 token、有限数值与误差规则；因此 NovaJudge 中普通比较也使用 SPJ。自定义 Checker / Interactor 保留当前版本源码，随包附固定 `testlib.h` 与原 MIT 许可证；两站可能使用自带 testlib，目标编译配置及头文件版本仍需核对。
+
+分组权重/依赖评分、文件 I/O、交互结束后再 Checker 的流程尚不自动转换，报告标记 `BLOCKED`，包可下载用于人工调整；不声称可以直接投入判题。NovaJudge 当前只向 Interactor 传 input/output 两个路径，不传参考答案，读取 `ans` / `argv[3]` 的交互器需修改。独立交互限制和输出限制无法完全随配置还原，报告明确提示；NovaJudge 对非法 UTF-8 数据的转换标记阻塞，ZIP 本身保留原始字节。
+
+格式依据公开官方源码核对：Hydro [`ProblemConfig`](https://github.com/hydro-dev/Hydro/blob/b1e7989894677765fe0c6f01ca2b62ca1f3e5967/packages/common/types.ts) 与 [判题工具编译](https://github.com/hydro-dev/Hydro/blob/b1e7989894677765fe0c6f01ca2b62ca1f3e5967/packages/hydrojudge/src/task.ts)；NovaJudge [配置归一化](https://github.com/CWNU-Open-Source-Community/NovaJudge/blob/95a461f1774a951538c080d37bd5a61a74206c93/lib/problem-judge-config.ts)、[测试数据上传](https://github.com/CWNU-Open-Source-Community/NovaJudge/blob/95a461f1774a951538c080d37bd5a61a74206c93/app/admin/problems/%5Bid%5D/data/actions.ts) 与 [判题流程](https://github.com/CWNU-Open-Source-Community/NovaJudge/blob/95a461f1774a951538c080d37bd5a61a74206c93/lib/judge.ts)。没有访问、部署或上传到用户现有 OJ；格式检查与独立沙箱判定对照不等于外部站点上线验收。
+
+定向检查：`node --import tsx --test scripts/test-data-export.test.ts`；真实 API / 原库必定回滚与原 Linux 沙箱比较器对照：`node --import tsx scripts/verify-test-data-export.ts --rollback --sandbox`。默认轻量快查不变。
+
 ## 安全与大小限制
 
 ZIP 压缩内容最多 24MB，解压总计 64MB、单项 8MB、成员 1500、压缩比最多 2000。逐流读取且检查实际解压字节，拒绝加密、链接、设备节点、重复路径/大小写别名、绝对路径、盘符、父目录、Windows 保留名和非 ASCII 路径。解析不将归档路径解压到宿主机目录。
