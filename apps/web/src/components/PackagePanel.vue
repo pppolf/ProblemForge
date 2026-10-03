@@ -36,7 +36,7 @@ async function revoke(id: string) { await act(async () => { await api(`/releases
 <template>
   <div class="p4-editor">
     <section v-if="scope === 'problems'" class="test-data-export">
-      <div><h3>测试数据 ZIP</h3><p>直接上传到 OJ 的数据包：*.in、*.ans 和所需 Checker / Interactor。</p></div>
+      <div><h3>测试数据 ZIP</h3><p>普通题导出 *.in、*.ans；交互题仅导出 *.in。随包附所需 Checker / Interactor，Hydro 使用 .cc 源码。</p></div>
       <div class="p4-toolbar">
         <NSelect v-model:value="dataTarget" :options="targets" aria-label="测试数据目标平台" :disabled="busy" />
         <NSelect v-model:value="dataSource" :options="dataOptions" aria-label="测试数据来源" :disabled="busy" />

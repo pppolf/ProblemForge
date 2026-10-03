@@ -19,27 +19,32 @@ test('flat ZIP preserves large/binary bytes, sample, numbers and omits private m
   m.programs = [program('MAIN_SOLUTION'), program('GENERATOR'), program('VALIDATOR')];
   const before = structuredClone(m), result = await exportTestData(m, 'HYDRO', read, support);
   const files = await readArchive(await writeArchive(result.files));
-  assert.deepEqual([...files.keys()], ['1.in', '1.ans', '2.in', '2.ans', 'checker.cpp', 'config.yaml']);
+  assert.deepEqual([...files.keys()], ['1.in', '1.ans', '2.in', '2.ans', 'checker.cc', 'config.yaml']);
   assert.deepEqual(files.get('2.in'), await read(m.tests[0].input.key));
   assert.deepEqual(files.get('1.ans'), await read(m.tests[1].answer!.key));
   assert.deepEqual(m, before);
   const config = JSON.parse(files.get('config.yaml')!.toString());
   assert.equal(config.type, 'default'); assert.equal(config.time, '1000ms'); assert.equal(config.memory, '256m');
-  assert.deepEqual(config.checker, { file: 'checker.cpp', lang: 'cc' });
+  assert.deepEqual(config.checker, { file: 'checker.cc', lang: 'cc' });
   assert.deepEqual(config.cases, [{ input: '1.in', output: '1.ans' }, { input: '2.in', output: '2.ans' }]);
   assert(!result.report.some(i => i.status === 'BLOCKED'));
 });
 
-test('NovaJudge explicitly selects SPJ and preserves custom checker with dependencies', async () => {
+test('target-specific checker names preserve custom sources and dependencies', async () => {
   const { m, read } = fixture(); m.judgeSettings.checkerMode = 'CUSTOM';
   m.programs = [program('CHECKER'), program('MAIN_SOLUTION'), program('INTERACTOR')];
-  const { files, report } = await exportTestData(m, 'NOVAJUDGE', read, support);
-  assert.equal(files.get('checker.cpp')!.toString(), m.programs[0].source);
-  assert.equal(files.get('testlib.h'), support.testlib); assert.equal(files.get('testlib.LICENSE'), support.license);
-  assert(!files.has('interactor.cpp'));
-  const config = JSON.parse(files.get('problem.yml')!.toString());
-  assert.equal(config.type, 'spj'); assert.equal(config.checker, 'checker.cpp'); assert.equal(config.cases.length, 2);
-  assert(report.some(r => r.area === '时间与内存' && r.status === 'WARNING'));
+  for (const target of ['HYDRO', 'NOVAJUDGE'] as const) {
+    const { files, report } = await exportTestData(m, target, read, support);
+    const name = target === 'HYDRO' ? 'checker.cc' : 'checker.cpp';
+    assert.equal(files.get(name)!.toString(), m.programs[0].source);
+    assert.equal(files.get('testlib.h'), support.testlib); assert.equal(files.get('testlib.LICENSE'), support.license);
+    assert(!files.has('interactor.cpp')); assert(!files.has('interactor.cc'));
+    assert(!files.has(target === 'HYDRO' ? 'checker.cpp' : 'checker.cc'));
+    const config = JSON.parse(files.get(target === 'HYDRO' ? 'config.yaml' : 'problem.yml')!.toString());
+    assert.deepEqual(config.checker, target === 'HYDRO' ? { file: name, lang: 'cc' } : name);
+    assert.equal(config.cases.length, 2);
+    if (target === 'NOVAJUDGE') { assert.equal(config.type, 'spj'); assert(report.some(r => r.area === '时间与内存' && r.status === 'WARNING')); }
+  }
 });
 
 test('empty, missing answer, duplicate number, corrupt blobs/tools reject before archive', async () => {
@@ -53,21 +58,30 @@ test('empty, missing answer, duplicate number, corrupt blobs/tools reject before
   m.tests = []; await assert.rejects(exportNow, /没有可导出/);
 });
 
-test('interaction packages the active interactor and reports target protocol limitations', async () => {
+test('interaction packages only inputs and the target-named interactor, never reads saved answers', async () => {
   const { m, read } = fixture(); m.judgeSettings.interactionMode = 'INTERACTIVE';
   m.judgeSettings.interaction = { ...defaultInteractionSettings }; m.programs = [program('INTERACTOR')]; m.tests[0].answer = null;
+  m.tests[2].enabled = true;
+  m.tests[2].answer = { key: 'unread-answer', hash: '0'.repeat(64), bytes: 1 };
+  const before = structuredClone(m);
   for (const target of ['HYDRO', 'NOVAJUDGE'] as const) {
     const { files, report } = await exportTestData(m, target, read, support);
-    assert.equal(files.get('interactor.cpp')!.toString(), m.programs[0].source);
-    assert.equal(files.get('2.ans')!.length, 0); assert(!files.has('checker.cpp'));
-    assert(!files.has('1.in')); assert(!files.has('1.ans'));
+    const name = target === 'HYDRO' ? 'interactor.cc' : 'interactor.cpp';
+    assert.equal(files.get(name)!.toString(), m.programs[0].source);
+    assert(![...files.keys()].some(p => p.endsWith('.ans')));
+    assert(!files.has('checker.cpp')); assert(!files.has('checker.cc')); assert(!files.has('1.in'));
+    assert(!files.has(target === 'HYDRO' ? 'interactor.cpp' : 'interactor.cc'));
     const config = JSON.parse(files.get(target === 'HYDRO' ? 'config.yaml' : 'problem.yml')!.toString());
-    assert.equal(config.type, 'interactive'); assert(report.some(r => r.area === '交互答案'));
+    assert.equal(config.type, 'interactive'); assert(!report.some(r => r.area === '交互答案'));
+    assert.deepEqual(config.interactor, target === 'HYDRO' ? { file: name, lang: 'cc' } : name);
+    assert.deepEqual(config.cases, [{ input: '2.in' }, { input: '3.in' }]);
     if (target === 'NOVAJUDGE') assert(report.some(r => r.area === '交互协议'));
+    assert.deepEqual(m, before);
   }
   m.judgeSettings.interaction.verdictMode = 'CHECKER';
   const result = await exportTestData(m, 'HYDRO', read, support);
-  assert(result.files.has('checker.cpp')); assert(result.report.some(r => r.area === '交互判定' && r.status === 'BLOCKED'));
+  assert(result.files.has('checker.cc')); assert(![...result.files.keys()].some(p => p.endsWith('.ans')));
+  assert(result.report.some(r => r.area === '交互判定' && r.status === 'BLOCKED'));
 });
 
 test('interactive examples stay in statements and native backups, never in judging archives', async () => {

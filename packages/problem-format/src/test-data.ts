@@ -83,6 +83,8 @@ export async function exportTestData(
   const files = new Map<string, Buffer>(), report: Issue[] = [], settings = manifest.judgeSettings;
   const tests = manifest.tests.filter(t => isJudgingData(settings, t)).sort((a, b) => a.number - b.number);
   const interactive = settings.interactionMode === 'INTERACTIVE';
+  const extension = target === 'HYDRO' ? 'cc' : 'cpp';
+  const checkerName = `checker.${extension}`, interactorName = `interactor.${extension}`;
   if (!tests.length) throw new PackageError(interactive ? '交互样例仅用于题面展示；请先添加或收集启用的非样例测试数据' : '没有可导出的启用测试数据，请先生成并收集输入');
   if (tests.some(t => !Number.isInteger(t.number) || t.number < 1 || t.number > 100000)) throw new PackageError('测试数据编号无效');
   if (new Set(tests.map(t => t.number)).size !== tests.length) throw new PackageError('测试数据编号重复，请先调整编号，避免覆盖文件');
@@ -104,10 +106,9 @@ export async function exportTestData(
   };
   for (const t of tests) {
     put(`${t.number}.in`, await checked(t.input));
-    put(`${t.number}.ans`, t.answer ? await checked(t.answer) : Buffer.alloc(0));
+    if (!interactive) put(`${t.number}.ans`, await checked(t.answer!));
   }
-  report.push({ area: '测试数据', status: 'MAPPED', message: `${tests.length} 组启用数据按原编号放在 ZIP 根目录（*.in / *.ans），保留原始字节；${interactive ? '交互样例仅用于题面展示，已排除' : '包含启用样例'}，不含停用数据、题面、题解和参考解。` });
-  if (missing.length) report.push({ area: '交互答案', status: 'WARNING', message: `交互数据 #${missing.map(t => t.number).join('、#')} 未保存参考答案，已配空 .ans；交互器应自行给出判定。` });
+  report.push({ area: '测试数据', status: 'MAPPED', message: `${tests.length} 组启用数据按原编号放在 ZIP 根目录（${interactive ? '仅 *.in，不导出 .ans' : '*.in / *.ans'}），保留原始字节；${interactive ? '交互样例仅用于题面展示，已排除' : '包含启用样例'}，不含停用数据、题面、题解和参考解。` });
   if (nonUtf8) report.push({ area: '数据编码', status: 'BLOCKED', message: '本题含非法 UTF-8 字节。ZIP 已保留原字节，但 NovaJudge 当前按 UTF-8 读取数据，请先调整数据编码或目标判题器。' });
 
   let usesTestlib = false;
@@ -122,31 +123,31 @@ export async function exportTestData(
     if (target === 'HYDRO') report.push({ area: '工具编译', status: 'WARNING', message: `${name} 使用 Hydro 的 cc 编译配置；上传后请确认该配置支持 ${p.profile.language.replace('CPP', 'C++')}，自定义编译参数需在目标站设置。` });
   };
   if (!interactive || settings.interaction?.verdictMode === 'CHECKER') {
-    if (settings.checkerMode === 'CUSTOM') tool('CHECKER', 'checker.cpp');
+    if (settings.checkerMode === 'CUSTOM') tool('CHECKER', checkerName);
     else {
-      put('checker.cpp', Buffer.from(comparisonChecker(settings)));
+      put(checkerName, Buffer.from(comparisonChecker(settings)));
       report.push({ area: '答案比较', status: 'MAPPED', message: `已生成 ${settings.checkerMode} 比较器，保留当前空白、末尾内容及浮点误差规则。` });
     }
   }
   if (interactive) {
-    tool('INTERACTOR', 'interactor.cpp');
+    tool('INTERACTOR', interactorName);
     if (settings.interaction?.verdictMode === 'CHECKER') report.push({ area: '交互判定', status: 'BLOCKED', message: '当前题目要求交互结束后再运行 Checker；这两个目标格式的交互流程不能自动映射此行为，需先合并判定逻辑到 Interactor。源码均已打包供调整。' });
     if (target === 'NOVAJUDGE') report.push({ area: '交互协议', status: 'WARNING', message: 'NovaJudge 仅向交互器传入 input 和 output 路径，不传参考答案；若交互器读取 ans / argv[3]，须调整后再上传。' });
     report.push({ area: '交互限制', status: 'WARNING', message: '交互器的独立时间、内存、空闲和转录上限需在目标判题环境核对，不能通过此数据包完全还原。' });
   }
   if (usesTestlib) { put('testlib.h', support.testlib); put('testlib.LICENSE', support.license); }
-  const cases = tests.map(t => ({ input: `${t.number}.in`, output: `${t.number}.ans` }));
+  const cases = tests.map(t => ({ input: `${t.number}.in`, ...(!interactive ? { output: `${t.number}.ans` } : {}) }));
   // JSON is a strict subset of YAML, accepted by both official YAML readers.
   // Using its serializer also prevents filenames or labels becoming YAML syntax.
   const config: Record<string, unknown> = target === 'HYDRO'
-    ? { type: interactive ? 'interactive' : 'default', time: `${settings.timeLimitMs}ms`, memory: `${settings.memoryLimitMb}m`, ...(interactive ? { interactor: { file: 'interactor.cpp', lang: 'cc' } } : { checker_type: 'testlib', checker: { file: 'checker.cpp', lang: 'cc' } }), cases }
-    : { type: interactive ? 'interactive' : 'spj', ...(interactive ? { interactor: 'interactor.cpp' } : { checker: 'checker.cpp' }), cases };
+    ? { type: interactive ? 'interactive' : 'default', time: `${settings.timeLimitMs}ms`, memory: `${settings.memoryLimitMb}m`, ...(interactive ? { interactor: { file: interactorName, lang: 'cc' } } : { checker_type: 'testlib', checker: { file: checkerName, lang: 'cc' } }), cases }
+    : { type: interactive ? 'interactive' : 'spj', ...(interactive ? { interactor: interactorName } : { checker: checkerName }), cases };
   if (settings.ioMode === 'FILES') report.push({ area: '文件输入输出', status: 'BLOCKED', message: `当前使用 ${settings.inputFile} / ${settings.outputFile}；此导出只自动配置标准输入输出，需先调整目标题目的文件 I/O 设置。` });
   if (settings.scoringMode === 'PARTIAL') report.push({ area: '分组评分', status: 'BLOCKED', message: '当前题目采用分组、权重或依赖评分，不能直接作为普通逐点测试上传；需在目标站配置对应评分规则。此包保留全部数据和工具。' });
   report.push({ area: '输出限制', status: 'WARNING', message: `原输出上限为 ${settings.outputLimitBytes.toLocaleString('zh-CN')} 字节，上传后请在目标判题环境核对。` });
   if (target === 'NOVAJUDGE') report.push({ area: '时间与内存', status: 'WARNING', message: `NovaJudge 上传测试数据不会更新题目时空限制，请在题目设置中填写 ${settings.timeLimitMs} ms / ${settings.memoryLimitMb} MiB。` });
   const configName = target === 'HYDRO' ? 'config.yaml' : 'problem.yml';
   put(configName, Buffer.from(JSON.stringify(config, null, 2) + '\n'));
-  report.push({ area: '上传位置', status: 'MAPPED', message: `${target === 'HYDRO' ? 'Hydro' : 'NovaJudge'}：在对应题目的测试数据管理中上传此 ZIP；${configName} 已指定全部输入、答案和判题工具。` });
+  report.push({ area: '上传位置', status: 'MAPPED', message: `${target === 'HYDRO' ? 'Hydro' : 'NovaJudge'}：在对应题目的测试数据管理中上传此 ZIP；${configName} 已指定全部${interactive ? '输入和交互器' : '输入、答案和判题工具'}。` });
   return { files, report };
 }

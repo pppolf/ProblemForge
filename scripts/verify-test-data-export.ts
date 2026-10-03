@@ -57,7 +57,10 @@ try {
         assert.equal(sha256(download.rawPayload), artifact.hash);
         const files = await readArchive(download.rawPayload);
         assert.deepEqual(files.get('7.in'), Buffer.from('1 2\r\n')); assert.deepEqual(files.get('7.ans'), Buffer.from('3\r\n'));
-        assert(files.has(target === 'HYDRO' ? 'config.yaml' : 'problem.yml'));
+        const configName = target === 'HYDRO' ? 'config.yaml' : 'problem.yml', checkerName = target === 'HYDRO' ? 'checker.cc' : 'checker.cpp';
+        const config = JSON.parse(files.get(configName)!.toString());
+        assert(files.has(checkerName)); assert(!files.has(target === 'HYDRO' ? 'checker.cpp' : 'checker.cc'));
+        assert.deepEqual(config.checker, target === 'HYDRO' ? { file: checkerName, lang: 'cc' } : checkerName);
         await call('GET', `/exports/${artifact.id}/file`, undefined, 404, outsideToken);
         await call('POST', `/problems/${problemId}/releases`, { exportId: artifact.id }, 404);
       }
@@ -73,10 +76,29 @@ try {
       assert.deepEqual((await readArchive((await call('GET', `/exports/${artifactIds[0]}/file`)).rawPayload)).get('7.ans'), Buffer.from('3\r\n'));
       const other = await tx.problem.create({ data: { title: 'Other rollback problem', members: { create: { userId, role: 'OWNER' } } } });
       await call('POST', `/problems/${other.id}/test-data-exports`, { target: 'HYDRO', revisionId: revision.id }, 404);
+      await call('PUT', `/problems/${problemId}/judge-settings`, { expectedVersion: 1, settings: { ...defaultJudgeSettings, interactionMode: 'INTERACTIVE' } });
+      const profile = await tx.compileProfile.findFirstOrThrow({ where: { language: 'CPP17', enabled: true } });
+      await call('POST', `/problems/${problemId}/programs`, { name: 'Interactor export fixture', role: 'INTERACTOR', source: '// Export-only fixture; never executed.\n', profileId: profile.id, enabled: true, expectedVerdicts: ['AC'], notes: '' });
+      await call('POST', `/problems/${problemId}/tests`, { ...body, number: 8, isSample: false });
+      const interactive = await problemSnapshot(tx, problemId);
+      const interactiveRevision = await tx.problemRevision.create({ data: { problemId, number: 2, label: 'Interactive export', ...interactive, manifest: interactive.manifest as unknown as Prisma.InputJsonValue, createdById: userId } });
+      for (const target of ['HYDRO', 'NOVAJUDGE']) for (const revisionId of [undefined, interactiveRevision.id]) {
+        const artifact = (await call('POST', url, { target, ...(revisionId ? { revisionId } : {}) })).json();
+        const files = await readArchive((await call('GET', `/exports/${artifact.id}/file`)).rawPayload);
+        const configName = target === 'HYDRO' ? 'config.yaml' : 'problem.yml', interactorName = target === 'HYDRO' ? 'interactor.cc' : 'interactor.cpp';
+        assert.deepEqual([...files.keys()].sort(), ['8.in', interactorName, 'testlib.h', 'testlib.LICENSE', configName].sort());
+        assert.deepEqual(files.get('8.in'), Buffer.from('1 2\r\n'));
+        const config = JSON.parse(files.get(configName)!.toString());
+        assert.equal(config.type, 'interactive'); assert.deepEqual(config.cases, [{ input: '8.in' }]);
+        assert.deepEqual(config.interactor, target === 'HYDRO' ? { file: interactorName, lang: 'cc' } : interactorName);
+        evidence.push({ target, source: revisionId ? 'fixed' : 'working', entries: [...files.keys()] });
+      }
+      assert.deepEqual((await problemSnapshot(tx, problemId)).manifest, interactive.manifest);
+      assert.equal(await tx.testRun.count({ where: { problemId } }), 0);
       await tx.problemMember.deleteMany({ where: { problemId, userId } });
       await call('GET', `/exports/${artifactIds[0]}/file`, undefined, 404);
       await call('POST', url, { target: 'HYDRO' }, 404);
-      evidence.push({ api: 'passed', platforms: ['Hydro', 'NovaJudge'], checks: ['working data without revisions or acceptance', 'draft revision export', 'byte hashes', 'immutable downloads after answer change', 'missing answer', 'schema/CSRF/cross-problem/outsider/revoked membership', 'no publication', 'no source data mutation or queued jobs'] });
+      evidence.push({ api: 'passed', platforms: ['Hydro', 'NovaJudge'], checks: ['working data without revisions or acceptance', 'draft revision export', 'byte hashes', 'immutable downloads after answer change', 'missing batch answer', 'interactive input-only exports even with saved answers', 'target-specific tool extensions and config references', 'schema/CSRF/cross-problem/outsider/revoked membership', 'no publication', 'no source data mutation or queued jobs'] });
       throw rollback;
     } finally { for (const item of saved.reverse()) item.object[item.method] = item.original; }
   }, { timeout: 45000 }).catch(error => { if (error !== rollback) throw error; });

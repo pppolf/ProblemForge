@@ -88,7 +88,13 @@ try {
         const artifact = (await call('POST', `/problems/${problemId}/test-data-exports`, { target, revisionId: revision.id })).json();
         const files = await readArchive((await call('GET', `/exports/${artifact.id}/file`)).rawPayload);
         assert.deepEqual([...files.keys()].filter(p => p.endsWith('.in')), ['2.in']);
-        assert(files.has('2.ans')); assert(files.has('interactor.cpp')); assert(!files.has('1.in')); assert(!files.has('99.in'));
+        assert(![...files.keys()].some(p => p.endsWith('.ans')));
+        const interactorName = target === 'HYDRO' ? 'interactor.cc' : 'interactor.cpp';
+        assert(files.has(interactorName)); assert(!files.has(target === 'HYDRO' ? 'interactor.cpp' : 'interactor.cc'));
+        const config = JSON.parse(files.get(target === 'HYDRO' ? 'config.yaml' : 'problem.yml')!.toString());
+        assert.deepEqual(config.interactor, target === 'HYDRO' ? { file: interactorName, lang: 'cc' } : interactorName);
+        assert.deepEqual(config.cases, [{ input: '2.in' }]);
+        assert(!files.has('1.in')); assert(!files.has('99.in'));
         evidence.push({ target, entries: [...files.keys()], legacySampleExcluded: true });
       }
       const artifact = (await call('POST', `/problems/${problemId}/exports`, { revisionId: revision.id, purpose: 'FULL', format: 'NATIVE' })).json();

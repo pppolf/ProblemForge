@@ -650,3 +650,13 @@ Hydro / NovaJudge 测试数据 ZIP、原生 DATA 与 Polygon FULL 判题测试�
 **运行环境：**排查时原库没有已保存为 INTERACTIVE 的题目，活动 Build/TestRun 为 0；没有擅自更改用户题型、取消任务或重跑历史验收。为加载修复，在再次确认无活动任务并核对原进程树后重启主目录原 `pnpm dev`，仍用 5180/3100、原数据库/Redis/私有存储及 Linux 沙箱，无迁移、依赖、端口或实例变更。收尾根进程 68592，Vite 65112、API 81256、两个 Worker 59696 / 70152；监听及两个 Worker 均属于该进程树，没有额外 Worker。原 5180 首页返回 200，代理健康接口为 ok。记录 `.local/interactive-samples/services.json`、services-verified.json 及 dev.out/err.log；后续须重新核对 PID。
 
 **未验证与收尾：**本轮未创建持久测试数据，未执行浏览器实际交互操作或现有题目的在线完整验收；UI 完成类型检查，交互流程使用上述真实 API / Linux 回滚夹具验证。未运行 TeX、全量/E2E、外部 OJ 上传或判题、部署或公网发布；现有 Polygon 交互兼容边界不变。无环境阻塞。JUDGE、PACKAGES、USER_GUIDE 和本交接已同步，差异检查后本地 Git 提交，不 push，P7.2/P8 继续暂缓。
+
+## 交互数据 ZIP 仅输入与 Hydro 工具 .cc 文件名（2026-10-03）
+
+**用户要求与实现：**用户要求交互题不再导出答案文件，Hydro 工具源码使用 `.cc`。独立 Hydro / NovaJudge 测试数据 ZIP 现仅打包交互题的非样例 `*.in`，即使保存过答案也不读取、不导出，不再补空 `.ans`；cases 仅列 input，去除不存在的答案文件引用与缺答案警告。普通题仍导出 `.in` / `.ans` 并要求答案完整。Hydro 内置比较器、自定义 Checker 和 Interactor 统一命名为 `checker.cc` / `interactor.cc`，配置引用复用同一文件名；NovaJudge 保留 `.cpp`。工具原始源码、testlib/许可证及原平台限制报告保留，原生完整备份与题面展示不变。页面导出说明和 PACKAGES / USER_GUIDE 已同步；历史 ZIP 不重写，用户需重新生成导出。
+
+**实际检查：**`pnpm check problem-format api web` 通过。`node --import tsx --test scripts/test-data-export.test.ts` 六项通过，补充两站工具文件名与引用、交互题有/无答案都仅输入、已保存答案文件不可读也不会读取、原始清单不变，以及普通题答案、样例排除、工具源码/哈希和导出限制回归。`node --import tsx scripts/verify-test-data-export.ts --rollback` 通过真实 API / 原数据库必定回滚事务，分别检查两站当前数据与固定修订的四个交互 ZIP：仅 `8.in`、对应后缀 Interactor、testlib/许可证和配置，配置无答案引用；普通题仍保留答案且 Hydro Checker 改用 `.cc`。保留原权限/CSRF/跨题/撤权、历史下载不可变和零入队检查，用户/题目/修订/导出/审计夹具全部回滚，存储仅内存。证据复制至 `.local/interactive-export/verification.json`。原 `verify-interactive-samples.ts` 的导出断言也同步新格式，本轮未重跑其 Linux 判题部分，未将更新断言冒充新的沙箱实测。
+
+**协议与验证边界：**按 PACKAGES 固定的 Hydro / NovaJudge 官方源码复核配置与工具引用；交互 cases 省略 output 可由两站归一化为空输出流，ZIP 无需提供答案占位文件。没有访问或修改用户现有 OJ，没有真实上传两站或运行其完整判题服务。本轮仅改打包与命名，未重新执行作者程序、Judge / TeX、全量/E2E、浏览器操作或部署；默认快查清单不变。源码检查与本地 API 导出不声称为外部 OJ 上线验收。
+
+**运行环境与收尾：**检查主目录原服务进程树、确认活动 Build/TestRun 均为 0 后，仅重启原 `pnpm dev` 加载 API。沿用 5180/3100、原数据库/Redis/存储/沙箱，无迁移、依赖或新增实例。根进程 52372，Vite 81208、API 59080，两个 Worker 25276 / 59200，监听和 Worker 均属于此进程树、无额外 Worker；原 5180 首页 200、代理健康接口 ok，stderr 为空。记录 `.local/interactive-export/services.json`、services-verified.json、dev.out/err.log，后续重新核对 PID。无阻塞，差异检查后本地提交，不 push；P7.2/P8 继续暂缓。
