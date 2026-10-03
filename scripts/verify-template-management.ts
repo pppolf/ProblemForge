@@ -5,7 +5,8 @@ import { resolve } from 'node:path';
 import { db, Prisma } from '@problemforge/database';
 import { config, hashObject, root, sha256 } from '@problemforge/domain';
 import { kinds } from '@problemforge/contracts';
-import { applyAdminStyle, loadTemplateDirectory, type TemplateFiles } from '@problemforge/template-engine';
+import { applyAdminStyle, loadTemplateDirectory, type TemplateFiles, POLICY_VERSION, TEX_PROFILE } from '@problemforge/template-engine';
+import { GO_JUDGE_VERSION } from '../packages/judge-adapter/src/index.ts';
 import { createApp } from '../apps/api/src/app.ts';
 import { importTemplateFiles, moveTemplateFile, readTemplateUploads, removeTemplateFile } from '../apps/web/src/template-files.ts';
 
@@ -131,11 +132,62 @@ try {
       assert.equal(audits.filter(a => a.action === 'COPY_TEMPLATE').length, 7);
       assert.equal(await tx.build.count({ where: { requestedById: { in: userIds } } }), 0);
       evidence.push('empty-template rename; all source states and null style supported; missing records rejected; provenance audit recorded; no copied validation, publication or build');
+
+      // A terminal fixture exercises result reuse, never enqueues or pretends to
+      // compile a PDF. All build/artifact metadata is rolled back with the test.
+      const previewFiles = await loadTemplateDirectory(resolve(root, 'templates/builtin/editorial-document'));
+      delete previewFiles['booklet.tex'];
+      previewFiles['manifest.yaml'] = previewFiles['manifest.yaml'].replace('contest: true', 'contest: false').replace(/^bookletEntry:.*\r?\n?/m, '');
+      const templateHash = hashObject(previewFiles);
+      const validationTemplate = await tx.template.create({ data: { name: `preview-regression-${suffix}`, kind: 'EDITORIAL_DOCUMENT', versions: { create: { number: 1, files: previewFiles, hash: templateHash } } }, include: { versions: true } });
+      templateIds.push(validationTemplate.id);
+      const validationVersion = validationTemplate.versions[0], validationPath = `/admin/template-versions/${validationVersion.id}/validate`;
+      const input = { kind: 'EDITORIAL_DOCUMENT', mode: 'single', body: previewFiles['preview.tex'], metadata: { title: 'A + B', author: 'ProblemForge' }, files: previewFiles,
+        templateHash, contentHash: hashObject(previewFiles['preview.tex']), policy: POLICY_VERSION, toolchain: TEX_PROFILE, sandboxVersion: GO_JUDGE_VERSION };
+      const existing = await tx.build.create({ data: { requestedById: userIds[0], templateVersionId: validationVersion.id, kind: 'EDITORIAL_DOCUMENT', purpose: 'TEMPLATE_VALIDATION', state: 'SUCCEEDED',
+        input, inputHash: hashObject(input), requestKey: hashObject([userIds[0], 'template-validation', validationVersion.id, input]),
+        artifacts: { create: { key: `fixture-preview-${suffix}`, mediaType: 'application/pdf', hash: sha256('metadata fixture only'), bytes: 1 } } }, include: { artifacts: true } });
+      for (const auth of [null, ordinary]) await call('POST', validationPath, undefined, auth ? 403 : 401, auth);
+      await call('POST', validationPath, undefined, 403, admin, { 'x-csrf-token': 'wrong' });
+      for (const editVersion of [1, 2]) {
+        if (editVersion === 2) {
+          const saved = await call('PUT', `/admin/template-versions/${validationVersion.id}`, { expectedVersion: 1, files: previewFiles });
+          assert.equal(saved.validationBuildId, null); assert.equal(saved.state, 'DRAFT'); assert.equal(saved.hash, templateHash);
+        }
+        const submitted = await call('POST', validationPath);
+        assert.equal(submitted.id, existing.id);
+        const detail = await call('GET', `/builds/${submitted.id}`);
+        assert.equal(detail.state, 'SUCCEEDED'); assert.equal(detail.artifacts[0].id, existing.artifacts[0].id);
+        const validated = await tx.templateVersion.findUniqueOrThrow({ where: { id: validationVersion.id } });
+        assert.equal(validated.editVersion, editVersion); assert.equal(validated.state, 'VALIDATED');
+        assert.equal(validated.validationBuildId, existing.id); assert.equal(validated.validationBuildHash, templateHash);
+      }
+      assert.equal(await tx.build.count({ where: { requestedById: { in: userIds } } }), 1);
+      assert.deepEqual(await tx.build.findUniqueOrThrow({ where: { id: existing.id }, include: { artifacts: true } }), existing);
+      await tx.templateVersion.update({ where: { id: validationVersion.id }, data: { state: 'DRAFT', validationBuildId: null, validationBuildHash: null } });
+      const validationTransaction = db.$transaction;
+      try {
+        // Simulate a save after the route reads the version, before its CAS.
+        (db as any).$transaction = async (fn: (transaction: Prisma.TransactionClient) => unknown) => {
+          await tx.templateVersion.update({ where: { id: validationVersion.id }, data: { editVersion: { increment: 1 } } });
+          return fn(tx);
+        };
+        assert.equal((await call('POST', validationPath, undefined, 409)).code, 'VERSION_CONFLICT');
+        assert.equal((await tx.templateVersion.findUniqueOrThrow({ where: { id: validationVersion.id } })).validationBuildId, null);
+      } finally { db.$transaction = validationTransaction; }
+      await tx.artifact.deleteMany({ where: { buildId: existing.id } });
+      for (const state of ['SUCCEEDED', 'FAILED'] as const) {
+        await tx.build.update({ where: { id: existing.id }, data: { state } });
+        assert.equal((await call('POST', validationPath)).state, state);
+        assert.equal((await tx.templateVersion.findUniqueOrThrow({ where: { id: validationVersion.id } })).state, 'DRAFT');
+      }
+      evidence.push('cached successful validation returns the original PDF; identical-content save restores validation with revision CAS; concurrent edit rejected; failed/missing-artifact results do not validate; one unchanged terminal build, no queued work');
       throw rollback;
     } finally { for (const item of saved.reverse()) item.object[item.method] = item.original; }
   }, { timeout: 45000 }).catch(e => { if (e !== rollback) throw e; });
   assert.equal(await db.user.count({ where: { id: { in: userIds } } }), 0);
   assert.equal(await db.template.count({ where: { id: { in: templateIds } } }), 0);
+  assert.equal(await db.build.count({ where: { requestedById: { in: userIds } } }), 0);
   assert.equal(await db.auditLog.count({ where: { actorId: { in: userIds } } }), 0);
   const report = { passed: true, rolledBack: true, evidence };
   await mkdir('.local', { recursive: true });

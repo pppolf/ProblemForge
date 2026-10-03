@@ -14,6 +14,9 @@ const templates = ref<any[]>([]); const version = ref<any>(); const templateId =
 const fileBusy = ref(false), workBusy = computed(() => busy.value || fileBusy.value), directoryOpen = ref(false), styleOpen = ref(false), previewOpen = ref(false);
 const styleConfig = ref({ marginMm: 24, cjkFont: 'Noto Serif CJK SC', palette: 'RED' }); const styleEdited = ref(false);
 const loadError = ref(''); const loading = ref(false);
+const watchedBuildId = ref(''), previewError = ref('');
+let previewRequest = 0, showPreviewWhenReady = '';
+function resetPreview() { previewRequest++; watchedBuildId.value = ''; build.value = undefined; previewed.value = false; previewError.value = ''; showPreviewWhenReady = ''; }
 const saveError = ref(''), lastVersion = rememberedChoice<string>('template-version','');
 const templateAction = ref<'rename' | 'copy'>('rename'), showAction = ref(false);
 const actionTarget = ref<{ id: string; name: string; versionId?: string; number?: number; editVersion?: number }>();
@@ -67,14 +70,49 @@ function changeStyle() { styleEdited.value = true; dirty.value = true; }
 const editable = computed(() => version.value && ['DRAFT', 'VALIDATED'].includes(version.value.state));
 const selectedTemplate = computed(() => templates.value.find(t => t.id === templateId.value));
 async function load() { loading.value = true; loadError.value = ''; try { templates.value = await api('/admin/templates'); if (version.value) { const updated = templates.value.flatMap(t => t.versions).find(v => v.id === version.value.id); if (updated && !dirty.value) version.value = updated; } } catch (e) { loadError.value = (e as Error).message; } finally { loading.value = false; } }
-function choose(t: any, v: any, internal=false) { if(workBusy.value&&!internal){message.info('请等待当前文件操作完成再切换版本');return;} if (dirty.value && !internal && !window.confirm('放弃尚未保存的模板修改？可先下载本地草稿。')) return; if(templateCategory.value !== 'ALL' && templateCategory.value !== t.kind) templateCategory.value = t.kind; templateId.value = t.id; version.value = v; files.value = { ...v.files }; styleConfig.value = snapshot(v.styleConfig ?? { marginMm: t.kind === 'STATEMENT' ? 20 : 24, cjkFont: t.kind === 'EDITORIAL_BEAMER' ? 'Noto Sans CJK SC' : 'Noto Serif CJK SC', palette: 'RED' }); styleEdited.value = false; dirty.value = false; saveError.value=''; lastVersion.value=v.id; previewed.value = false; build.value = undefined; if (v.validationBuildId) inspect(v.validationBuildId); }
-async function inspect(id: string) { const selectedId = version.value?.id; const result = await api(`/builds/${id}`); if (version.value?.id === selectedId) build.value = result; }
+function choose(t: any, v: any, internal=false) { if(workBusy.value&&!internal){message.info('请等待当前文件操作完成再切换版本');return;} if (dirty.value && !internal && !window.confirm('放弃尚未保存的模板修改？可先下载本地草稿。')) return; if(templateCategory.value !== 'ALL' && templateCategory.value !== t.kind) templateCategory.value = t.kind; templateId.value = t.id; version.value = v; files.value = { ...v.files }; styleConfig.value = snapshot(v.styleConfig ?? { marginMm: t.kind === 'STATEMENT' ? 20 : 24, cjkFont: t.kind === 'EDITORIAL_BEAMER' ? 'Noto Sans CJK SC' : 'Noto Serif CJK SC', palette: 'RED' }); styleEdited.value = false; dirty.value = false; saveError.value=''; lastVersion.value=v.id; resetPreview(); if (v.validationBuildId) { watchedBuildId.value = v.validationBuildId; void refreshBuild(); } }
+async function inspect(id: string) {
+  const selectedId = version.value?.id, request = ++previewRequest;
+  const current = () => request === previewRequest && version.value?.id === selectedId && watchedBuildId.value === id;
+  try {
+    const result = await api<Build>(`/builds/${id}`);
+    if (!current()) return;
+    if (build.value?.artifacts[0]?.id !== result.artifacts[0]?.id) previewed.value = false;
+    build.value = result; previewError.value = '';
+    if (showPreviewWhenReady === id) {
+      if (result.state === 'SUCCEEDED' && result.artifacts.length) { panelTab.value = 'preview'; showPreviewWhenReady = ''; }
+      else if (['FAILED', 'CANCELED'].includes(result.state)) { panelTab.value = 'log'; showPreviewWhenReady = ''; }
+    }
+    return result;
+  } catch (e) { if (current()) previewError.value = (e as Error).message; }
+}
+async function refreshBuild() {
+  const id = watchedBuildId.value;
+  if (!id) return;
+  const result = await inspect(id);
+  if (result?.state === 'SUCCEEDED') await load();
+}
 onMounted(async () => { await load(); const t = templates.value.find(t=>t.versions.some((v:any)=>v.id===lastVersion.value)) ?? templates.value[0]; const v=t?.versions.find((v:any)=>v.id===lastVersion.value) ?? t?.versions[0]; if(v)choose(t,v); });
-useTaskEvents(async()=>{if(build.value){await inspect(build.value.id);if(build.value?.state==='SUCCEEDED')await load();}});
+useTaskEvents(refreshBuild, undefined, () => ({ buildIds: watchedBuildId.value ? [watchedBuildId.value] : [] }));
 async function create() { if(workBusy.value)return; busy.value = true; try { const t = await api('/admin/templates', { method: 'POST', body: JSON.stringify({ name: name.value, kind: kind.value }) }); const starter = await api(`/admin/template-starters/${kind.value}`); const v = await api(`/admin/templates/${t.id}/versions`, { method: 'POST', body: JSON.stringify({ files: starter.files }) }); await load(); choose(t, v,true); show.value = false; } catch (e) { message.error((e as Error).message); } finally { busy.value = false; } }
-async function save() { if(workBusy.value)return false;busy.value = true;saveError.value='';const submitted=snapshot({files:files.value,styleConfig:styleConfig.value});try { const v = await api(`/admin/template-versions/${version.value.id}`, { method: 'PUT', body: JSON.stringify({ expectedVersion: version.value.editVersion, files: submitted.files, ...(styleEdited.value ? { styleConfig: submitted.styleConfig } : {}) }) }); const server={files:v.files,styleConfig:v.styleConfig??submitted.styleConfig};const merged=mergeSaved({files:files.value,styleConfig:styleConfig.value},submitted,server);version.value = v; files.value = merged.files;styleConfig.value=merged.styleConfig;styleEdited.value=JSON.stringify(merged.styleConfig)!==JSON.stringify(server.styleConfig);dirty.value=JSON.stringify(merged)!==JSON.stringify(server);previewed.value = false; build.value = undefined; await load(); message.success(dirty.value?'模板已保存；继续输入的修改仍未保存':'模板草稿已保存，需重新验证'); return !dirty.value; } catch (e) { saveError.value=(e as Error).message;message.error(saveError.value); return false; } finally { busy.value = false; } }
+async function save() { if(workBusy.value)return false;busy.value = true;saveError.value='';const submitted=snapshot({files:files.value,styleConfig:styleConfig.value});try { const v = await api(`/admin/template-versions/${version.value.id}`, { method: 'PUT', body: JSON.stringify({ expectedVersion: version.value.editVersion, files: submitted.files, ...(styleEdited.value ? { styleConfig: submitted.styleConfig } : {}) }) }); const server={files:v.files,styleConfig:v.styleConfig??submitted.styleConfig};const merged=mergeSaved({files:files.value,styleConfig:styleConfig.value},submitted,server);version.value = v; files.value = merged.files;styleConfig.value=merged.styleConfig;styleEdited.value=JSON.stringify(merged.styleConfig)!==JSON.stringify(server.styleConfig);dirty.value=JSON.stringify(merged)!==JSON.stringify(server);resetPreview(); await load(); message.success(dirty.value?'模板已保存；继续输入的修改仍未保存':'模板草稿已保存，需重新验证'); return !dirty.value; } catch (e) { saveError.value=(e as Error).message;message.error(saveError.value); return false; } finally { busy.value = false; } }
 async function newVersion() { if(workBusy.value)return;busy.value=true;try { const v = await api(`/admin/templates/${templateId.value}/versions`, { method: 'POST', body: JSON.stringify({ files: files.value }) }); await load(); choose(selectedTemplate.value, v,true); message.success('新草稿已创建，原版本保留'); } catch (e) { message.error((e as Error).message); } finally{busy.value=false;} }
-async function validate() { if (dirty.value && !await save()) return; try { const b = await api(`/admin/template-versions/${version.value.id}/validate`, { method: 'POST' }); build.value = { ...b, artifacts: [] }; previewed.value = false; panelTab.value = 'log'; previewOpen.value = true; } catch (e) { message.error((e as Error).message); } }
+async function validate() {
+  if (workBusy.value || !version.value) return;
+  if (dirty.value && !await save()) return;
+  busy.value = true; previewError.value = '';
+  const selectedId = version.value.id;
+  try {
+    // This is a submission receipt. An unchanged template can return an already
+    // completed job, which will not emit another task-state event.
+    const receipt = await api<{ id: string }>(`/admin/template-versions/${selectedId}/validate`, { method: 'POST' });
+    if (version.value?.id !== selectedId) return;
+    watchedBuildId.value = receipt.id; showPreviewWhenReady = receipt.id;
+    panelTab.value = 'log'; previewOpen.value = true;
+    await refreshBuild();
+  } catch (e) { message.error((e as Error).message); }
+  finally { busy.value = false; }
+}
 async function publish() { dialog.warning({ title: '发布管理员模板', content: '确认已检查此版本的真实 PDF 预览。发布后源码不可修改，已有题目绑定保持原版本。', positiveText: '发布此版本', negativeText: '返回', onPositiveClick: async () => { try { await api(`/admin/template-versions/${version.value.id}/publish`, { method: 'POST', body: JSON.stringify({ reviewedBuildId: build.value!.id }) }); await load(); message.success('模板已发布，可供新绑定选择'); } catch (e) { message.error((e as Error).message); } } }); }
 async function archive() { await api(`/admin/template-versions/${version.value.id}/archive`, { method: 'POST' }); await load(); }
 function revoke() { let reason = ''; dialog.warning({ title: '撤回模板版本', content: () => '撤回将阻止该版本的新构建。请输入原因：', positiveText: '撤回', negativeText: '返回', onPositiveClick: async () => { reason = window.prompt('撤回原因') ?? ''; if (!reason.trim()) return false; await api(`/admin/template-versions/${version.value.id}/revoke`, { method: 'POST', body: JSON.stringify({ reason }) }); await load(); } }); }
@@ -125,7 +163,7 @@ async function upload(event: Event) {
       <NButton size="small" :type="editable ? 'default' : 'primary'" :disabled="workBusy" @click="newVersion">{{ editable ? '复制为新版本' : '创建草稿并编辑' }}</NButton>
       <NButton v-if="editable" size="small" :loading="busy" :disabled="fileBusy" @click="save">保存草稿</NButton>
       <NButton v-if="editable" size="small" type="primary" :disabled="workBusy" @click="validate">验证样稿</NButton>
-      <NButton v-if="version.state === 'VALIDATED'" size="small" type="primary" :disabled="workBusy || dirty || !build?.artifacts.length || !previewed" @click="publish">确认预览并发布</NButton>
+      <NButton v-if="version.state === 'VALIDATED'" size="small" type="primary" :disabled="workBusy || dirty || !!previewError || !build?.artifacts.length || !previewed || build.id !== watchedBuildId || build.id !== version.validationBuildId || build.input.templateHash !== version.hash" @click="publish">确认预览并发布</NButton>
       <NButton v-if="version.state === 'PUBLISHED'" size="small" :disabled="workBusy" @click="archive">归档</NButton>
       <NButton v-if="['PUBLISHED', 'ARCHIVED'].includes(version.state)" size="small" type="error" :disabled="workBusy" @click="revoke">撤回</NButton>
     </div>
@@ -143,6 +181,7 @@ async function upload(event: Event) {
   <TemplateFileWorkspace :key="version.id" :files="files" :original-files="version.files" :readonly="!editable" :busy="busy" v-model:preview-open="previewOpen" @update:files="updateFiles" @pending="fileBusy = $event" @save="save">
     <template #preview>
       <NTabs v-model:value="panelTab"><NTab name="preview">真实 PDF 预览</NTab><NTab name="log">验证日志</NTab></NTabs>
+      <NAlert v-if="previewError" type="error">构建结果加载失败：{{ previewError }} <NButton size="small" @click="refreshBuild">重新加载结果</NButton></NAlert>
       <NTag v-if="dirty" size="small" type="warning" class="template-preview-stale">修改尚未编译</NTag>
       <NAlert v-if="build?.errorCode" type="error">{{ build.errorCode }}</NAlert>
       <PdfPreview v-if="panelTab === 'preview'" :artifact-id="build?.artifacts[0]?.id" @loaded="previewed = true" />

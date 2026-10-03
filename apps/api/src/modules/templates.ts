@@ -96,11 +96,20 @@ export async function templateRoutes(app: Api) {
     const requestKey=hashObject([req.user.id,'template-validation',version.id,input]);
     const build=await db.$transaction(async tx=>{
       await tx.$queryRaw`SELECT id FROM "User" WHERE id=${req.user.id} FOR UPDATE`;
-      const old=await tx.build.findUnique({where:{requestKey}});if(old)return old;
+      const old=await tx.build.findUnique({where:{requestKey},include:{artifacts:true}});
+      if(old){
+        // Saving/restoring the same bytes clears validation metadata. Reuse the
+        // real successful PDF only while this exact saved revision is current.
+        if(old.state==='SUCCEEDED'&&old.artifacts.length){
+          const restored=await tx.templateVersion.updateMany({where:{id:version.id,editVersion:version.editVersion,hash:version.hash,state:{in:['DRAFT','VALIDATED']}},data:{state:'VALIDATED',validationBuildId:old.id,validationBuildHash:version.hash}});
+          if(!restored.count)throw new HttpError(409,'模板草稿已更新，请重新验证当前版本','VERSION_CONFLICT');
+        }
+        return old;
+      }
       await taskQuota(tx,req.user.id,'tex');
       return tx.build.create({ data: { requestKey,requestedById: req.user.id, templateVersionId: version.id, kind: version.template.kind, purpose: 'TEMPLATE_VALIDATION', input, inputHash: hashObject(input) } });
     });
-    await scheduleBuild(build.id); return build;
+    if(build.state==='QUEUED')await scheduleBuild(build.id); return build;
   });
   app.post('/api/admin/template-versions/:id/publish', { preHandler: admin, schema: { params: Id, body: Type.Object({ reviewedBuildId: Type.String() }, { additionalProperties: false }) } }, async req => {
     const version = await db.templateVersion.findUnique({ where: { id: req.params.id } });
