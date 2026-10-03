@@ -1,5 +1,5 @@
 import{randomUUID}from'node:crypto';import{readFile}from'node:fs/promises';import{join}from'node:path';import{Type}from'@sinclair/typebox';
-import{ExportInput,TestDataExportInput,isCppLanguage,type ProblemManifest}from'@problemforge/contracts';import{db,Prisma}from'@problemforge/database';
+import{ExportInput,TestDataExportInput,isCppLanguage,isJudgingData,type ProblemManifest}from'@problemforge/contracts';import{db,Prisma}from'@problemforge/database';
 import{problemAccess,contestAccess,hashObject,sha256,HttpError,audit,root}from'@problemforge/domain';
 import{PackageError,readArchive,writeArchive,nativeExporter,polygonExporter,exportTestData,importNative,importPolygon,blobs,validateManifest,type Issue,type ImportResult}from'@problemforge/problem-format';
 import{validateBody}from'@problemforge/template-engine';import{groupOrder,TESTLIB_HASH}from'@problemforge/judge-core';
@@ -13,7 +13,7 @@ const exportView=(e:{id:string;revisionId:string;purpose:string;format:string;ha
 async function exportManifest(manifest:ProblemManifest,purpose:string,format:string,runId:string|null){
  const m=structuredClone(manifest),report:Issue[]=[];
  if((purpose==='DATA'||format==='POLYGON'&&purpose==='FULL')&&runId){const cases=await db.runCase.findMany({where:{runId},orderBy:{number:'asc'}});
-  for(const c of cases){let t=m.tests.find(t=>t.enabled&&t.number===c.number&&t.input.hash===c.inputHash);if(!t){const origin=c.origin as {type?:string};if(origin.type!=='GENERATOR')continue;t={id:`generated${c.number}`,revisionId:`generated${c.number}r`,version:1,number:c.number,groupName:c.groupName,isSample:c.isSample,enabled:true,notes:'',input:{key:c.inputKey,hash:c.inputHash,bytes:c.inputBytes},answer:null,provenance:null};m.tests.push(t);}
+  for(const c of cases){if(!isJudgingData(m.judgeSettings,c))continue;let t=m.tests.find(t=>t.enabled&&t.number===c.number&&t.input.hash===c.inputHash);if(!t){const origin=c.origin as {type?:string};if(origin.type!=='GENERATOR')continue;t={id:`generated${c.number}`,revisionId:`generated${c.number}r`,version:1,number:c.number,groupName:c.groupName,isSample:c.isSample,enabled:true,notes:'',input:{key:c.inputKey,hash:c.inputHash,bytes:c.inputBytes},answer:null,provenance:null};m.tests.push(t);}
    if(!t.answer&&c.answerKey)t.answer={key:c.answerKey,hash:c.answerHash!,bytes:c.answerBytes!};}
   report.push({area:'answers',status:'MAPPED',message:`数据和答案固定来自修订绑定的成功验收 ${runId}；没有重新运行程序或改写工作数据。`});
  }
@@ -38,7 +38,7 @@ async function prepareImport(format:'NATIVE'|'POLYGON',files:Map<string,Buffer>,
  }
  // Profiles carry DB bookkeeping fields that are not part of the versioned format.
  for(const p of m.programs){const {id,name,language,version,hash,config}=p.profile;p.profile={id,name,language,version,hash,config};}
- try{validateManifest(m);groupOrder(m.groups?.groups??[]);if(m.groups?.groups.length){const all=m.groups.groups.flatMap(g=>g.members.map(t=>t.testId));if(m.tests.filter(t=>t.enabled).some(t=>!all.includes(t.id)))throw new PackageError('分组必须覆盖所有启用测试');}}catch(e){report.push({area:'manifest',status:'BLOCKED',message:(e as Error).message});}
+ try{validateManifest(m);groupOrder(m.groups?.groups??[]);if(m.groups?.groups.length){const all=m.groups.groups.flatMap(g=>g.members.map(t=>t.testId)),tests=m.tests.filter(t=>isJudgingData(m.judgeSettings,t));if(tests.length!==all.length||tests.some(t=>!all.includes(t.id)))throw new PackageError('分组必须恰好覆盖所有参与判题的启用测试，交互样例不参与');}}catch(e){report.push({area:'manifest',status:'BLOCKED',message:(e as Error).message});}
  return result;
 }
 export async function packageRoutes(app:Api){

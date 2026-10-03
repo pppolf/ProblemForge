@@ -2,6 +2,7 @@ import type { JudgePurpose, JudgeSettingsValue, ProfileConfigValue, ProgramLangu
 import type { SandboxResult } from '@problemforge/judge-adapter';
 
 export const JUDGE_POLICY = 'problemforge-judge-v1';
+export const JUDGING_DATA_POLICY = 'problemforge-interactive-samples-display-only-v1';
 export const GENERATOR_COMMAND_POLICY = 'problemforge-judge-command-lines-v1';
 export const GENERATOR_DEDUP_POLICY = 'problemforge-judge-generated-input-dedup-v2';
 export { interactionVerdict, INTERACTION_POLICY } from './interaction.ts';
@@ -24,6 +25,7 @@ export type JudgeSnapshot = {
   stress?: { version: number; hash: string; data: StressConfigValue };
   replay?: { sourceRunId: string; sourceCaseId: string; input: BlobRef; answer: BlobRef; seed: string; verdict: string; regenerate: boolean };
   interactionPolicy?: string;
+  dataPolicy?: string;
   groups?: { version: number; hash: string; data: TestGroupsValue };
   stressGroups?: { id: string; extraValidatorIds: string[] }[];
 };

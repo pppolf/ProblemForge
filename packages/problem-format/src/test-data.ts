@@ -1,4 +1,4 @@
-import { isCppLanguage, type ProblemManifest, type StoredBlob, type TestDataTargetValue } from '@problemforge/contracts';
+import { isCppLanguage, isJudgingData, type ProblemManifest, type StoredBlob, type TestDataTargetValue } from '@problemforge/contracts';
 import { PackageError, limits } from './archive.ts';
 import { digest } from './native.ts';
 import type { Issue, PackageResult } from './types.ts';
@@ -81,9 +81,9 @@ export async function exportTestData(
   read: (key: string) => Promise<Buffer>, support: Support,
 ): Promise<PackageResult> {
   const files = new Map<string, Buffer>(), report: Issue[] = [], settings = manifest.judgeSettings;
-  const tests = manifest.tests.filter(t => t.enabled).sort((a, b) => a.number - b.number);
+  const tests = manifest.tests.filter(t => isJudgingData(settings, t)).sort((a, b) => a.number - b.number);
   const interactive = settings.interactionMode === 'INTERACTIVE';
-  if (!tests.length) throw new PackageError('没有可导出的启用测试数据，请先生成并收集输入');
+  if (!tests.length) throw new PackageError(interactive ? '交互样例仅用于题面展示；请先添加或收集启用的非样例测试数据' : '没有可导出的启用测试数据，请先生成并收集输入');
   if (tests.some(t => !Number.isInteger(t.number) || t.number < 1 || t.number > 100000)) throw new PackageError('测试数据编号无效');
   if (new Set(tests.map(t => t.number)).size !== tests.length) throw new PackageError('测试数据编号重复，请先调整编号，避免覆盖文件');
   const missing = tests.filter(t => !t.answer);
@@ -106,7 +106,7 @@ export async function exportTestData(
     put(`${t.number}.in`, await checked(t.input));
     put(`${t.number}.ans`, t.answer ? await checked(t.answer) : Buffer.alloc(0));
   }
-  report.push({ area: '测试数据', status: 'MAPPED', message: `${tests.length} 组启用数据按原编号放在 ZIP 根目录（*.in / *.ans），保留原始字节；包含启用样例，不含停用数据、题面、题解和参考解。` });
+  report.push({ area: '测试数据', status: 'MAPPED', message: `${tests.length} 组启用数据按原编号放在 ZIP 根目录（*.in / *.ans），保留原始字节；${interactive ? '交互样例仅用于题面展示，已排除' : '包含启用样例'}，不含停用数据、题面、题解和参考解。` });
   if (missing.length) report.push({ area: '交互答案', status: 'WARNING', message: `交互数据 #${missing.map(t => t.number).join('、#')} 未保存参考答案，已配空 .ans；交互器应自行给出判定。` });
   if (nonUtf8) report.push({ area: '数据编码', status: 'BLOCKED', message: '本题含非法 UTF-8 字节。ZIP 已保留原字节，但 NovaJudge 当前按 UTF-8 读取数据，请先调整数据编码或目标判题器。' });
 

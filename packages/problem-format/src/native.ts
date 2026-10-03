@@ -1,6 +1,7 @@
 import {createHash}from'node:crypto';
 import {Type,type TSchema}from'@sinclair/typebox';
 import {Value}from'@sinclair/typebox/value';
+import {isJudgingData}from'@problemforge/contracts';
 import {programLanguages,ProgramInput,GeneratorPlanInput,ToolSelfTestInput,ProfileConfig,JudgeSettings,TestGroupsInput,StressConfigInput,DocumentInput,Language,defaultJudgeSettings,generatorPlanCommands,generatorPlanProgramIds,type ProblemManifest,type StoredBlob}from'@problemforge/contracts';
 import {PackageError,safePath}from'./archive.ts';import type{Exporter,Purpose,Issue,ImportResult}from'./types.ts';
 export const digest=(bytes:Buffer|string)=>createHash('sha256').update(bytes).digest('hex');
@@ -41,13 +42,17 @@ export function selectManifest(source:ProblemManifest,purpose:Purpose):ProblemMa
   m.documents=structuredClone(source.documents.filter(d=>d.kind===purpose&&d.enabled));
   const refs=new Set(m.documents.flatMap(d=>d.sampleRevisionIds));m.samples=structuredClone(source.samples.filter(s=>refs.has(s.revisionId)));
   m.assets=structuredClone(source.assets.filter(a=>m.documents.some(d=>d.body.includes(a.path))));
- }else if(purpose==='DATA'){m.tests=structuredClone(source.tests.filter(t=>t.enabled));m.groups=structuredClone(source.groups);m.judgeSettings=structuredClone(source.judgeSettings);m.programs=structuredClone(source.programs.filter(p=>p.enabled&&['CHECKER','VALIDATOR','EXTRA_VALIDATOR','INTERACTOR'].includes(p.role)));}
+ }else if(purpose==='DATA'){m.tests=structuredClone(source.tests.filter(t=>isJudgingData(source.judgeSettings,t)));m.groups=structuredClone(source.groups);m.judgeSettings=structuredClone(source.judgeSettings);m.programs=structuredClone(source.programs.filter(p=>p.enabled&&['CHECKER','VALIDATOR','EXTRA_VALIDATOR','INTERACTOR'].includes(p.role)));}
  else if(purpose==='REFERENCE')m.programs=structuredClone(source.programs.filter(p=>p.enabled&&['MAIN_SOLUTION','CORRECT_SOLUTION'].includes(p.role)));
  for(const t of [...m.tests,...m.samples]){t.provenance=null;if(purpose!=='FULL')t.notes='';}for(const p of m.programs)if(purpose!=='FULL')p.notes='';
  return m;
 }
 export const nativeExporter:Exporter={id:'NATIVE',async export(source,purpose,read){
  const m=selectManifest(source,purpose),files=new Map<string,Buffer>(),report:Issue[]=[{area:'native',status:'MAPPED',message:`ProblemForge v1；模板仅引用 ID/版本/哈希。${purpose==='FULL'?'完整包导入为私有工作副本，必须重新绑定缺失模板并验收；本地任务定位信息与原成员不迁移。':'此用途包供分发；只有完整包可恢复为工作副本。'}`}];
+ if(purpose==='DATA'&&source.judgeSettings.interactionMode==='INTERACTIVE'){
+  report.push({area:'samples',status:'MAPPED',message:'交互样例仅用于题面展示，已排除出判题数据包；原生完整包仍保留全部样例。'});
+  if(m.groups?.groups.some(g=>g.members.some(member=>!m.tests.some(t=>t.id===member.testId&&t.revisionId===member.revisionId))))report.push({area:'groups',status:'BLOCKED',message:'数据组包含交互样例或其他未导出数据，请更新组成员后重新导出。'});
+ }
  for(const b of blobs(m)){const bytes=await read(b.key);if(bytes.length!==b.bytes||digest(bytes)!==b.hash)throw new PackageError('私有资源与固定修订哈希不匹配');b.key=`blobs/${b.hash}`;files.set(b.key,bytes);}
  files.set('problemforge.json',Buffer.from(JSON.stringify({format:'problemforge',version:1,purpose,manifest:m},null,2)));return{files,report};
 }};

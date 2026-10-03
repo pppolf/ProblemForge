@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { blankManifest, digest, exportTestData, readArchive, writeArchive } from '@problemforge/problem-format';
+import { blankManifest, digest, exportTestData, nativeExporter, polygonExporter, selectManifest, readArchive, writeArchive } from '@problemforge/problem-format';
 import { defaultInteractionSettings, type ManifestProgram } from '@problemforge/contracts';
 
 const support = { testlib: Buffer.from('test header'), license: Buffer.from('test license') };
@@ -60,6 +60,7 @@ test('interaction packages the active interactor and reports target protocol lim
     const { files, report } = await exportTestData(m, target, read, support);
     assert.equal(files.get('interactor.cpp')!.toString(), m.programs[0].source);
     assert.equal(files.get('2.ans')!.length, 0); assert(!files.has('checker.cpp'));
+    assert(!files.has('1.in')); assert(!files.has('1.ans'));
     const config = JSON.parse(files.get(target === 'HYDRO' ? 'config.yaml' : 'problem.yml')!.toString());
     assert.equal(config.type, 'interactive'); assert(report.some(r => r.area === '交互答案'));
     if (target === 'NOVAJUDGE') assert(report.some(r => r.area === '交互协议'));
@@ -67,6 +68,23 @@ test('interaction packages the active interactor and reports target protocol lim
   m.judgeSettings.interaction.verdictMode = 'CHECKER';
   const result = await exportTestData(m, 'HYDRO', read, support);
   assert(result.files.has('checker.cpp')); assert(result.report.some(r => r.area === '交互判定' && r.status === 'BLOCKED'));
+});
+
+test('interactive examples stay in statements and native backups, never in judging archives', async () => {
+  const { m, read } = fixture(); m.judgeSettings.interactionMode = 'INTERACTIVE';
+  m.judgeSettings.interaction = { ...defaultInteractionSettings }; m.programs = [program('INTERACTOR')];
+  m.samples = [structuredClone(m.tests.find(t => t.isSample)!)];
+  m.documents = [{ id: 'doc', revisionId: 'dr', version: 1, language: 'zh-CN', kind: 'STATEMENT', enabled: true, body: 'example', metadata: { title: 't', author: '' }, sampleRevisionIds: [m.samples[0].revisionId], template: null }];
+  assert.equal(selectManifest(m, 'STATEMENT').samples.length, 1);
+  assert.equal(selectManifest(m, 'FULL').tests.length, 3);
+  assert.deepEqual(selectManifest(m, 'DATA').tests.map(t => t.number), [2]);
+  const native = await nativeExporter.export(m, 'DATA', read);
+  assert.deepEqual(JSON.parse(native.files.get('problemforge.json')!.toString()).manifest.tests.map((t: any) => t.number), [2]);
+  const polygon = await polygonExporter.export(m, 'FULL', read);
+  assert.match(polygon.files.get('problem.xml')!.toString(), /<test-count>1<\/test-count>/);
+  assert.deepEqual(polygon.files.get('tests/001'), await read(m.tests[0].input.key));
+  m.tests = m.tests.filter(t => t.isSample);
+  for (const target of ['HYDRO', 'NOVAJUDGE'] as const) await assert.rejects(exportTestData(m, target, read, support), /非样例测试数据/);
 });
 
 test('unsupported scoring, file I/O and NovaJudge binary text conversions are explicit', async () => {

@@ -34,6 +34,9 @@ export const JudgeSettings = Type.Object({
   interaction: Type.Optional(InteractionSettings),
 }, strict);
 export type JudgeSettingsValue = Static<typeof JudgeSettings>;
+// Interactive examples describe a conversation, not an interactor's hidden input.
+export const isJudgingData = (settings: Pick<JudgeSettingsValue, 'interactionMode'>, data: { isSample: boolean; enabled?: boolean }) =>
+  data.enabled !== false && !(settings.interactionMode === 'INTERACTIVE' && data.isSample);
 export const JudgeSettingsInput = Type.Object({ expectedVersion: Type.Integer({ minimum: 1 }), settings: JudgeSettings }, strict);
 export const defaultJudgeSettings: JudgeSettingsValue = {
   interactionMode: 'BATCH', checkerMode: 'TOKENS', scoringMode: 'ACM', ioMode: 'STDIO', inputFile: 'input.txt', outputFile: 'output.txt',

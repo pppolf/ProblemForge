@@ -1,8 +1,8 @@
 import { db, Prisma } from '@problemforge/database';
 import { hashObject, sha256 } from '@problemforge/domain';
 import { GO_JUDGE_VERSION } from '@problemforge/judge-adapter';
-import { JUDGE_POLICY, GENERATOR_DEDUP_POLICY, JUDGE_TOOLCHAIN, INTERACTION_POLICY, scoreGroups, scoreExpectation, type ScoreReport, checkExpectation, compareOutput, solutionRoles, type JudgeSnapshot, type ProgramSnapshot, type BlobRef } from '@problemforge/judge-core';
-import { defaultJudgeSettings, generatorPlanCommands, type JudgeSettingsValue } from '@problemforge/contracts';
+import { JUDGE_POLICY, JUDGING_DATA_POLICY, GENERATOR_DEDUP_POLICY, JUDGE_TOOLCHAIN, INTERACTION_POLICY, scoreGroups, scoreExpectation, type ScoreReport, checkExpectation, compareOutput, solutionRoles, type JudgeSnapshot, type ProgramSnapshot, type BlobRef } from '@problemforge/judge-core';
+import { defaultJudgeSettings, isJudgingData, generatorPlanCommands, type JudgeSettingsValue } from '@problemforge/contracts';
 import { Executor, JudgeFailure, type Captured, type Compiled } from './executor.ts';
 import { stressPipeline } from './stress.ts';
 
@@ -21,7 +21,13 @@ export async function pipeline(runId: string, input: JudgeSnapshot, executor: Ex
   const settings = { ...defaultJudgeSettings, ...input.settings } as JudgeSettingsValue;
   const policy = input.plans.length || input.stress ? GENERATOR_DEDUP_POLICY : JUDGE_POLICY;
   if (input.policy !== policy || input.toolchain !== JUDGE_TOOLCHAIN || input.sandboxVersion !== GO_JUDGE_VERSION) throw new JudgeFailure('TOOLCHAIN_MISMATCH', '任务策略/工具链已改变，请创建新任务');
-  if (settings.interactionMode === 'INTERACTIVE' && input.interactionPolicy !== INTERACTION_POLICY) throw new JudgeFailure('INTERACTION_POLICY_MISMATCH', '交互策略已改变，请创建新任务');
+  if (settings.interactionMode === 'INTERACTIVE' && ['ANSWERS', 'ACCEPTANCE'].includes(input.purpose) && input.interactionPolicy !== INTERACTION_POLICY) throw new JudgeFailure('INTERACTION_POLICY_MISMATCH', '交互策略已改变，请创建新任务');
+  if (settings.interactionMode === 'INTERACTIVE' && ['GENERATE', 'VALIDATE', 'ANSWERS', 'ACCEPTANCE'].includes(input.purpose)) {
+    if (input.dataPolicy !== JUDGING_DATA_POLICY) throw new JudgeFailure('JUDGING_DATA_POLICY_MISMATCH', '交互样例现仅用于展示，请按当前版本创建新任务');
+    // Filter before deduplication, progress accounting, blob reads or execution.
+    input = { ...input, tests: input.tests.filter(t => isJudgingData(settings, t)), plans: input.plans.filter(p => input.purpose === 'GENERATE' || isJudgingData(settings, p)) };
+    if (input.purpose !== 'GENERATE' && !input.tests.length && !input.plans.length) throw new JudgeFailure('NO_JUDGING_DATA', '交互样例仅用于展示；请添加启用的非样例测试数据或生成计划');
+  }
   for (const p of input.programs) if (sha256(p.source) !== p.sourceHash || hashObject({ language: p.profile.language, config: p.profile.config }) !== p.profile.hash) throw new JudgeFailure('SOURCE_HASH_MISMATCH', '源码或编译 profile 快照哈希不匹配');
   const compiled = new Map<string, Compiled>(), failedCompile = new Map<string, Captured>();
   const casesCount = input.tests.length + input.plans.reduce((n, p) => n + p.count, 0);

@@ -634,3 +634,19 @@ ZIP 根目录放原编号的 `*.in` / `*.ans`，包含启用正式数据及启�
 **浏览器与实际下载：**经原 `localhost:5180` 登录原管理员，对现有「连号免单券」实际分别点击生成并下载 Hydro `cmus8w86y0003ktdkbinb77n0`（998874 字节）、NovaJudge `cmus8xmp50006ktdkv9uzyhry`（998822 字节）。两包均为 4 组 `.in` / `.ans`、原自定义 `checker.cpp`、testlib/许可证和平台配置，没有 BLOCKED 项；逐文件哈希与原数据相同，NovaJudge 配置通过其公开官方归一化函数离线检查。原题目完整快照、模板版本指纹和用户 ID 集合前后相同；仅新增两个预期私有导出产物及正常登录/导出审计。原成功验收 `cmus7bt4n0008ktgopynvqsuh` 被读取但未重跑。浏览器无 warn/error；390px 检查修正报告长哈希换行，新增导出卡片和报告均不横向溢出，原工作区页面整体仍有 413px 宽度，不把本轮局部检查称为全站移动端通过。已恢复默认视口、退出验证会话并关闭临时标签。实际下载留在 Downloads，并在 `.local/data-export/hydro-testdata.zip` / `novajudge-testdata.zip` 留证；其余证据为 before/after.json、live-result.json、browser-result.json 和截图。
 
 **运行环境与收尾：**沿用主目录、原 5180/3100、数据库、Redis、私有存储和沙箱，没有切换或新增端口。确认活动 Build/TestRun 为 0 后重启原 `pnpm dev` 以加载 API。第一次停止脚本的 PowerShell 参数错误导致旧服务未停、短暂重启尝试因原端口占用退出；已核实并清理该尝试留下的两个 Worker，重新启动并检查现只保留正常的一套服务。当前根进程 62168，Vite 61860、API 39368，Worker 36972 / 11196（后续须重新核对）；记录 `.local/data-export/services.json` 和 dev-running 日志。未创建持久测试用户或题目，未运行 TeX、全量/E2E、真实外部 OJ 上传/判题或部署。Hydro 全站配置解析和两站真实交互上传尚未验证；没有环境阻塞。PACKAGES、USER_GUIDE 已同步，检查差异后本地提交，不 push；P7.2/P8 继续暂缓。
+
+## 交互样例仅展示，不进入判题流程（2026-10-03）
+
+**原因与实现：**交互题的题面样例描述双方通信，不能当作 Interactor 的隐藏输入。此前快照把所有启用数据和生成计划一起加入校验、答案与验收，样例文本会触发 Validator 失败或交互双方等待。本轮统一参与判题规则：已保存配置为 INTERACTIVE 时，启用且非样例的数据才参与 Validator、答案生成、Interactor / 解法验收、评分与判题数据导出。样例计划不进入校验、答案和验收，显式 GENERATE 仍允许生成展示样例；已有交互样例也不作为隐藏输入的去重索引。普通批处理题样例行为不变，正式数据及历史样例、题面绑定不删除、不改写。
+
+API 在固定快照时过滤，Worker 在统计步骤、去重、读取文件和执行前再次过滤；无非样例数据/计划时提交前返回清晰提示。交互数据任务携带 `problemforge-interactive-samples-display-only-v1` 策略，旧交互快照要求重新提交当前任务，不通过重试静默替换语义。展示样例内容和样例计划不进入校验/答案/验收依赖哈希，单独修改展示内容不使判题验收失效，出版修订仍完整记录。数据组成员只覆盖判题数据，前端排除交互样例候选，旧组可显式从草稿移除不参与判题成员后保存，不自动重算分数。
+
+Hydro / NovaJudge 测试数据 ZIP、原生 DATA 与 Polygon FULL 判题测试集排除交互样例；从历史验收补入生成输入/答案时同样过滤，避免旧 RunCase 重新带回展示数据。原生 FULL 保留完整样例与历史，STATEMENT 保留绑定样例。前端根据已保存的双向交互配置显示「交互样例 · 仅展示，不参与判题」，样例答案改称示例输出，并在数据页说明隐藏测试不要勾选样例。仅新增 Interactor 程序或选择交互题面模板不会自动切换判题模式，仍需保存「双向交互」。
+
+**实际定向检查：**`pnpm check contracts judge-core problem-format api judge-worker web` 全部通过；`node --import tsx --test scripts/interactive-samples.test.ts scripts/test-data-export.test.ts scripts/generator-dedup.test.ts` 共 14 项通过，覆盖样例/计划筛选、输入生成保留展示用途、普通题行为、依赖哈希、空数据拒绝、Worker 防御过滤、无样例文件读取/执行/计数/矩阵、历史策略拒绝、导出用途和原生成去重回归。默认轻量快查不扩展，`git diff --check` 通过。
+
+`node --import tsx scripts/verify-interactive-samples.ts --rollback --sandbox` 通过：真实 API 路由在原数据库必定回滚事务内保存交互配置与样例，只有样例时校验/答案/验收及两类数据导出均返回 422、零入队；组成员拒绝样例并接受仅隐藏输入的 100 分组。原独立 Linux Judge 实际执行 Validator、双向交互答案和完整验收，三种任务只有非样例 #2，主标程 AC、错误解 WA，验收通过，样例无 Invocation。样例更新不改变验收依赖，旧样例文件仍可读取。固定修订的两种 ZIP 均只有 `2.in` / `2.ans`、Interactor、testlib/许可证和目标配置；专门插入的历史生成样例 RunCase 元数据夹具 #99 未被补入包（该 #99 仅验证历史补入分支，不声称执行过它）。原生 FULL 保留样例。用户/题目/任务/导出/审计夹具全部回滚，存储仅内存，沙箱临时文件清理；证据 `.local/interactive-samples/verification.json`。
+
+**运行环境：**排查时原库没有已保存为 INTERACTIVE 的题目，活动 Build/TestRun 为 0；没有擅自更改用户题型、取消任务或重跑历史验收。为加载修复，在再次确认无活动任务并核对原进程树后重启主目录原 `pnpm dev`，仍用 5180/3100、原数据库/Redis/私有存储及 Linux 沙箱，无迁移、依赖、端口或实例变更。收尾根进程 68592，Vite 65112、API 81256、两个 Worker 59696 / 70152；监听及两个 Worker 均属于该进程树，没有额外 Worker。原 5180 首页返回 200，代理健康接口为 ok。记录 `.local/interactive-samples/services.json`、services-verified.json 及 dev.out/err.log；后续须重新核对 PID。
+
+**未验证与收尾：**本轮未创建持久测试数据，未执行浏览器实际交互操作或现有题目的在线完整验收；UI 完成类型检查，交互流程使用上述真实 API / Linux 回滚夹具验证。未运行 TeX、全量/E2E、外部 OJ 上传或判题、部署或公网发布；现有 Polygon 交互兼容边界不变。无环境阻塞。JUDGE、PACKAGES、USER_GUIDE 和本交接已同步，差异检查后本地 Git 提交，不 push，P7.2/P8 继续暂缓。

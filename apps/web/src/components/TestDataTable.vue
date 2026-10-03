@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { NButton, NCheckbox, NEmpty } from 'naive-ui';
 
-const props = defineProps<{ tests: any[]; writable: boolean; busy: boolean }>();
+const props = defineProps<{ tests: any[]; writable: boolean; busy: boolean; interactive?: boolean }>();
 const emit = defineEmits<{ edit: [test: any]; delete: [tests: any[]]; refresh: [] }>();
 const selectedIds = ref<string[]>([]);
 const selected = computed(() => props.tests.filter(test => selectedIds.value.includes(test.id)));
@@ -29,10 +29,10 @@ function select(id: string, checked: boolean) {
       </tr></thead>
       <tbody><tr v-for="test in tests" :key="test.id">
         <td v-if="writable"><NCheckbox :checked="selectedIds.includes(test.id)" :disabled="busy" :aria-label="`选择数据 #${test.number}`" @update:checked="checked => select(test.id, checked)"/></td>
-        <td>#{{ test.number }} · {{ test.groupName }}<small>{{ test.isSample ? '题面样例' : '私有测试' }}{{ test.enabled ? '' : ' · 已停用' }}</small></td>
+        <td>#{{ test.number }} · {{ test.groupName }}<small>{{ test.isSample ? interactive ? '交互样例 · 仅展示，不参与判题' : '题面样例' : '私有测试' }}{{ test.enabled ? '' : ' · 已停用' }}</small></td>
         <td>
           <a :href="`/api/test-revisions/${test.currentRevision.id}/input`">输入 · {{ test.currentRevision.inputBytes }} bytes</a>
-          <small><a v-if="test.currentRevision.answerHash" :href="`/api/test-revisions/${test.currentRevision.id}/answer`">答案 · {{ test.currentRevision.answerBytes }} bytes</a><span v-else>尚无答案，运行主标程后显式收集</span></small>
+          <small><a v-if="test.currentRevision.answerHash" :href="`/api/test-revisions/${test.currentRevision.id}/answer`">{{ interactive && test.isSample ? '示例输出' : '答案' }} · {{ test.currentRevision.answerBytes }} bytes</a><span v-else>{{ interactive && test.isSample ? '尚未填写示例输出' : '尚无答案，运行主标程后显式收集' }}</span></small>
         </td>
         <td>v{{ test.version }} · {{ test.currentRevision.inputHash.slice(0, 12) }}<small v-if="test.duplicates.length" class="duplicate-warning">重复：{{ test.duplicates.map((duplicate: any) => `#${duplicate.number}`).join('、') }}</small></td>
         <td v-if="writable"><div class="toolbar-right">
