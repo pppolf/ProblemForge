@@ -59,7 +59,11 @@ const programProperties = {
 export const ProgramInput = Type.Object(programProperties, strict);
 export const ProgramUpdateInput = Type.Object({ ...programProperties, expectedVersion: Type.Integer({ minimum: 1 }) }, strict);
 export type ProgramSave = Static<typeof ProgramInput>;
-export const RawBase64 = Type.String({ maxLength: 1_400_000, pattern: '^[A-Za-z0-9+/]*={0,2}$' });
+// One shared bound for generated inputs, saved test files and tool self-tests.
+// Keep within the native problem package's 8 MB per-file allowance.
+export const MAX_TEST_BYTES = 8_000_000;
+export const MAX_TEST_BASE64_LENGTH = Math.ceil(MAX_TEST_BYTES / 3) * 4;
+export const RawBase64 = Type.String({ maxLength: MAX_TEST_BASE64_LENGTH, pattern: '^[A-Za-z0-9+/]*={0,2}$' });
 const testProperties = {
   number: Type.Integer({ minimum: 1, maximum: 100000 }), groupName: Type.String({ pattern: '^[A-Za-z0-9_-]{1,40}$' }),
   isSample: Type.Boolean(), enabled: Type.Boolean(), notes: Type.String({ maxLength: 1000 }), inputBase64: RawBase64,

@@ -32,7 +32,7 @@ export async function counterexampleRoutes(app: Api) {
     const c = await db.runCase.findFirst({ where: { id: req.params.caseId, runId: run.id } });
     const origin = c?.origin as { type?: string } | undefined;
     if (!c?.answerKey || origin?.type !== 'COUNTEREXAMPLE' || !['STRESS', 'REPLAY'].includes(run.purpose)) throw new HttpError(422, '请选择已完成校验和判定的反例');
-    if (c.inputBytes > MAX_TEST_BYTES || c.answerBytes! > MAX_TEST_BYTES) throw new HttpError(422, '反例输入或答案超过正式数据的 1 MiB 限制；原反例保留');
+    if (c.inputBytes > MAX_TEST_BYTES || c.answerBytes! > MAX_TEST_BYTES) throw new HttpError(422, `反例输入或答案超过正式数据的 ${MAX_TEST_BYTES / 1_000_000} MB 限制；原反例保留`);
     const id = await db.$transaction(async tx => {
       await lockProblem(tx, run.problemId);
       if (await currentDependency(run, tx) !== run.dependencyHash) throw new HttpError(409, '反例相关程序或判题配置已改变；请按当前版本重新对拍');

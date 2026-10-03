@@ -1,4 +1,5 @@
 import { fromBuffer, type Entry, type ZipFile } from 'yauzl';
+import { MAX_TEST_BYTES } from '@problemforge/contracts';
 
 export class ArchiveError extends Error {}
 export type ImportedTest = { number: number; input: Buffer; answer: Buffer | null };
@@ -22,12 +23,12 @@ export async function readTestArchive(bytes: Buffer): Promise<ImportedTest[]> {
         if (path.endsWith('/')) { if (path !== 'tests/') throw new ArchiveError('仅支持 tests/ 目录'); zip.readEntry(); return; }
         const match = /^(?:tests\/)?([0-9]{1,6})\.(in|ans)$/.exec(path);
         if (!match || Number(match[1]) < 1 || Number(match[1]) > 100000) throw new ArchiveError(`仅支持 [tests/]编号.in 和 编号.ans：${path}`);
-        if (entry.uncompressedSize > 1_048_576 || total + entry.uncompressedSize > 16_000_000) throw new ArchiveError('ZIP 解压大小超出限制');
+        if (entry.uncompressedSize > MAX_TEST_BYTES || total + entry.uncompressedSize > 16_000_000) throw new ArchiveError('ZIP 解压大小超出限制');
         const stream = await new Promise<NodeJS.ReadableStream>((res, rej) => zip.openReadStream(entry, (err, value) => err ? rej(err) : res(value!)));
         const chunks: Buffer[] = []; let length = 0;
         for await (const chunk of stream as AsyncIterable<Buffer>) {
           length += chunk.length;
-          if (length > 1_048_576 || total + length > 16_000_000) throw new ArchiveError('ZIP 实际解压大小超出限制');
+          if (length > MAX_TEST_BYTES || total + length > 16_000_000) throw new ArchiveError('ZIP 实际解压大小超出限制');
           chunks.push(chunk);
         }
         total += length;

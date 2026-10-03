@@ -595,3 +595,17 @@ testlib 工具只允许 C++（含 C++23），API、任务快照、题包导入�
 经原 5180 代理提交两个真实 Linux Judge 任务：GENERATE `cmus5i5qs0003kti0gkbfuukc` 成功，5/5 步、跳过 3 份、0 新输入；ANSWERS `cmus5i6o20007kti0nedl2pn8` 成功，24/24 步、跳过 3 份、仅 #1～#4 四条 TEST 来源，全部 ACCEPT 且生成答案（14 / 49 / 219 / 3 字节），两任务 warnings 均为空、依赖均有效。浏览器在原 localhost:5180 打开新答案任务，确认一条跳过提示、四条数据和答案下载链接，无 error/warn；验证会话退出、临时标签关闭。没有点击收集、验收或冻结。原题目、四条正式数据及其修订、程序、计划、文稿前后指纹一致。证据为 Git 忽略目录 `.local/generator-dedup/` 的 before/after.json、live-result.json、browser-result.json、report-after.png。
 
 **运行环境 / 未验证：**确认原开发入口无活动任务后，在主目录重启同一 `pnpm dev` 加载 API 与 Worker；沿用原 5180/3100、数据库、Redis、存储、容器和 .env。收尾 Vite PID 72528、API PID 66744，两个 Worker 正常启动；根进程 33424 及日志记于 `.local/generator-dedup/services.json` / dev.out.log，后续重新核对实际进程。未新增端口、实例、测试用户、题目或模板。真实验证限于上述两个任务，完整验收去重由定向 pipeline 检查覆盖，未另跑完整验收/交互/评分/TeX、全量/E2E、部署或发布；固定评分组仍按原规则先收集并停用计划。无阻塞，完成交接后本地提交，不 push，P7.2/P8 继续暂缓。
+
+## 极限输入误触发生成器 OLE 修复（2026-10-03）
+
+**原因与实现：**「连号免单券」的校验任务 `cmus61f7q003ekti02k7e29wx` 在 `gen max 3003` 生成 #4 时失败，Invocation `cmus61fgy003xktfc3qx4qe8o` 的 stdout 被截为 1,048,577 字节。生成器需要输出 200,000 个整数，原执行器却沿用诊断命令的 1 MiB 默认输出上限。现在 contracts 提供统一 `MAX_TEST_BYTES = 8_000_000`，生成器 stdout / copyOutMax、正式输入/答案、前端文件上传、Base64 字段、ZIP 单成员和反例入库均采用 8 MB，与现有原生题包单文件容量一致。API 请求体按两份正式数据或三份自测文件的 Base64 大小计算，避免通过前端后再被旧请求体限制阻挡；appendTest 在新建/更新版本前校验输入和答案上限，包含任务显式收集路径。
+
+主标程/其他解法继续使用题目 `outputLimitBytes`，Validator/Checker 的诊断及 stderr 上限不随数据容量放大；ZIP 总量、私有存储配额和独立 Linux 沙箱边界保留。生成计划及对拍/复现执行策略升级为 `problemforge-judge-generated-input-dedup-v2`，新旧 Worker 不静默改变固定任务的限额；旧任务仍保留，需要按当前版本创建新任务。JUDGE / USER_GUIDE 已同步容量与输出限制区别。
+
+**定向验证：**`pnpm check contracts judge-core api judge-worker web` 通过；`node --import tsx --test scripts/generator-output.test.ts scripts/generator-dedup.test.ts` 的 7 项检查通过，覆盖生成器/确定性复跑的 8 MB 命令、解法限额独立、2.2 MB 极限输入 ZIP 字节保真、超限拒绝及此前去重行为。`pnpm exec tsx scripts/verify-large-test-data.ts --rollback` 通过：真实 API/原库事务内保存和更新两份各 8 MB 输入/答案、拒绝 8 MB + 1 字节、创建/更新三份各 8 MB 工具自测、导入 2.2 MB ZIP 以及收集 8 MB 生成数据。该检查的文件存储用内存替身，生成任务只为事务内元数据夹具，未执行作者程序；夹具用户/题目/任务/审计全部回滚，没有监听端口或提交队列。默认快查未扩展。
+
+**真实 Linux 验证：**复用原题目、gen v2、计划 v1 与 seed=3003，经原 5180 API 提交 VALIDATE `cmus6gq5q0003kt2g4ihlxpdj`，11/11 步成功；ANSWERS `cmus6gr4i0007kt2g692j4wh9`，21/21 步成功。两次 #4 都生成 1,977,573 字节且 SHA-256 一致，下载核对完整 200,000 个合法整数及末尾换行，Validator ACCEPT；答案任务四组均有答案。生成器实际返回 Accepted / AC（约 10–12 ms、3.75 MiB），两任务没有警告。实测前后题目、原正式数据、程序、计划和文稿指纹一致；验证脚本没有收集或改写用户内容。
+
+用户在验证之后自行收集本次答案并提交完整验收 `cmus6i3w8000vkt2gnnj41i5f`。浏览器只读确认新验收 SUCCEEDED / 符合预期、四组 AC、#4 正式输入 1,977,573 字节、跳过三份重复生成输入；原答案任务因已收集产生新数据版本而正确显示历史结果，未回退用户更新。浏览器无 error/warn，临时会话退出、标签关闭。证据 `.local/large-test-data/` 包含 api-result.json、live-result.json、before/after.json、max.in、report-after.png、acceptance-after.png 和 browser-result.json。
+
+**环境 / 未验证 / 收尾：**确认活动任务为 0 后，仅重启主目录同一 `pnpm dev`；保持 5180/3100、原数据库/Redis/私有存储/容器/.env。收尾 Vite PID 68044、API PID 53224，两个 Worker 正常启动，根进程 68056 与日志见 `.local/large-test-data/services.json` / dev.out.log；后续重新核对 PID。本轮没有迁移、安装依赖、调整用户判题配置或缩小极限数据。8 MB 的精确文件边界通过 API 事务检查，真实沙箱实测到上述 1.98 MB；未另跑满 8 MB 沙箱、对拍/交互/TeX、全量/E2E、生产构建或部署。无阻塞，差异检查后本地提交，不 push，P7.2/P8 继续暂缓。

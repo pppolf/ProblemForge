@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { NInput, NButton, NAlert, useMessage } from 'naive-ui';
 import { bytesBase64 } from '../api';
+import { MAX_TEST_BYTES } from '@problemforge/contracts';
 const props = withDefaults(defineProps<{ modelValue: string; label: string; readonly?: boolean }>(), { readonly: false });
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>();
 const input = ref<HTMLInputElement>(); const message = useMessage();
@@ -10,7 +11,7 @@ const text = computed(() => { try { return new TextDecoder('utf-8', { fatal: tru
 function change(value: string) { emit('update:modelValue', bytesBase64(new TextEncoder().encode(value))); }
 async function upload(event: Event) {
   const file = (event.target as HTMLInputElement).files?.[0]; if (!file) return;
-  try { if (file.size > 1_048_576) throw new Error('文件最大 1MiB'); emit('update:modelValue', bytesBase64(new Uint8Array(await file.arrayBuffer()))); }
+  try { if (file.size > MAX_TEST_BYTES) throw new Error(`文件最大 ${MAX_TEST_BYTES / 1_000_000} MB`); emit('update:modelValue', bytesBase64(new Uint8Array(await file.arrayBuffer()))); }
   catch (e) { message.error((e as Error).message); } finally { (event.target as HTMLInputElement).value = ''; }
 }
 </script>

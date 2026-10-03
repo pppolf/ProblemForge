@@ -1,7 +1,7 @@
 import { Type } from '@sinclair/typebox';
 import { randomUUID } from 'node:crypto';
 import {
-  JudgeSettingsInput, defaultJudgeSettings, ProfileInput, ProfileUpdateInput, ProgramInput, ProgramUpdateInput, isCppLanguage,
+  JudgeSettingsInput, defaultJudgeSettings, ProfileInput, ProfileUpdateInput, ProgramInput, ProgramUpdateInput, isCppLanguage, MAX_TEST_BASE64_LENGTH,
   TestCaseInput, TestCaseUpdateInput, TestCasesDeleteInput, TestZipInput, GeneratorPlanInput, GeneratorPlanUpdateInput, ToolSelfTestInput, ToolSelfTestUpdateInput, generatorPlanCommands, generatorPlanProgramIds,
   type ProgramSave, type GeneratorPlanSave, type ToolSelfTestSave, type JudgeSettingsValue, type TestGroupsValue,
 } from '@problemforge/contracts';
@@ -144,14 +144,14 @@ export async function judgeRoutes(app: Api) {
       return deleteTestCases(tx, req.params.id, req.body.tests, req.user.id);
     });
   });
-  app.post('/api/problems/:id/tests', { preHandler: authenticate, bodyLimit: 3_000_000, schema: { params: Id, body: TestCaseInput } }, async req => {
+  app.post('/api/problems/:id/tests', { preHandler: authenticate, bodyLimit: 2 * MAX_TEST_BASE64_LENGTH + 16_384, schema: { params: Id, body: TestCaseInput } }, async req => {
     await problemAccess(req.user, req.params.id, true);
     const { inputBase64, answerBase64, ...data } = req.body;
     const input = await saveBlob(req.params.id, rawBytes(inputBase64)), answer = answerBase64 === null ? null : await saveBlob(req.params.id, rawBytes(answerBase64));
     const id = await db.$transaction(async tx => { await lockProblem(tx, req.params.id); return appendTest(tx, req.params.id, data, input, answer, { type: 'MANUAL_OR_UPLOAD' }); });
     await audit(req.user.id, 'CREATE_TEST', id); return testView(id);
   });
-  app.put('/api/tests/:id', { preHandler: authenticate, bodyLimit: 3_000_000, schema: { params: Id, body: TestCaseUpdateInput } }, async req => {
+  app.put('/api/tests/:id', { preHandler: authenticate, bodyLimit: 2 * MAX_TEST_BASE64_LENGTH + 16_384, schema: { params: Id, body: TestCaseUpdateInput } }, async req => {
     const t = await db.testCase.findUnique({ where: { id: req.params.id } });
     if (!t || t.deletedAt) throw new HttpError(404, '测试数据不存在或已删除'); await problemAccess(req.user, t.problemId, true);
     const { inputBase64, answerBase64, expectedVersion, ...data } = req.body;
@@ -214,7 +214,7 @@ export async function judgeRoutes(app: Api) {
   app.get('/api/problems/:id/self-tests', { preHandler: authenticate, schema: { params: Id } }, async req => {
     await problemAccess(req.user, req.params.id); return db.toolSelfTest.findMany({ where: { problemId: req.params.id }, orderBy: { createdAt: 'asc' } });
   });
-  app.post('/api/problems/:id/self-tests', { preHandler: authenticate, bodyLimit: 5_000_000, schema: { params: Id, body: ToolSelfTestInput } }, async req => {
+  app.post('/api/problems/:id/self-tests', { preHandler: authenticate, bodyLimit: 3 * MAX_TEST_BASE64_LENGTH + 16_384, schema: { params: Id, body: ToolSelfTestInput } }, async req => {
     await problemAccess(req.user, req.params.id, true); const data = await selfTestData(req.params.id, req.body);
     const result = await db.$transaction(async tx => {
       await lockProblem(tx, req.params.id);
@@ -225,7 +225,7 @@ export async function judgeRoutes(app: Api) {
     });
     await audit(req.user.id, 'CREATE_TOOL_SELF_TEST', result.id); return result;
   });
-  app.put('/api/self-tests/:id', { preHandler: authenticate, bodyLimit: 5_000_000, schema: { params: Id, body: ToolSelfTestUpdateInput } }, async req => {
+  app.put('/api/self-tests/:id', { preHandler: authenticate, bodyLimit: 3 * MAX_TEST_BASE64_LENGTH + 16_384, schema: { params: Id, body: ToolSelfTestUpdateInput } }, async req => {
     const t = await db.toolSelfTest.findUnique({ where: { id: req.params.id } });
     if (!t) throw new HttpError(404, '自测不存在'); await problemAccess(req.user, t.problemId, true);
     const { expectedVersion, ...body } = req.body, data = await selfTestData(t.problemId, body);

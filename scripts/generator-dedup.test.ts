@@ -95,7 +95,7 @@ test('deduplication retains determinism checks and cannot hide conflicting saved
 });
 
 test('old generation policy is rejected instead of silently changing a fixed snapshot', async () => {
-  for (const policy of [JUDGE_POLICY, GENERATOR_COMMAND_POLICY]) {
+  for (const policy of [JUDGE_POLICY, GENERATOR_COMMAND_POLICY, 'problemforge-judge-generated-input-dedup-v1']) {
     const input = fixture(); input.policy = policy;
     await assert.rejects(execute(input), (error: any) => error.code === 'TOOLCHAIN_MISMATCH');
   }

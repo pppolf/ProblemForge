@@ -49,7 +49,7 @@ export async function judgeSnapshot(tx: Prisma.TransactionClient, problemId: str
   if (['ANSWERS', 'ACCEPTANCE', 'STRESS', 'REPLAY'].includes(purpose)) Object.assign(scopedSettings, settings);
   else if (purpose === 'SELF_TEST') Object.assign(scopedSettings, { checkerMode: settings.checkerMode, absoluteTolerance: settings.absoluteTolerance, relativeTolerance: settings.relativeTolerance });
   return {
-    problemId, purpose, ...(programId ? { programId } : {}), budgetMs: stressData?.budgetMs ?? budgetMs, policy: plans.length ? GENERATOR_DEDUP_POLICY : JUDGE_POLICY, toolchain: JUDGE_TOOLCHAIN, sandboxVersion: GO_JUDGE_VERSION,
+    problemId, purpose, ...(programId ? { programId } : {}), budgetMs: stressData?.budgetMs ?? budgetMs, policy: plans.length || stressData ? GENERATOR_DEDUP_POLICY : JUDGE_POLICY, toolchain: JUDGE_TOOLCHAIN, sandboxVersion: GO_JUDGE_VERSION,
     ...(stress ? { stress: { version: stress.version, hash: stress.hash, data: stressData! } } : {}),
     ...(groupConfig && !stressData ? { groups: { version: groupConfig.version, hash: groupConfig.hash, data: groupData! } } : {}),
     ...(stressGroups ? { stressGroups } : {}),

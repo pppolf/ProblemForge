@@ -1,10 +1,10 @@
 import { db, Prisma } from '@problemforge/database';
 import { HttpError, sha256 } from '@problemforge/domain';
-import type { TestCaseSave } from '@problemforge/contracts';
+import { MAX_TEST_BYTES, type TestCaseSave } from '@problemforge/contracts';
 import type { BlobRef } from '@problemforge/judge-core';
 import { storage } from '../app.ts';
 
-export const MAX_TEST_BYTES = 1_048_576;
+export { MAX_TEST_BYTES } from '@problemforge/contracts';
 export function rawBytes(base64: string, maxBytes = MAX_TEST_BYTES) {
   const bytes = Buffer.from(base64, 'base64');
   if (bytes.length > maxBytes || bytes.toString('base64') !== base64) throw new HttpError(422, `数据必须为规范 Base64，最大 ${maxBytes} 字节；不会 trim 或转换换行`);
@@ -19,6 +19,7 @@ export async function lockProblem(tx: Prisma.TransactionClient, id: string) {
 }
 export async function touchProblem(tx: Prisma.TransactionClient, id: string) { await tx.problem.update({ where: { id }, data: { updatedAt: new Date() } }); }
 export async function appendTest(tx: Prisma.TransactionClient, problemId: string, data: Omit<TestCaseSave, 'inputBase64' | 'answerBase64'>, input: BlobRef, answer: BlobRef | null, provenance: Prisma.InputJsonValue, existing?: { id: string; version: number }) {
+  if (input.bytes > MAX_TEST_BYTES || (answer?.bytes ?? 0) > MAX_TEST_BYTES) throw new HttpError(422, `单份输入或答案最大 ${MAX_TEST_BYTES / 1_000_000} MB`);
   let testId: string, version: number;
   if (existing) {
     const updated = await tx.testCase.updateMany({ where: { id: existing.id, problemId, deletedAt: null, version: existing.version }, data: { number: data.number, groupName: data.groupName, isSample: data.isSample, enabled: data.enabled, notes: data.notes, version: { increment: 1 } } });

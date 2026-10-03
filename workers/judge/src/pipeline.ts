@@ -19,7 +19,7 @@ export type Report = {
 };
 export async function pipeline(runId: string, input: JudgeSnapshot, executor: Executor, report: Report) {
   const settings = { ...defaultJudgeSettings, ...input.settings } as JudgeSettingsValue;
-  const policy = input.plans.length ? GENERATOR_DEDUP_POLICY : JUDGE_POLICY;
+  const policy = input.plans.length || input.stress ? GENERATOR_DEDUP_POLICY : JUDGE_POLICY;
   if (input.policy !== policy || input.toolchain !== JUDGE_TOOLCHAIN || input.sandboxVersion !== GO_JUDGE_VERSION) throw new JudgeFailure('TOOLCHAIN_MISMATCH', '任务策略/工具链已改变，请创建新任务');
   if (settings.interactionMode === 'INTERACTIVE' && input.interactionPolicy !== INTERACTION_POLICY) throw new JudgeFailure('INTERACTION_POLICY_MISMATCH', '交互策略已改变，请创建新任务');
   for (const p of input.programs) if (sha256(p.source) !== p.sourceHash || hashObject({ language: p.profile.language, config: p.profile.config }) !== p.profile.hash) throw new JudgeFailure('SOURCE_HASH_MISMATCH', '源码或编译 profile 快照哈希不匹配');

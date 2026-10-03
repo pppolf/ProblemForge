@@ -4,7 +4,7 @@ import { sha256, hashObject } from '@problemforge/domain';
 import type { PrivateFileStorage } from '@problemforge/storage';
 import { SandboxClient, InfrastructureError, GO_JUDGE_VERSION, type SandboxCommand, type SandboxResult } from '@problemforge/judge-adapter';
 import { JUDGE_POLICY, JUDGE_TOOLCHAIN, TESTLIB_HASH, checkerVerdict, executionVerdict, validatorVerdict, testlibRoles, type BlobRef, type ProgramSnapshot } from '@problemforge/judge-core';
-import { isCppLanguage, type JudgeSettingsValue } from '@problemforge/contracts';
+import { isCppLanguage, MAX_TEST_BYTES, type JudgeSettingsValue } from '@problemforge/contracts';
 import { runInteraction } from './interaction.ts';
 import { compilePlan, runtimeArgs } from './languages.ts';
 
@@ -120,7 +120,7 @@ export class Executor {
     return command;
   }
   async generate(compiled: Compiled, argv: string[], seed: string, caseRef: string, repeat = false) {
-    const cmd = this.programCommand(compiled, [...argv, seed]);
+    const cmd = this.programCommand(compiled, [...argv, seed], 2000, 256, MAX_TEST_BYTES);
     cmd.env = [...env, `PF_SEED=${seed}`];
     return this.capture(compiled.program, cmd, repeat ? 'GENERATOR_REPEAT' : 'GENERATOR', { caseRef });
   }
