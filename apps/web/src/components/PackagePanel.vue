@@ -5,25 +5,27 @@ import { api } from '../api';
 const props = defineProps<{ scope: 'problems' | 'contests'; id: string; owner: boolean; hasUnsaved?: boolean }>();
 const message = useMessage(), dialog = useDialog();
 const revisions = ref<any[]>([]), exports = ref<any[]>([]), releases = ref<any[]>([]);
-const revisionId = ref<string | null>(null), purpose = ref('STATEMENT'), format = ref('NATIVE'), busy = ref(false), selected = ref<any>();
+const revisionId = ref<string | null>(props.scope === 'contests' ? 'LATEST' : null), purpose = ref('STATEMENT'), format = ref('NATIVE'), busy = ref(false), selected = ref<any>();
+const contestVersion = ref<number>(), contestWritable = ref(false);
 const dataTarget = ref('HYDRO'), dataSource = ref('WORKING');
 const targets = [{ label: 'Hydro', value: 'HYDRO' }, { label: 'NovaJudge', value: 'NOVAJUDGE' }];
 const purposes = [{ label: '题面（含引用样例与图片）', value: 'STATEMENT' }, { label: '文档题解', value: 'EDITORIAL_DOCUMENT' }, { label: 'Beamer 题解', value: 'EDITORIAL_BEAMER' }, { label: '正式数据与判题工具', value: 'DATA' }, { label: '参考解源码', value: 'REFERENCE' }, { label: '完整题目包', value: 'FULL' }];
-const revisionOptions = computed(() => revisions.value.map(r => ({ label: `#${r.number} ${r.label ?? ''}${r.current ? ' · 当前' : ''}`, value: r.id })));
+const revisionOptions = computed(() => [...(props.scope === 'contests' ? [{ label: '最新题目内容（自动同步）', value: 'LATEST' }] : []), ...revisions.value.map(r => ({ label: `#${r.number} ${r.label ?? ''}${r.current ? ' · 当前' : ' · 历史'}`, value: r.id }))]);
 const dataOptions = computed(() => [{ label: '当前已保存的数据', value: 'WORKING' }, ...revisionOptions.value]);
 const blocked = computed(() => selected.value?.report.some((r: any) => r.status === 'BLOCKED'));
 const isDataExport = (e: any) => ['HYDRO_DATA', 'NOVAJUDGE_DATA'].includes(e?.format);
 function exportLabel(e: any) { return isDataExport(e) ? `${e.format === 'HYDRO_DATA' ? 'Hydro' : 'NovaJudge'} · 测试数据 ZIP` : `${e.format} · ${purposes.find(p => p.value === e.purpose)?.label}`; }
 async function act(fn: () => Promise<void>) { busy.value = true; try { await fn(); } catch (e) { message.error((e as Error).message); } finally { busy.value = false; } }
 async function load() {
-  revisions.value = props.scope === 'contests' ? (await api(`/contests/${props.id}`)).revisions : await api(`/problems/${props.id}/revisions`);
+  if (props.scope === 'contests') { const contest = await api(`/contests/${props.id}`); revisions.value = contest.revisions; contestVersion.value = contest.version; contestWritable.value = ['OWNER', 'EDITOR'].includes(contest.role); }
+  else revisions.value = await api(`/problems/${props.id}/revisions`);
   exports.value = await api(`/${props.scope}/${props.id}/exports`);
   releases.value = await api(`/${props.scope}/${props.id}/releases`);
   if (!revisionId.value) revisionId.value = revisions.value[0]?.id ?? null;
 }
 onMounted(() => act(load));
 async function generate() { await act(async () => {
-  selected.value = await api(`/${props.scope}/${props.id}/exports`, { method: 'POST', body: JSON.stringify({ revisionId: revisionId.value, purpose: purpose.value, format: format.value }) });
+  selected.value = await api(`/${props.scope}/${props.id}/exports`, { method: 'POST', body: JSON.stringify({ ...(props.scope === 'contests' && revisionId.value === 'LATEST' ? { expectedVersion: contestVersion.value } : { revisionId: revisionId.value }), purpose: purpose.value, format: format.value }) });
   await load(); message.success('题包已生成，查看兼容报告后下载');
 }); }
 async function generateData() { await act(async () => {
@@ -46,12 +48,12 @@ async function revoke(id: string) { await act(async () => { await api(`/releases
       <small v-else>可直接导出已保存的数据，无需先冻结。生成后会显示目标平台的上传说明。</small>
     </section>
     <h3>题目包</h3>
-    <p>按用途选择固定修订。原生完整包用于工作副本往返；Polygon 为离线子集，兼容报告逐项列出需处理内容。</p>
+    <p>{{scope === 'contests' ? '默认导出题目最新保存的内容，也可选择历史冻结版本。' : '按用途选择固定修订。'}}原生完整包用于工作副本往返；Polygon 为离线子集，兼容报告逐项列出需处理内容。</p>
     <div class="p4-toolbar">
       <NSelect v-model:value="revisionId" :options="revisionOptions" placeholder="先保存修订 / 冻结比赛" />
       <NSelect v-model:value="purpose" :options="purposes" />
       <NSelect v-model:value="format" :options="[{ label: 'ProblemForge 原生 v1', value: 'NATIVE' }, { label: 'Polygon 离线子集', value: 'POLYGON' }]" />
-      <NButton type="primary" :loading="busy" :disabled="!revisionId || busy" @click="generate">生成题包</NButton>
+      <NButton type="primary" :loading="busy" :disabled="!revisionId || busy || (scope === 'contests' && revisionId === 'LATEST' && (hasUnsaved || !contestWritable))" @click="generate">生成题包</NButton>
       <NButton :disabled="busy" @click="act(load)">刷新</NButton>
     </div>
     <NAlert v-if="scope === 'problems'" type="info">正式发布题目包需要当前工作副本对应的已冻结修订。私有导出不要求冻结。</NAlert>

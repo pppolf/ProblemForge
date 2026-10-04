@@ -672,3 +672,17 @@ Hydro config.yaml 改用常规缩进 YAML，工具编译说明同步 `lang: auto
 `node --import tsx scripts/verify-test-data-export.ts --rollback` 通过真实 API / 原库回滚事务，两站当前数据与固定修订四个交互 ZIP 均下载并解析；Hydro 明确检查 auto、subtasks 单组和 output 空流，NovaJudge 保持原结构，夹具全部回滚、存储仅内存、零入队任务。证据复制至 `.local/hydro-interactive-config/verification.json`。`verify-interactive-samples.ts` 的解析和期望同步，本轮没有重新运行其沙箱判题部分。未执行浏览器、作者程序、Judge / TeX、全量/E2E 或外部 OJ 上传/判题，未部署或访问用户其他项目；没有将本地格式检查称为 Hydro 实站验收。
 
 **运行环境与收尾：**再次核对原主目录进程树并确认无活动 Build/TestRun 后，重启原 `pnpm dev` 加载后端。原 5180/3100、数据库/Redis/存储/沙箱保持不变，无迁移或新增实例；新根进程 74336，Vite 62248、API 42944，两个 Worker 58496 / 81916，均属于同一进程树且无多余 Worker。首页 200、代理健康 ok、stderr 为空。证据 `.local/hydro-interactive-config/previous-processes.json`、services.json、services-verified.json、dev.out/err.log，后续重新核对 PID。差异检查通过后本地 Git 提交，不 push；无阻塞，P7.2/P8 继续暂缓。
+
+## 比赛自动同步题目最新保存内容（2026-10-04）
+
+**用户要求与原因：**用户反馈题目修改后，已加入比赛的内容仍停留在旧版本，要求比赛自动同步。原 ContestData 永久绑定加入时的 ProblemRevision，完整性、冻结和出版均读取旧清单。本轮将比赛工作编排改为关联源题 ID，读取最新已保存工作副本；兼容已有 JSON 中的 revisionId，在读取与后续保存时归一化，无需数据库迁移、移出重加或批量改写现有比赛。比赛自己的题号、顺序、语言与三类模板绑定仍由编排保存。
+
+**实现：**新增共享 contest-snapshot 模块，使用一致事务读取完整源题清单；最新名称、文稿、样例绑定、设置、程序、数据与资源进入新快照。编排页面移除冻结修订选择，显示自动同步，打开时、前台约每 10 秒及窗口重新获得焦点时更新来源信息，刷新不覆盖本地未保存编排。资料和题包默认「最新题目内容（自动同步）」，API 在生成前校验 expectedVersion，在 Serializable 事务中检查当前成功验收、所选语言题面、正文策略与固定模板，再保存不可变 ContestRevision；相同快照复用。最新快照使用 WORKING:内容哈希标识来源，不自动创建或改动源题修订。题面、文档题解、Beamer 保持独立任务和显式子集；历史来源仍可明确选择。
+
+比赛负责人或编辑可生成最新材料；手动冻结、公开发布继续限定负责人，加入新源题仍检查源题访问权，比赛成员不获得源题编辑权。比赛修订、构建列表/详情和 PDF / 题包新建发布的当前性同时比较编排与全部源题内容哈希，源题修改后旧产物标为历史，拒绝当作当前材料新建发布。已有冻结清单、PDF、ZIP 与已发布链接不改写；程序/数据/限制修改后仍需成功验收，仅文稿修改可复用匹配验收。任务书、计划、README、架构、题包和两份使用指引同步新行为。
+
+**实际定向验证：**`pnpm check contracts api web` 通过，最后网页指引文字更新后 `pnpm check web` 再次通过。新增显式 `node --import tsx scripts/verify-contest-sync.ts --rollback` 并通过真实 Fastify 路由 / 原库必定回滚事务：覆盖旧固定引用与新比赛同步、同题在两场比赛的标题更新、三种文稿最新构建输入、关闭/缺失稿件、名称/标签/备注/负责人、修改限制与程序后验收失效及重新匹配、重新绑定的样例字节、当前题包下载、重复快照复用、旧快照/构建输入/下载不变、草稿选题与缺验收拒绝、源题缺失、版本冲突、CSRF、无权访问/加入、比赛编辑与源题权限隔离、撤销比赛权限以及过期 PDF/ZIP 发布拒绝。队列 add 与文件存储只用内存替身，成功验收及成功构建是明确标注的终态元数据夹具，**未声称执行 Judge 或 TeX**；用户、题目、比赛、修订、任务、导出、发布与审计夹具全部回滚，零真实入队任务。证据 `.local/contest-sync/verification.json`，默认 test/test:quick 不变。
+
+**原环境在线与浏览器验证：**经原 5180 使用原独立管理员登录，读取现有「CWNU算协挑战赛」的 5 道题，每项标题和内容哈希与源题当前快照一致；4 个历史冻结版本与 4 次题册构建全部正确标为历史。缺少编排版本的最新构建请求返回 400，未创建冻结版本或任务。浏览器实看原比赛，确认全部自动同步提示、三类资料与题包默认最新来源、旧任务历史标记；临时编辑署名后刷新信息，本地输入仍在且构建按钮停用，随后放弃临时输入，未点击保存。最新题包按钮正常可用，浏览器无 warn/error。两个验证登录均退出，临时标签关闭；没有点击真实生成、导出、冻结或发布。证据 live-check.json、browser-result.json、arrange/materials/packages.png。原 5 道题完整快照哈希、比赛原 JSON/编排 v8 和全部模板版本指纹前后一致，活动 Build/TestRun 均为 0（before/after.json）。
+
+**服务与未验证：**核对原开发进程树、确认无活动任务后，仅重启主目录同一 `pnpm dev` 加载 API。继续原 5180/3100、原数据库/Redis/存储/沙箱，无新增端口、实例、依赖或迁移。当前根进程 82132，Vite 65668、API 18840，两个 Worker 82432 / 70508，监听与 Worker 均属于该进程树且无多余服务；首页 HTTP 200、代理健康 ok、stderr 为空。服务记录 `.local/contest-sync/services.json`、services-verified.json 与 dev.out/err.log，后续重新核对实际 PID。本轮未新增真实 PDF、Judge 验收、全量/E2E、生产构建、外部 OJ 操作、部署或公网发布；快照组装正确性由路由回滚检查覆盖，既有渲染器与 Linux 隔离执行代码未改。无阻塞，差异检查后本地提交，不 push，P7.2/P8 继续暂缓。

@@ -1,10 +1,11 @@
 import { Type } from '@sinclair/typebox';
-import { ReleaseInput } from '@problemforge/contracts';
+import { ReleaseInput, type ContestDataValue } from '@problemforge/contracts';
 import { db } from '@problemforge/database';
 import { contestAccess, problemAccess, hashObject, token, HttpError, audit } from '@problemforge/domain';
 import { authenticate, storage, type Api } from '../app.ts';
 import { owner } from './members.ts';
 import { problemSnapshot } from './revision-snapshot.ts';
+import { contestSources, contestRevisionCurrent } from './contest-snapshot.ts';
 const Id=Type.Object({id:Type.String()});
 export async function releaseRoutes(app:Api){
   for(const scope of ['problems','contests'] as const){const contest=scope==='contests';
@@ -26,17 +27,17 @@ export async function releaseRoutes(app:Api){
         const b=await tx.build.findUnique({where:{id:req.body.buildId},include:{artifacts:true}});const c=await tx.contest.findUniqueOrThrow({where:{id:req.params.id}});
         const r=b?.contestRevisionId?await tx.contestRevision.findUnique({where:{id:b.contestRevisionId}}):null;
         const tv=b?await tx.templateVersion.findUnique({where:{id:b.templateVersionId}}):null;
-        if(!b||b.contestId!==c.id||b.state!=='SUCCEEDED'||!b.artifacts.length||!r||hashObject((r.data as unknown as {selection:unknown}).selection)!==hashObject(c.data)||tv?.state==='REVOKED')throw new HttpError(409,'只能发布与当前选定冻结清单匹配的成功构建');
+        if(!b||b.contestId!==c.id||b.state!=='SUCCEEDED'||!b.artifacts.length||!r||!contestRevisionCurrent(r,c.data as ContestDataValue,await contestSources(tx,c.data as ContestDataValue))||tv?.state==='REVOKED')throw new HttpError(409,'只能发布与比赛及题目最新内容匹配的成功构建，请重新生成资料');
         purpose=b.kind;artifactId=b.artifacts[0].id;
       }else{
         const e=await tx.exportArtifact.findUnique({where:{id:req.body.exportId}});if(!e||(contest?e.contestId:e.problemId)!==req.params.id||!['NATIVE','POLYGON'].includes(e.format))throw new HttpError(404,'导出包不存在');
         if(Array.isArray(e.report)&&e.report.some(i=>i&&typeof i==='object'&&!Array.isArray(i)&&i.status==='BLOCKED'))throw new HttpError(409,'兼容报告含未解决的判题语义项，只能私下下载处理，不能正式发布');
-        if(contest){const c=await tx.contest.findUniqueOrThrow({where:{id:req.params.id}});const r=await tx.contestRevision.findUnique({where:{id:e.revisionId}});if(!r||hashObject((r.data as unknown as {selection:unknown}).selection)!==hashObject(c.data))throw new HttpError(409,'导出包与当前比赛清单不一致');}
+        if(contest){const c=await tx.contest.findUniqueOrThrow({where:{id:req.params.id}});const r=await tx.contestRevision.findUnique({where:{id:e.revisionId}});if(!r||!contestRevisionCurrent(r,c.data as ContestDataValue,await contestSources(tx,c.data as ContestDataValue)))throw new HttpError(409,'导出包与比赛及题目最新内容不一致，请重新生成题包');}
         else {const r=await tx.problemRevision.findUnique({where:{id:e.revisionId}});if(!r||r.state!=='FROZEN')throw new HttpError(409,'正式发布题目包需要已冻结修订');if((await problemSnapshot(tx,req.params.id)).hash!==r.hash)throw new HttpError(409,'导出包与当前工作副本不一致，请重新固定修订');}
         purpose=e.purpose;exportId=e.id;
       }
       return tx.release.create({data:{...(contest?{contestId:req.params.id}:{problemId:req.params.id}),purpose,artifactId,exportId,token:token()}});
-      },{isolationLevel:'Serializable'});await audit(req.user.id,'PUBLISH_MATERIAL',release.id,{purpose:release.purpose});return release;
+      },{isolationLevel:'Serializable',timeout:30000});await audit(req.user.id,'PUBLISH_MATERIAL',release.id,{purpose:release.purpose});return release;
     });
   }
   app.post('/api/releases/:id/revoke',{preHandler:authenticate,schema:{params:Id}},async req=>{

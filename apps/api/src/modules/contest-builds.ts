@@ -7,12 +7,13 @@ import { CONTEST_RENDERER_VERSION, POLICY_VERSION, TEX_PROFILE, SAMPLE_RENDERER_
 import { GO_JUDGE_VERSION } from '@problemforge/judge-adapter';
 import { authenticate, type Api } from '../app.ts';
 import { contestRevision } from './contests.ts';
+import { currentContestRevision, currentContestRevisionIds } from './contest-snapshot.ts';
 import { scheduleBuild } from './builds.ts';
 const Id=Type.Object({id:Type.String()});
 export function bundleState(states:string[]){if(states.some(s=>s==='RUNNING'))return 'RUNNING';if(states.some(s=>s==='QUEUED'))return 'QUEUED';if(states.every(s=>s==='SUCCEEDED'))return 'SUCCEEDED';if(states.some(s=>s==='SUCCEEDED'))return 'PARTIAL_FAILED';return states.every(s=>s==='CANCELED')?'CANCELED':'FAILED';}
 export async function contestBuildRoutes(app:Api){
   app.post('/api/contests/:id/builds',{preHandler:authenticate,schema:{params:Id,body:ContestBuildInput}},async req=>{
-    const {revision,snapshot}=await contestRevision(req.user,req.params.id,req.body.revisionId,true);
+    const {revision,snapshot}=req.body.revisionId?await contestRevision(req.user,req.params.id,req.body.revisionId,true):await currentContestRevision(req.user,req.params.id,req.body.expectedVersion);
     const selected=req.body.subset?snapshot.selection.items.filter(i=>req.body.subset!.includes(i.problemId)):snapshot.selection.items;
     if(!selected.length||req.body.subset&&selected.length!==req.body.subset.length)throw new HttpError(422,'子集必须明确选择冻结清单中的题目');
     const missing=[];
@@ -51,9 +52,9 @@ export async function contestBuildRoutes(app:Api){
     });for(const b of builds)await scheduleBuild(b.id);await audit(req.user.id,'BUILD_CONTEST',revision.id,{bundleId,kinds:req.body.kinds,subset:req.body.subset??null});return {bundleId,builds};
   });
   app.get('/api/contests/:id/builds',{preHandler:authenticate,schema:{params:Id}},async req=>{
-    await contestAccess(req.user,req.params.id);const c=await db.contest.findUniqueOrThrow({where:{id:req.params.id}});const revisions=await db.contestRevision.findMany({where:{contestId:c.id}});
-    const builds=await db.build.findMany({where:{contestId:c.id},include:{artifacts:true},orderBy:{createdAt:'desc'},take:100});
-    const rows=builds.map(b=>{const frozen=revisions.find(r=>r.id===b.contestRevisionId);const input=b.input as Record<string,unknown>;return {...b,input:{contentVersion:input.contentVersion,templateNumber:input.templateNumber,explicitSubset:input.explicitSubset,selectedProblemIds:input.selectedProblemIds},stale:!frozen||hashObject((frozen.data as unknown as {selection:unknown}).selection)!==hashObject(c.data)};});
+    await contestAccess(req.user,req.params.id);
+    const {current,builds}=await db.$transaction(async tx=>({current:await currentContestRevisionIds(tx,req.params.id),builds:await tx.build.findMany({where:{contestId:req.params.id},include:{artifacts:true},orderBy:{createdAt:'desc'},take:100})}),{isolationLevel:'RepeatableRead',timeout:30000});
+    const rows=builds.map(b=>{const input=b.input as Record<string,unknown>;return {...b,input:{contentVersion:input.contentVersion,templateNumber:input.templateNumber,explicitSubset:input.explicitSubset,selectedProblemIds:input.selectedProblemIds},stale:!b.contestRevisionId||!current.has(b.contestRevisionId)};});
     const bundles=[...new Set(rows.map(b=>b.bundleId))].map(id=>{const children=rows.filter(b=>b.bundleId===id);const latest=children.filter((b,i)=>children.findIndex(x=>x.kind===b.kind)===i);return {id,state:bundleState(latest.map(b=>b.state)),builds:children};});return bundles;
   });
 }

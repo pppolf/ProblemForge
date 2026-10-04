@@ -6,6 +6,7 @@ import { validateBody, templateLanguages, printableSample, POLICY_VERSION, TEX_P
 import { GO_JUDGE_VERSION } from '@problemforge/judge-adapter';
 import { admin, authenticate, storage, type Api } from '../app.ts';
 import { assetPath } from './assets.ts';
+import { currentContestRevisionIds } from './contest-snapshot.ts';
 
 const Id = Type.Object({ id: Type.String() });
 const queue = texQueue();
@@ -34,7 +35,7 @@ async function writeAccess(req:{user:{id:string;role:string}},build:Build){
   else if(build.problemId)await problemAccess(req.user,build.problemId,true);
 }
 async function staleBuild(build:Build){
-  if(build.contestId){const [contest,revision]=await Promise.all([db.contest.findUnique({where:{id:build.contestId}}),build.contestRevisionId?db.contestRevision.findUnique({where:{id:build.contestRevisionId}}):null]);return !contest||!revision||hashObject((revision.data as unknown as {selection:unknown}).selection)!==hashObject(contest.data);}
+  if(build.contestId){const current=await db.$transaction(tx=>currentContestRevisionIds(tx,build.contestId!),{isolationLevel:'RepeatableRead',timeout:30000});return !build.contestRevisionId||!current.has(build.contestRevisionId);}
   const doc=build.documentId?await db.document.findUnique({where:{id:build.documentId}}):null;
   return !!doc&&(doc.currentRevisionId!==build.revisionId||doc.templateVersionId!==build.templateVersionId||!doc.enabled);
 }
