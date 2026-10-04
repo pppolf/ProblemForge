@@ -21,6 +21,10 @@ C++23 使用现有 GCC 12，支持范围以 [GCC 官方状态表](https://gcc.gn
 
 testlib 的 Validator / 额外 Validator / Checker / Interactor 只使用 C++ profile（含 C++23）；C、Java 和 Python 可用于解法及生成器。API、导入与执行器均检查该约束。新建程序切换语言会替换尚未修改的初始样板，已编写源码保留；编辑器分别使用 C / C++ / Java / Python 高亮。
 
+程序编辑器的「写法参考」提供 8 类模板：A+B 读写框架、随机数组、随机排列、数组 Validator、整数答案 Checker、多解构造 Checker、单轮 Interactor 和配套交互解法，共 13 份语言实现。按角色与当前语言筛选，C++ 工具及生成器均由现有执行器提供固定 testlib.h。每项附接口解释和可用的命令/输入输出示例；交互示例采用 DIRECT 判定，并说明双向交互配置和刷新输出。模板为前端参考代码，不改变管理员 profile、任务快照或执行权限。预览不改源码，显式填入仅更新草稿；已保存程序及作者已写源码需确认替换，再由原保存流程生成不可变版本。
+
+模板保护与语言筛选可显式执行 `node --import tsx --test scripts/program-templates.test.ts`。`node --import tsx scripts/verify-program-templates.ts --sandbox` 在原独立 Linux Judge 沙箱用生产编译计划编译全部 13 份实现，检查解法读写、生成器种子复现与范围、Validator 拒绝语义、Checker 的 AC/WA/PE 和 C++/Python 双向交互；没有数据库写入或任务入队，沙箱缓存最后清理。两个入口均不加入默认轻量快查，沙箱不可用时失败。
+
 新工具链标识与 `pf-compile-2` 缓存策略使旧编译缓存失效，不改写历史 profile、任务或产物。旧工具链快照须重新提交当前任务，不能通过重试把旧快照静默换成新工具链。
 
 ## 程序与数据版本

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
-import { NButton, NTabs, NTab, NSelect, NInput, NInputNumber, NFormItem, NCheckbox, NTag, NAlert, NModal, NEmpty, NSpin, useMessage } from 'naive-ui';
+import { NButton, NTabs, NTab, NSelect, NInput, NInputNumber, NFormItem, NCheckbox, NTag, NAlert, NModal, NEmpty, NSpin, useMessage, useDialog } from 'naive-ui';
 import { programRoles, programRoleLabels, verdicts, judgePurposeLabels, type JudgePurpose, type ProgramRole, defaultJudgeSettings, parseGeneratorCommands, formatGeneratorCommands, generatorPlanCommands } from '@problemforge/contracts';
 import { useTaskEvents } from '../task-events';
 import { api, binaryFile, bytesBase64 } from '../api';
@@ -17,10 +17,12 @@ import EditorFeedback from './EditorFeedback.vue';
 import { snapshot, mergeSaved, downloadDraft, draftSignature } from '../draft-state';
 import { rememberedChoice } from '../editor-navigation';
 import { programStarters, programEditorLanguages } from '../program-languages';
+import ProgramTemplateGuide from './ProgramTemplateGuide.vue';
+import { templateSource, needsTemplateReplacementConfirmation, type ProgramTemplate } from '../program-templates';
 import { isCppLanguage, type ProgramLanguage } from '@problemforge/contracts';
 const props = defineProps<{ problemId: string; writable: boolean }>();
 const emit = defineEmits<{ dirty: [value: boolean]; dataChanged: []; settingsSaved: [] }>();
-const message = useMessage();
+const message = useMessage(), dialog = useDialog();
 const stressDirty = ref(false), groupsDirty = ref(false), groupConfig = ref<any>({ data: { groups: [] } });
 const tab = rememberedChoice('judge-tab','programs',['programs','settings','data','selftests','acceptance','stress','groups']), loaded = ref(false), busy = ref(false);
 const programError = ref(''), lastProgram = rememberedChoice<string>('program','');
@@ -78,6 +80,24 @@ function selectProgram(id?: string) {
   programError.value=''; if(p)lastProgram.value=p.id;
 }
 function roleChanged(role: ProgramRole) { programDraft.value.expectedScore = null; programDraft.value.validatorScope = 'GLOBAL'; programDraft.value.expectedVerdicts = [role === 'WRONG_SOLUTION' ? 'WA' : role === 'TIME_LIMIT_SOLUTION' ? 'TLE' : 'AC']; }
+function applyProgramTemplate(template: ProgramTemplate) {
+  const draft = programDraft.value, language = selectedLanguage.value;
+  if (!draft || !props.writable || busy.value || !template.roles.includes(draft.role)) return;
+  const source = templateSource(template, language);
+  if (!source) return;
+  const previousSource = draft.source, previousRole = draft.role;
+  const apply = () => {
+    if (programDraft.value !== draft || draft.source !== previousSource || draft.role !== previousRole || selectedLanguage.value !== language || busy.value || !props.writable) {
+      message.warning('编辑内容已改变，请重新选择模板'); return;
+    }
+    draft.source = source;
+    if (!draft.name.trim()) draft.name = template.suggestedName;
+    message.success('模板已填入草稿，请按题意修改后保存程序');
+  };
+  if (needsTemplateReplacementConfirmation(draft.source, language, !!draft.id)) {
+    dialog.warning({ title: '替换当前代码？', content: `将用「${template.title}」替换编辑器中的代码。保存后才会更新程序版本。`, positiveText: '替换代码', negativeText: '保留当前代码', onPositiveClick: apply });
+  } else apply();
+}
 async function saveProgram() {
   if (!programDraft.value || !props.writable || busy.value) return false; busy.value = true; programError.value='';
   const submitted = snapshot(programDraft.value);
@@ -190,7 +210,7 @@ async function importZip(event: Event) {
 }
 </script>
 <template><NSpin :show="!loaded"><div class="panel judge-workspace"><NTabs v-model:value="tab" type="line"><NTab name="programs">程序</NTab><NTab name="data">测试数据 / 生成计划</NTab><NTab name="selftests">工具自测</NTab><NTab name="acceptance">验收与日志</NTab><NTab name="groups">数据组与评分</NTab><NTab name="stress">对拍与反例</NTab><NTab name="settings">判题配置</NTab></NTabs>
-  <div v-if="tab === 'programs'" class="program-layout"><aside class="program-list"><NButton v-if="writable" block @click="selectProgram()">新建程序</NButton><button v-for="p in programs" :key="p.id" class="program-link" :class="{ selected: p.id === programDraft?.id }" @click="selectProgram(p.id)"><strong>{{ p.name }}</strong><small>{{ programRoleLabels[p.role as ProgramRole] }} · v{{ p.version }} · {{ p.profile.name }}{{ p.enabled ? '' : ' · 已停用' }}</small></button><NEmpty v-if="!programs.length" description="尚无程序" class="empty"/></aside><section v-if="programDraft" class="program-editor"><EditorFeedback :dirty="programDirty" :saving="busy" :error="programError" :version="programDraft.version" label="程序" @export="downloadDraft(`program-${programDraft.id ?? 'new'}`,programDraft)"/><div class="document-toolbar"><span class="save-state">{{ programDirty ? '未保存，离开会提醒' : `已保存 v${programDraft.version}` }}</span><div class="toolbar-right"><NButton :disabled="!writable" :loading="busy" @click="saveProgram">保存程序</NButton><NButton type="primary" :disabled="!writable" :loading="busy" @click="submit('COMPILE')">编译当前源码</NButton></div></div><div class="judge-form-grid"><NFormItem label="名称"><NInput v-model:value="programDraft.name" :disabled="!writable"/></NFormItem><NFormItem label="角色"><NSelect v-model:value="programDraft.role" :options="roleOptions" :disabled="!writable" @update:value="roleChanged"/></NFormItem><NFormItem label="管理员编译 profile"><NSelect v-model:value="programDraft.profileId" :options="profiles.map(p => ({ label: `${p.name} · v${p.version}`, value: p.id, disabled: !p.enabled || (cppTool && !isCppLanguage(p.language)) }))" :disabled="!writable"/></NFormItem><NFormItem v-if="solution" label="预期判定"><NSelect v-model:value="programDraft.expectedVerdicts" multiple :options="verdicts.map(v => ({ label: v, value: v }))" :disabled="!writable || ['MAIN_SOLUTION', 'CORRECT_SOLUTION', 'TIME_LIMIT_SOLUTION'].includes(programDraft.role)"/></NFormItem><NFormItem v-if="programDraft.role === 'EXTRA_VALIDATOR'" label="校验适用范围"><NSelect v-model:value="programDraft.validatorScope" :options="[{label:'全部数据',value:'GLOBAL'},{label:'仅指定数据组',value:'GROUPS'}]" :disabled="!writable"/></NFormItem><NFormItem label="备注"><NInput v-model:value="programDraft.notes" :disabled="!writable"/></NFormItem><NFormItem label="任务选择"><NCheckbox v-model:checked="programDraft.enabled" :disabled="!writable">启用此程序</NCheckbox></NFormItem></div><ScoreExpectationEditor v-if="solution && !['MAIN_SOLUTION', 'CORRECT_SOLUTION'].includes(programDraft.role)" v-model="programDraft.expectedScore" :groups="groupConfig.data.groups.map((g: any) => g.id)" :disabled="!writable"/><SourceEditor :key="programDraft.id ?? 'new'" v-model="programDraft.source" :language="editorLanguage" :readonly="!writable"/></section><NEmpty v-else description="选择或新建程序，保存后独立编译" class="empty"/></div>
+  <div v-if="tab === 'programs'" class="program-layout"><aside class="program-list"><NButton v-if="writable" block @click="selectProgram()">新建程序</NButton><button v-for="p in programs" :key="p.id" class="program-link" :class="{ selected: p.id === programDraft?.id }" @click="selectProgram(p.id)"><strong>{{ p.name }}</strong><small>{{ programRoleLabels[p.role as ProgramRole] }} · v{{ p.version }} · {{ p.profile.name }}{{ p.enabled ? '' : ' · 已停用' }}</small></button><NEmpty v-if="!programs.length" description="尚无程序" class="empty"/></aside><section v-if="programDraft" class="program-editor"><EditorFeedback :dirty="programDirty" :saving="busy" :error="programError" :version="programDraft.version" label="程序" @export="downloadDraft(`program-${programDraft.id ?? 'new'}`,programDraft)"/><div class="document-toolbar"><span class="save-state">{{ programDirty ? '未保存，离开会提醒' : `已保存 v${programDraft.version}` }}</span><div class="toolbar-right"><NButton :disabled="!writable" :loading="busy" @click="saveProgram">保存程序</NButton><NButton type="primary" :disabled="!writable" :loading="busy" @click="submit('COMPILE')">编译当前源码</NButton></div></div><div class="judge-form-grid"><NFormItem label="名称"><NInput v-model:value="programDraft.name" :disabled="!writable"/></NFormItem><NFormItem label="角色"><NSelect v-model:value="programDraft.role" :options="roleOptions" :disabled="!writable" @update:value="roleChanged"/></NFormItem><NFormItem label="管理员编译 profile"><NSelect v-model:value="programDraft.profileId" :options="profiles.map(p => ({ label: `${p.name} · v${p.version}`, value: p.id, disabled: !p.enabled || (cppTool && !isCppLanguage(p.language)) }))" :disabled="!writable"/></NFormItem><NFormItem v-if="solution" label="预期判定"><NSelect v-model:value="programDraft.expectedVerdicts" multiple :options="verdicts.map(v => ({ label: v, value: v }))" :disabled="!writable || ['MAIN_SOLUTION', 'CORRECT_SOLUTION', 'TIME_LIMIT_SOLUTION'].includes(programDraft.role)"/></NFormItem><NFormItem v-if="programDraft.role === 'EXTRA_VALIDATOR'" label="校验适用范围"><NSelect v-model:value="programDraft.validatorScope" :options="[{label:'全部数据',value:'GLOBAL'},{label:'仅指定数据组',value:'GROUPS'}]" :disabled="!writable"/></NFormItem><NFormItem label="备注"><NInput v-model:value="programDraft.notes" :disabled="!writable"/></NFormItem><NFormItem label="任务选择"><NCheckbox v-model:checked="programDraft.enabled" :disabled="!writable">启用此程序</NCheckbox></NFormItem></div><ScoreExpectationEditor v-if="solution && !['MAIN_SOLUTION', 'CORRECT_SOLUTION'].includes(programDraft.role)" v-model="programDraft.expectedScore" :groups="groupConfig.data.groups.map((g: any) => g.id)" :disabled="!writable"/><ProgramTemplateGuide :key="programDraft.id ?? 'new'" :role="programDraft.role" :language="selectedLanguage" :writable="writable && !busy" :initially-expanded="!programDraft.id" @apply="applyProgramTemplate"/><SourceEditor :key="programDraft.id ?? 'new'" v-model="programDraft.source" :language="editorLanguage" :readonly="!writable"/></section><NEmpty v-else description="选择或新建程序，保存后独立编译" class="empty"/></div>
   <div v-else-if="tab === 'data'"><div class="panel-toolbar"><span>输入与答案保留原始字节、换行及哈希</span><div class="toolbar-right"><NButton v-if="writable" :disabled="busy" @click="zipInput?.click()">导入 ZIP</NButton><input ref="zipInput" type="file" accept=".zip" hidden @change="importZip"/><NButton v-if="writable" type="primary" :disabled="busy" @click="editTest()">添加数据</NButton></div></div><p class="judge-hint">ZIP 使用 [tests/]编号.in 与 编号.ans；同编号导入冲突会整批拒绝。重复输入会提示并保留。生成错误时，可单条删除或勾选后批量删除，再重新生成。</p>
     <NAlert v-if="interactive" type="info" :show-icon="false">交互题的「题面样例」仅展示通信过程，不参与输入校验、答案生成、验收和测试数据导出。隐藏测试请不要勾选「题面样例」。</NAlert>
     <TestDataTable :tests="tests" :writable="writable" :busy="busy" :interactive="interactive" @edit="editTest" @delete="requestTestDeletion" @refresh="refreshTestData"/>
