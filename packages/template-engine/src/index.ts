@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import type { DocumentKind, AdminStyle } from '@problemforge/contracts';
 import { SAMPLE_LAYOUT_PREAMBLE, renderSamplePairs } from './samples.ts';
 
-export const POLICY_VERSION = 'pf-content-4';
+export const POLICY_VERSION = 'pf-content-5';
 export const TEX_PROFILE = 'xelatex-2022-bookworm-v1';
 export const SAMPLE_RENDERER_VERSION = 'pf-samples-5';
 export type TemplateFiles = Record<string, string>;
@@ -43,7 +43,7 @@ const commonMacros = new Set((
   'mathbb mathcal mathrm mathit mathsf mathtt mathbf operatorname ' +
   'infty partial nabla ldots cdots vdots ddots dots ' +
   'quad qquad hline cline multicolumn newline linebreak LaTeX TeX centering toprule midrule bottomrule ' +
-  'to gets rightarrow leftarrow Rightarrow Leftarrow Leftrightarrow mapsto ' +
+  'to gets rightarrow leftarrow Rightarrow Leftarrow Leftrightarrow mapsto xrightarrow ' +
   '% & _ ^ # $ { } , ; : ! \\ space '
 ).split(/\s+/).filter(Boolean));
 commonMacros.add(' ');

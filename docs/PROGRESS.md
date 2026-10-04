@@ -712,3 +712,13 @@ Hydro config.yaml 改用常规缩进 YAML，工具编译说明同步 `lang: auto
 **原环境验证：**经原 5180 管理员登录新生成「还差几个座位_2026-10-04_13-53-26.zip」，下载并读取 statement.md，逐项核对用户给定的 5 组输入、输出及四个二级标题顺序。与上轮历史题包比较，本次题面恰好只有上述格式变化，其余 11 个文件逐字节相同；旧下载内容保留。包与 Markdown 在 `.local/hydro-sample-format/downloads/`，记录 live-check.json，验证登录已退出。原题目/比赛/模板指纹前后一致，活动 Build/TestRun 均为 0；只新增这个私有导出及必要审计，没有改用户正文、样例或判题设置。
 
 **服务与收尾：**核对原主目录开发树、确认零活动任务后，重启同一 pnpm dev 加载改动；仍用 5180/3100 及原数据库/Redis/存储/沙箱，无新增实例、端口、依赖或迁移。收尾根进程 4044，Vite 54816、API 34928，Worker 79384 / 81236，均属于原服务树且无额外 Worker；首页 200、代理健康 ok、stderr 为空，见 services.json、services-verified.json，后续重新核对 PID。未重新操作浏览器、执行 Judge/TeX、全量/E2E、外部 OJ 上传或判题、部署/发布；本轮仅调整导出文本。文档和交接已更新，差异检查通过后本地提交，不 push，无阻塞。
+
+## 补充带标注右箭头语法（2026-10-04）
+
+**原因与实现：**「双色通行证」题面第 31 行含四处 `\xrightarrow`，既有 AST 批准清单遗漏该命令，导致保存成功但反复提示不能构建。按用户要求补入三类正文共用的数学语法，支持上方标注以及可选下方标注；两处参数继续遍历检查，不能借箭头引入文件访问、写入、宏定义或展开。内容策略升为 `pf-content-5`，新构建固定该版本并使用新的输入哈希，历史构建不改写。内置模板已加载 amsmath，本轮没有编辑或重新发布模板，没有修改用户正文。
+
+**实际验证：**`pnpm test:quick template` 的 8 项定向检查和 `pnpm check template-engine api tex-worker` 通过。新增检查覆盖题面、文档题解与 Beamer 中连续箭头、上下标注内的数学/文本，以及两处参数中的 input、write18、def、csname 拒绝。原库读取确认受影响题面四处箭头全部通过新策略。
+
+经原 `localhost:5180` 为这份已保存题面创建 Build `cmuthbot80003ktac6ya1qwu3`，沿用正文修订 `cmutgyfn0007akty83cufw9mo` 和 CWNU 挑战赛比赛题面 v2；原独立 Linux TeX 沙箱返回 Accepted，CPU 1647 ms、299 MiB，状态 SUCCEEDED、没有缓存复用、当前性有效。实际下载 Artifact `cmuthbqio0001ktg0oqnaa2m4`，核对 PDF 文件头、63891 字节及 SHA-256。保留模板 pgfplots 兼容提示和多轮编译初轮的引用提示，没有未定义箭头错误。证据、日志及 PDF 在 Git 忽略的 `.local/xrightarrow/`，验证会话已退出。前后题目完整快照、比赛编排、模板指纹一致，只有预期构建/产物及审计新增。
+
+**环境与边界：**再次确认活动 Build/TestRun 为 0 并核对主目录服务树后，仅重启原 pnpm dev；仍使用 5180/3100、原数据库/Redis/存储/沙箱。收尾根进程 80008，Vite 82664、API 57396，两个 Worker 55008 / 67588；监听和 Worker 均属该树且无额外服务，首页 200、健康 ok、stderr 为空。服务记录 services.json / services-verified.json，后续重新核对 PID。未另跑题解/Beamer 的真实编译、PDF 逐页视觉检查、Judge、全量/E2E、外部 OJ 或部署；三类参数策略由上述定向检查覆盖。无依赖、迁移或新端口，本轮无阻塞；TEMPLATES、PLAN 和交接已同步，差异检查后本地提交，不 push，P7.2/P8 继续暂缓。

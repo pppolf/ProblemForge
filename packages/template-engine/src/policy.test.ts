@@ -28,6 +28,23 @@ test('content AST rejects a document shell and expansion/file access; verbatim s
   assert.throws(() => validateBody('\\begin{example}\\exmp{\\input{/etc/passwd}}{3}\\end{example}', 'STATEMENT'), ContentPolicyError);
   assert.doesNotThrow(() => validateBody('\\begin{verbatim}\n\\input{/etc/passwd}\n\\end{verbatim}', 'STATEMENT'));
 });
+
+test('annotated right arrows accept math labels while checking both labels for forbidden commands', () => {
+  const body = String.raw`$a \xrightarrow{f} b \xrightarrow[\text{下方}]{\frac{n}{2}} c$`;
+  for (const kind of ['STATEMENT', 'EDITORIAL_DOCUMENT', 'EDITORIAL_BEAMER'] as const) {
+    assert.doesNotThrow(() => validateBody(body, kind));
+    for (const forbidden of [String.raw`\input{secret.tex}`, String.raw`\write18{command}`, String.raw`\def\f{1}`, String.raw`\csname input\endcsname`]) {
+      for (const arrow of [String.raw`\xrightarrow{${forbidden}}`, String.raw`\xrightarrow[${forbidden}]{f}`]) {
+        assert.throws(() => validateBody(`$a ${arrow} b$`, kind), (error: unknown) => {
+          assert.ok(error instanceof ContentPolicyError);
+          assert.ok(error.issues.some(issue => issue.message.includes(forbidden.match(/^\\[a-z]+/)![0])));
+          assert.ok(error.issues.every(issue => !issue.message.includes('\\xrightarrow')));
+          return true;
+        });
+      }
+    }
+  }
+});
 test('images resolve only approved immutable assets and bounded local dimensions', () => {
   const path = 'assets/cimage123.png';
   assert.deepEqual(validateBody(`\\includegraphics[width=0.8\\linewidth]{${path}}`, 'STATEMENT', [path]), [path]);

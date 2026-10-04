@@ -18,7 +18,7 @@ metadata.schema.json 为不执行代码的声明子集：type: object、addition
 
 ## 普通内容
 
-`pf-content-4` 使用 unified-latex AST 检查宏、环境、分组及参数，限制深度和节点数。允许常见段落、列表、表格、数学语法；Beamer 增加 frame、block、columns 和受控覆盖命令。当前批准清单以 packages/template-engine/src/index.ts 为准，未批准语法返回具体位置与原因，不自动放开完整文档入口。
+`pf-content-5` 使用 unified-latex AST 检查宏、环境、分组及参数，限制深度和节点数。允许常见段落、列表、表格、数学语法，包括 `\xrightarrow{上方标注}` 与 `\xrightarrow[下方标注]{上方标注}`，两处标注仍按相同内容策略检查；现有内置模板已加载所需 amsmath，无需修改正文或模板。Beamer 增加 frame、block、columns 和受控覆盖命令。当前批准清单以 packages/template-engine/src/index.ts 为准，未批准语法返回具体位置与原因，不自动放开完整文档入口。策略版本进入新构建的快照及缓存哈希，历史产物保留。
 
 题面额外允许原 olymp 的 InputFile、OutputFile、Examples、exmp、Note 等宏及 example 环境。exmp 参数仍作为 TeX 遍历检查，不能借样例读取文件。verbatim / centerverbatim 为字面代码；原模板 listings 启用 escapeinside，故没有将 lstlisting 作为可跳过检查的字面环境开放。
 
