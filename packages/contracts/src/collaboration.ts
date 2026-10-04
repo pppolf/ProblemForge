@@ -25,5 +25,5 @@ export const ExportInput = Type.Object({revisionId:id,purpose:PackagePurpose,for
 export const ContestExportInput = Type.Object({...ExportInput.properties,revisionId:Type.Optional(id),expectedVersion:Type.Optional(Type.Integer({minimum:1}))},strict);
 export const TestDataTarget = Type.Union([Type.Literal('HYDRO'),Type.Literal('NOVAJUDGE')]);
 export type TestDataTargetValue = Static<typeof TestDataTarget>;
-export const TestDataExportInput = Type.Object({target:TestDataTarget,revisionId:Type.Optional(id)},strict);
+export const TestDataExportInput = Type.Object({target:TestDataTarget,revisionId:Type.Optional(id),language:Type.Optional(language)},strict);
 export const ReleaseInput = Type.Object({buildId:Type.Optional(id),exportId:Type.Optional(id)},strict);

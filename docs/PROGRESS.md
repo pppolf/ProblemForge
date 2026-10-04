@@ -686,3 +686,19 @@ Hydro config.yaml 改用常规缩进 YAML，工具编译说明同步 `lang: auto
 **原环境在线与浏览器验证：**经原 5180 使用原独立管理员登录，读取现有「CWNU算协挑战赛」的 5 道题，每项标题和内容哈希与源题当前快照一致；4 个历史冻结版本与 4 次题册构建全部正确标为历史。缺少编排版本的最新构建请求返回 400，未创建冻结版本或任务。浏览器实看原比赛，确认全部自动同步提示、三类资料与题包默认最新来源、旧任务历史标记；临时编辑署名后刷新信息，本地输入仍在且构建按钮停用，随后放弃临时输入，未点击保存。最新题包按钮正常可用，浏览器无 warn/error。两个验证登录均退出，临时标签关闭；没有点击真实生成、导出、冻结或发布。证据 live-check.json、browser-result.json、arrange/materials/packages.png。原 5 道题完整快照哈希、比赛原 JSON/编排 v8 和全部模板版本指纹前后一致，活动 Build/TestRun 均为 0（before/after.json）。
 
 **服务与未验证：**核对原开发进程树、确认无活动任务后，仅重启主目录同一 `pnpm dev` 加载 API。继续原 5180/3100、原数据库/Redis/存储/沙箱，无新增端口、实例、依赖或迁移。当前根进程 82132，Vite 65668、API 18840，两个 Worker 82432 / 70508，监听与 Worker 均属于该进程树且无多余服务；首页 HTTP 200、代理健康 ok、stderr 为空。服务记录 `.local/contest-sync/services.json`、services-verified.json 与 dev.out/err.log，后续重新核对实际 PID。本轮未新增真实 PDF、Judge 验收、全量/E2E、生产构建、外部 OJ 操作、部署或公网发布；快照组装正确性由路由回滚检查覆盖，既有渲染器与 Linux 隔离执行代码未改。无阻塞，差异检查后本地提交，不 push，P7.2/P8 继续暂缓。
+
+## Hydro 题目包目录与 LaTeX 转 Markdown（2026-10-04）
+
+**用户要求与实现：**Hydro 从平铺测试数据 ZIP 改为 `题目名称_YYYY-MM-DD_HH-mm-ss/`，顶层含 statement.md、题解.md、tests/；包名同目录名，时间为北京时间，支持安全的中文文件名和 UTF-8 下载头。tests/ 放原编号输入、普通题答案、所需 checker.cc / interactor.cc、config.yaml、自定义工具的 testlib 与许可证。交互题继续只放非样例输入，保留用户指定的 auto、subtasks 单组与 /dev/null 配置，不创建答案占位。NovaJudge 平铺 .cpp / problem.yml 行为保留。新记录格式 HYDRO_PROBLEM，私有不可发布，文件名随不可变产物保存；既有 HYDRO_DATA 内容不重写。
+
+**文稿转换：**新增有界 AST 转换，复用仓库固定的 unified-latex 1.8.4 parse/types/print-raw，离线安装直接依赖，未下载新版本。当前工作区语言沿 Workspace → 管理 → 导出传入 API，当前已保存内容和指定历史修订均受支持。转换标题、平台题面/交互小节、强调、嵌套列表、普通表格、代码和引用段落；数学保留 Markdown 数学定界符，展开 mat、调整 align/gather 环境。固定绑定样例按原顺序写入代码块并放在顶层 Note 前，交互样例输出只用于文稿；图片按引用打包到 assets/，核验字节及哈希。仅取启用题面和文档题解，不含 Beamer/标程/其他私有程序；缺题面拒绝，缺题解文件注明并警告。未知命令、环境及合并单元格表格保留可见 LaTeX 代码并报告，未声称任意 TeX/模板排版均可转换。不执行 TeX、作者代码或外部资源。Unicode 路径仅对 Hydro 导出显式启用，原生/Polygon 导入仍用 ASCII 限制，无数据库迁移。
+
+**定向验证：**`pnpm check contracts problem-format api web` 通过，后续补充长 Emoji 标题截断与页面说明后 `pnpm check problem-format web` 再次通过。`node --import tsx --test scripts/hydro-package.test.ts scripts/test-data-export.test.ts` 共 15 项通过：目录/中文名称、数学与嵌套格式、表格/显式样例、代码围栏、固定样例、图片去重/哈希与缺失拒绝、语言/停用文稿、不可读交互答案不读取、原始二进制、工具配置、Unicode 路径和原导出规则；最后标题边界改动重跑 8 项新测试通过。默认 test/test:quick 未扩展。
+
+`node --import tsx scripts/verify-test-data-export.ts --rollback` 通过真实 Fastify 路由/原数据库必定回滚事务：验证当前/固定内容、修改两份文稿后最新导出与旧包不变、指定语言与缺题解、中文 RFC 5987 下载、绑定样例、输入答案字节、交互两站新旧来源、权限/CSRF/跨题/撤权/禁止公开发布、无修订副作用和零判题任务。存储仅内存，全部用户/文稿/测试/修订/导出/审计夹具回滚；证据 `.local/hydro-package/api-verification.json`。`verify-interactive-samples.ts` 的题面夹具与嵌套路径断言同步，本轮未重跑其 Linux 执行部分。
+
+**原环境实测：**读取原 5 题共 10 份题面/文档题解，全部转换无未映射警告，人工核对「蒂娜的谜箱」的交互列表、公式、表格与文字。经原 5180 独立管理员实际生成并下载「还差几个座位」「蒂娜的谜箱」两个私有题包（12/60 个成员），普通题 8 个输入/答案文件和交互题 53 个输入逐字节与原存储一致，中文目录/文件名、样例、Markdown 和工具/配置均在包中；Python 标准库独立读取 ZIP，全部 CRC 和 UTF-8 文件名标志正确。新导出记录保留供用户下载，ZIP 与 Markdown 预览在 `.local/hydro-package/downloads/`。Tina 现有判题配置为交互后 Checker，原有“交互判定待处理”报告保留，没有擅自修改题目判定模式或声称 Hydro 实站可直接判题。相关证据 live-check.json、zipfile-check.json、documents/。
+
+浏览器实看原站新入口、zh-CN 来源、中文下载名和新/旧 Hydro 历史标签，检查导出按钮可用、专用包无公开发布按钮、NovaJudge 入口可切换，console 无 warn/error；没有在浏览器编辑业务数据。证据 browser-result.json、hydro-page.png。两次验证登录均退出，临时标签关闭。完整题目快照、比赛 JSON/编排 v8、模板版本指纹前后一致，活动 Build/TestRun 均为 0，见 before/after.json；仅新增上述两个私有导出及必要审计记录。
+
+**运行环境与边界：**核对原开发进程树并确认无活动任务后，在主目录重启原 pnpm dev 加载最终实现；仍用原 5180/3100、数据库/Redis/存储/沙箱，没有新增实例、端口或迁移。收尾根进程 34060，Vite 68520、API 68804，Worker 20508 / 75980，均属同一进程树且无额外 Worker；首页 200、代理健康 ok、stderr 为空。证据 services.json、services-verified.json、dev.out/err.log，后续重新核对 PID。未执行 Judge、TeX、全量/E2E、生产构建、外部 OJ 上传/判题、部署或公网发布；用户自定义目录不冒充 Hydro 原生一键导入协议。PACKAGES、USER_GUIDE、PLAN 和本交接已同步，无本轮功能阻塞，差异检查通过后本地 Git 提交，不 push；P7.2/P8 继续暂缓。

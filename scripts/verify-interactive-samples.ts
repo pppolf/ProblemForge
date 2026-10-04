@@ -53,6 +53,8 @@ try {
       await call('PUT', `/problems/${problemId}/judge-settings`, { expectedVersion: 1, settings: { ...defaultJudgeSettings, interactionMode: 'INTERACTIVE', interaction: { ...defaultInteractionSettings } } });
       const sampleBody = { number: 1, groupName: 'sample', isSample: true, enabled: true, notes: '', inputBase64: Buffer.from('Judge: 9\nContestant: 18\n').toString('base64'), answerBase64: Buffer.from('communication example\n').toString('base64') };
       const sample = (await call('POST', `/problems/${problemId}/tests`, sampleBody)).json();
+      const statement = await tx.document.create({ data: { problemId, language: 'zh-CN', kind: 'STATEMENT' } });
+      await call('PUT', `/documents/${statement.id}`, { expectedVersion: 1, enabled: true, templateVersionId: null, metadata: { title: '交互样例', author: 'Test' }, body: String.raw`\interactor 按协议交互。`, sampleRevisionIds: [sample.currentRevision.id] });
       for (const purpose of ['VALIDATE', 'ANSWERS', 'ACCEPTANCE']) await call('POST', `/problems/${problemId}/test-runs`, { purpose, requestKey: randomUUID() }, 422);
       assert.equal(await tx.testRun.count({ where: { problemId } }), 0);
       for (const target of ['HYDRO', 'NOVAJUDGE']) await call('POST', `/problems/${problemId}/test-data-exports`, { target }, 422);
@@ -88,7 +90,10 @@ try {
       const revision = await tx.problemRevision.create({ data: { problemId, number: 1, label: 'Rollback snapshot', ...snapshot, manifest: snapshot.manifest as unknown as Prisma.InputJsonValue, createdById: userId } });
       for (const target of ['HYDRO', 'NOVAJUDGE']) {
         const artifact = (await call('POST', `/problems/${problemId}/test-data-exports`, { target, revisionId: revision.id })).json();
-        const files = await readArchive((await call('GET', `/exports/${artifact.id}/file`)).rawPayload);
+        const all = await readArchive((await call('GET', `/exports/${artifact.id}/file`)).rawPayload, { unicodePaths: target === 'HYDRO' });
+        const prefix = artifact.fileName.slice(0, -4) + '/tests/';
+        const files = target === 'HYDRO' ? new Map([...all].filter(([path]) => path.startsWith(prefix)).map(([path, bytes]) => [path.slice(prefix.length), bytes])) : all;
+        if (target === 'HYDRO') assert.match(all.get(artifact.fileName.slice(0, -4) + '/statement.md')!.toString(), /Judge: 9\nContestant: 18/);
         assert.deepEqual([...files.keys()].filter(p => p.endsWith('.in')), ['2.in']);
         assert(![...files.keys()].some(p => p.endsWith('.ans')));
         const interactorName = target === 'HYDRO' ? 'interactor.cc' : 'interactor.cpp';

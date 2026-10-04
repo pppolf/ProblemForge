@@ -3,7 +3,7 @@ import{ref,onMounted,computed}from'vue';import{useRouter}from'vue-router';
 import{NButton,NInput,NSelect,NSwitch,NTag,NAlert,NFormItem,NTabs,NTab,NEmpty,useMessage,useDialog}from'naive-ui';
 import{api}from'../api';import MemberPanel from'./MemberPanel.vue';
 import PackagePanel from'./PackagePanel.vue';
-const props=defineProps<{problem:any;hasUnsaved:boolean}>();const emit=defineEmits<{dirty:[boolean];metadata:[any];restored:[]}>();
+const props=defineProps<{problem:any;hasUnsaved:boolean;language?:string}>();const emit=defineEmits<{dirty:[boolean];metadata:[any];restored:[]}>();
 const message=useMessage(),dialog=useDialog(),router=useRouter(),tab=ref('overview');const meta=ref<any>({}),tagText=ref(''),directory=ref<any>({users:[]}),revisions=ref<any[]>([]),working=ref<any>(),selected=ref<any>(),diff=ref<any[]>([]),label=ref(''),comment=ref(''),anchor=ref(''),busy=ref(false);
 const canEdit=computed(()=>['OWNER','EDITOR'].includes(props.problem.role)&&!props.problem.archived);
 const stateLabels:Record<string,string>={DRAFT:'草稿修订',FROZEN:'已冻结'};
@@ -27,6 +27,6 @@ function restore(){dialog.warning({title:'从选中修订恢复工作副本',con
 <div class="panel-toolbar"><NButton v-if="problem.role==='OWNER'&&selected.state!=='FROZEN'" type="primary" :disabled="!canEdit||hasUnsaved||busy" :loading="busy" @click="freeze">检查验收并冻结</NButton><NButton :disabled="!canEdit||hasUnsaved||busy" @click="restore">恢复为新修订</NButton></div>
 <details><summary>与当前工作副本比较 · {{diff.length}} 项变化</summary><div v-for="item in diff" :key="item.path"><strong>{{item.path}}</strong><div class="p4-diff"><pre>{{JSON.stringify(item.before,null,2)}}</pre><pre>{{JSON.stringify(item.after,null,2)}}</pre></div></div><p v-if="!diff.length">当前工作副本与本清单一致。</p></details>
 <h3>修订评论</h3><div v-for="c in selected.comments" :key="c.id" class="p4-comment"><NTag size="small">{{c.resolved?'已解决':'未解决'}}</NTag> {{c.anchor}}<p>{{c.body}}</p><NButton v-if="problem.role!=='VIEWER'" size="small" @click="resolve(c.id,!c.resolved)">{{c.resolved?'重新打开':'标记解决'}}</NButton></div><template v-if="problem.role!=='VIEWER'"><NInput v-model:value="anchor" placeholder="关联位置，如：题面第 12 行 / 数据组 g20"/><NInput v-model:value="comment" type="textarea" placeholder="评论固定在本修订"/><NButton :disabled="!comment.trim()" @click="addComment">添加评论</NButton></template></section></div></template>
-<PackagePanel v-else-if="tab==='packages'" scope="problems" :id="problem.id" :owner="problem.role==='OWNER'" :has-unsaved="hasUnsaved"/>
+<PackagePanel v-else-if="tab==='packages'" scope="problems" :id="problem.id" :owner="problem.role==='OWNER'" :has-unsaved="hasUnsaved" :language="language"/>
 <MemberPanel v-else scope="problems" :id="problem.id" :owner="problem.role==='OWNER'"/>
 </div></template>

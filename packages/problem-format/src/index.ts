@@ -4,3 +4,5 @@ export * from './native.ts';
 export * from './polygon.ts';
 export * from './xml.ts';
 export * from './test-data.ts';
+export * from './markdown.ts';
+export * from './hydro.ts';

@@ -186,6 +186,15 @@ importers:
       '@sinclair/typebox':
         specifier: 0.34.41
         version: 0.34.41
+      '@unified-latex/unified-latex-types':
+        specifier: 1.8.4
+        version: 1.8.4
+      '@unified-latex/unified-latex-util-parse':
+        specifier: 1.8.4
+        version: 1.8.4
+      '@unified-latex/unified-latex-util-print-raw':
+        specifier: 1.8.4
+        version: 1.8.4
       saxes:
         specifier: 6.0.0
         version: 6.0.0

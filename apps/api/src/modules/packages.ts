@@ -1,7 +1,7 @@
 import{randomUUID}from'node:crypto';import{readFile}from'node:fs/promises';import{join}from'node:path';import{Type}from'@sinclair/typebox';
 import{ExportInput,ContestExportInput,TestDataExportInput,isCppLanguage,isJudgingData,type ProblemManifest}from'@problemforge/contracts';import{db,Prisma}from'@problemforge/database';
 import{problemAccess,contestAccess,hashObject,sha256,HttpError,audit,root}from'@problemforge/domain';
-import{PackageError,readArchive,writeArchive,nativeExporter,polygonExporter,exportTestData,importNative,importPolygon,blobs,validateManifest,type Issue,type ImportResult}from'@problemforge/problem-format';
+import{PackageError,readArchive,writeArchive,safeExportPath,nativeExporter,polygonExporter,exportTestData,exportHydroProblem,importNative,importPolygon,blobs,validateManifest,type Issue,type ImportResult}from'@problemforge/problem-format';
 import{validateBody}from'@problemforge/template-engine';import{groupOrder,TESTLIB_HASH}from'@problemforge/judge-core';
 import{authenticate,storage,type Api}from'../app.ts';import{revisionAccess}from'./revisions.ts';import{contestRevision,type FrozenContest}from'./contests.ts';import{restoreManifest}from'./restore-manifest.ts';import{problemSnapshot,readProblemSnapshot}from'./revision-snapshot.ts';
 import { currentContestRevision } from './contest-snapshot.ts';
@@ -10,7 +10,12 @@ const ImportInput=Type.Object({format:Type.Union([Type.Literal('NATIVE'),Type.Li
 const ConfirmInput=Type.Object({reportHash:Type.String({pattern:'^[a-f0-9]{64}$'}),title:Type.String({minLength:1,maxLength:160}),acceptWarnings:Type.Literal(true)},strict);
 type ImportReport={issues:Issue[];manifest:ProblemManifest;reportHash:string;committedProblemId?:string};
 function receiptView(record:{id:string;format:string;createdAt:Date;report:unknown}){const r=record.report as ImportReport;return{id:record.id,format:record.format,createdAt:record.createdAt,reportHash:r.reportHash,issues:r.issues,title:r.manifest.meta.title,committedProblemId:r.committedProblemId??null,counts:{documents:r.manifest.documents.length,programs:r.manifest.programs.length,tests:r.manifest.tests.length},canImport:!r.issues.some(i=>i.status==='BLOCKED')};}
-const exportView=(e:{id:string;revisionId:string;purpose:string;format:string;hash:string;bytes:number;report:unknown;createdAt:Date})=>({id:e.id,revisionId:e.revisionId,purpose:e.purpose,format:e.format,hash:e.hash,bytes:e.bytes,report:e.report,createdAt:e.createdAt});
+function exportFileName(e:{format:string;purpose:string;report:unknown}){
+ const name=e.format==='HYDRO_PROBLEM'&&Array.isArray(e.report)?e.report.find(r=>typeof r?.fileName==='string')?.fileName:undefined;
+ if(name&&!name.includes('/')&&name.endsWith('.zip'))return safeExportPath(name);
+ return `${e.format}-${e.purpose}.zip`;
+}
+const exportView=(e:{id:string;revisionId:string;purpose:string;format:string;hash:string;bytes:number;report:unknown;createdAt:Date})=>({id:e.id,revisionId:e.revisionId,purpose:e.purpose,format:e.format,fileName:exportFileName(e),hash:e.hash,bytes:e.bytes,report:e.report,createdAt:e.createdAt});
 async function exportManifest(manifest:ProblemManifest,purpose:string,format:string,runId:string|null){
  const m=structuredClone(manifest),report:Issue[]=[];
  if((purpose==='DATA'||format==='POLYGON'&&purpose==='FULL')&&runId){const cases=await db.runCase.findMany({where:{runId},orderBy:{number:'asc'}});
@@ -58,12 +63,13 @@ export async function packageRoutes(app:Api){
   const prepared=await exportManifest(manifest,'DATA',req.body.target,acceptanceRunId);
   const testlib=await readFile(join(root,'vendor/testlib/testlib.h'));
   if(sha256(testlib)!==TESTLIB_HASH)throw new HttpError(503,'testlib 头文件校验失败，无法导出');
-  const result=await exportTestData(prepared.manifest,req.body.target,key=>storage.get(key),{testlib,license:await readFile(join(root,'vendor/testlib/LICENSE'))});
-  const report:Issue[]=[{area:'数据来源',status:'MAPPED',message:`${source}。导出时已固定内容，不要求冻结，也不会执行生成器或改写工作数据。`},...prepared.report,...result.report];
-  const bytes=await writeArchive(result.files),key=`exports/${randomUUID()}`;
+  const hydro=req.body.target==='HYDRO',support={testlib,license:await readFile(join(root,'vendor/testlib/LICENSE'))};
+  const result=hydro?await exportHydroProblem(prepared.manifest,key=>storage.get(key),support,{language:req.body.language}):await exportTestData(prepared.manifest,req.body.target,key=>storage.get(key),support);
+  const report:Issue[]=[{area:hydro?'内容来源':'数据来源',status:'MAPPED',message:`${source}。导出时已固定内容，不要求冻结，也不会执行生成器或改写工作数据。`},...prepared.report,...result.report];
+  const bytes=await writeArchive(result.files,{unicodePaths:hydro}),key=`exports/${randomUUID()}`;
   await storage.put(key,bytes);
-  const row=await db.exportArtifact.create({data:{problemId:req.params.id,revisionId,requestedById:req.user.id,purpose:'DATA',format:`${req.body.target}_DATA`,key,hash:sha256(bytes),bytes:bytes.length,report:report as unknown as Prisma.InputJsonValue}});
-  await audit(req.user.id,'EXPORT_TEST_DATA',row.id,{target:req.body.target,revisionId});return exportView(row);
+  const row=await db.exportArtifact.create({data:{problemId:req.params.id,revisionId,requestedById:req.user.id,purpose:hydro?'FULL':'DATA',format:hydro?'HYDRO_PROBLEM':`${req.body.target}_DATA`,key,hash:sha256(bytes),bytes:bytes.length,report:report as unknown as Prisma.InputJsonValue}});
+  await audit(req.user.id,hydro?'EXPORT_HYDRO_PROBLEM':'EXPORT_TEST_DATA',row.id,{target:req.body.target,revisionId,language:req.body.language});return exportView(row);
  });
  app.get('/api/imports',{preHandler:authenticate},async req=>(await db.exportArtifact.findMany({where:{requestedById:req.user.id,purpose:'QUARANTINE'},orderBy:{createdAt:'desc'},take:50})).map(receiptView));
  app.get('/api/imports/:id',{preHandler:authenticate,schema:{params:Id}},async req=>{const record=await db.exportArtifact.findUnique({where:{id:req.params.id}});if(!record||record.purpose!=='QUARANTINE'||record.requestedById!==req.user.id)throw new HttpError(404,'导入记录不存在');return receiptView(record);});
@@ -78,7 +84,7 @@ export async function packageRoutes(app:Api){
    const bytes=await writeArchive(files),key=`exports/${randomUUID()}`;await storage.put(key,bytes);const row=await db.exportArtifact.create({data:{...(contest?{contestId:req.params.id}:{problemId:req.params.id}),revisionId:revisionId!,requestedById:req.user.id,purpose:req.body.purpose,format:req.body.format,key,hash:sha256(bytes),bytes:bytes.length,report:report as unknown as Prisma.InputJsonValue}});await audit(req.user.id,'EXPORT_PACKAGE',row.id,{purpose:row.purpose,format:row.format});return exportView(row);
   });
  }
- app.get('/api/exports/:id/file',{preHandler:authenticate,schema:{params:Id}},async(req,reply)=>{const e=await db.exportArtifact.findUnique({where:{id:req.params.id}});if(!e)throw new HttpError(404,'题包不存在');if(e.contestId)await contestAccess(req.user,e.contestId);else if(e.problemId)await problemAccess(req.user,e.problemId);else if(e.requestedById!==req.user.id)throw new HttpError(404,'导入隔离包不存在');return reply.type('application/zip').header('Content-Disposition',`attachment; filename="${e.format}-${e.purpose}.zip"`).send(await storage.get(e.key));});
+ app.get('/api/exports/:id/file',{preHandler:authenticate,schema:{params:Id}},async(req,reply)=>{const e=await db.exportArtifact.findUnique({where:{id:req.params.id}});if(!e)throw new HttpError(404,'题包不存在');if(e.contestId)await contestAccess(req.user,e.contestId);else if(e.problemId)await problemAccess(req.user,e.problemId);else if(e.requestedById!==req.user.id)throw new HttpError(404,'导入隔离包不存在');const name=encodeURIComponent(exportFileName(e)).replace(/['()*]/g,c=>`%${c.charCodeAt(0).toString(16).toUpperCase()}`);return reply.type('application/zip').header('Content-Disposition',`attachment; filename="${e.format}-${e.purpose}.zip"; filename*=UTF-8''${name}`).send(await storage.get(e.key));});
  app.post('/api/imports/inspect',{preHandler:authenticate,bodyLimit:32_100_000,schema:{body:ImportInput}},async req=>{
   const bytes=Buffer.from(req.body.base64,'base64');if(bytes.toString('base64')!==req.body.base64)throw new HttpError(422,'需要规范 Base64');const files=await readArchive(bytes);const result=await prepareImport(req.body.format,files,req.body.profileMap);
   const reportHash=hashObject(result);const report:ImportReport={issues:result.report,manifest:result.manifest,reportHash};const key=`imports/${randomUUID()}`;await storage.put(key,bytes);

@@ -36,7 +36,7 @@ try {
         await tx.user.create({ data: { id, name: 'Rollback data export', email: `${id}@example.test`, role: 'USER', passwordHash: 'not-a-login-credential' } });
         await tx.session.create({ data: { id: sha256(session), userId: id, csrfToken: csrf, expiresAt: new Date(Date.now() + 180000) } });
       }
-      await tx.problem.create({ data: { id: problemId, title: 'Rollback data export', members: { create: { userId, role: 'OWNER' } } } });
+      await tx.problem.create({ data: { id: problemId, title: '回滚题包测试', members: { create: { userId, role: 'OWNER' } } } });
       const call = async (method: 'GET' | 'POST' | 'PUT', path: string, payload?: object, expected = 200, session = token, sendCsrf = true) => {
         const response = await app.inject({ method, url: `/api${path}`, headers: { origin: config.origin, cookie: `pf_session=${session}`, ...(sendCsrf ? { 'x-csrf-token': csrf } : {}) }, ...(payload ? { payload } : {}) });
         assert.equal(response.statusCode, expected, `${path}: ${response.body.slice(0, 500)}`); return response;
@@ -48,16 +48,37 @@ try {
       await call('POST', url, { target: 'HYDRO' }, 404, outsideToken);
       const body = { number: 7, groupName: 'main', isSample: true, enabled: true, notes: 'private', inputBase64: Buffer.from('1 2\r\n').toString('base64'), answerBase64: Buffer.from('3\r\n').toString('base64') };
       const testcase = (await call('POST', `/problems/${problemId}/tests`, body)).json();
+      const documentBody = { enabled: true, templateVersionId: null, metadata: { title: '题包测试标题', author: 'Test' }, body: String.raw`\InputFile 输入 $a+b$。\OutputFile 输出。\Note 说明。`, sampleRevisionIds: [testcase.currentRevision.id] };
+      const statement = await tx.document.create({ data: { problemId, language: 'zh-CN', kind: 'STATEMENT' } });
+      const editorial = await tx.document.create({ data: { problemId, language: 'zh-CN', kind: 'EDITORIAL_DOCUMENT' } });
+      await call('PUT', `/documents/${statement.id}`, { ...documentBody, expectedVersion: 1 });
+      await call('PUT', `/documents/${editorial.id}`, { ...documentBody, expectedVersion: 1, body: String.raw`\section{旧题解}相加即可。`, sampleRevisionIds: [] });
+      await call('POST', url, { target: 'HYDRO', language: 'fr' }, 422);
+      await call('POST', url, { target: 'HYDRO', language: '../../' }, 400);
+      const unpack = async (artifact: any) => {
+        const download = await call('GET', `/exports/${artifact.id}/file`);
+        assert.equal(sha256(download.rawPayload), artifact.hash);
+        const all = await readArchive(download.rawPayload, { unicodePaths: artifact.format === 'HYDRO_PROBLEM' });
+        if (artifact.format !== 'HYDRO_PROBLEM') return all;
+        assert.match(artifact.fileName, /^回滚题包测试_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.zip$/);
+        assert.equal(decodeURIComponent(String(download.headers['content-disposition']).split("filename*=UTF-8''")[1]), artifact.fileName);
+        const root = artifact.fileName.slice(0, -4) + '/';
+        assert(all.has(root + 'statement.md')); assert(all.has(root + '题解.md'));
+        assert([...all.keys()].every(path => path.startsWith(root)));
+        return new Map([...all].filter(([path]) => path.startsWith(root + 'tests/')).map(([path, bytes]) => [path.slice(root.length + 6), bytes]));
+      };
+      const markdown = async (artifact: any, name = 'statement.md') => (await readArchive((await call('GET', `/exports/${artifact.id}/file`)).rawPayload, { unicodePaths: true })).get(artifact.fileName.slice(0, -4) + '/' + name)!.toString();
       const snapshot = await problemSnapshot(tx, problemId), before = structuredClone(snapshot.manifest);
       const artifactIds: string[] = [];
       for (const target of ['HYDRO', 'NOVAJUDGE']) {
         const artifact = (await call('POST', url, { target })).json(); artifactIds.push(artifact.id);
-        assert.equal(artifact.format, target + '_DATA'); assert.equal(artifact.revisionId, `WORKING:${snapshot.hash}`);
+        assert.equal(artifact.format, target === 'HYDRO' ? 'HYDRO_PROBLEM' : 'NOVAJUDGE_DATA'); assert.equal(artifact.revisionId, `WORKING:${snapshot.hash}`);
         assert(!artifact.report.some((r: any) => r.status === 'BLOCKED'));
         const download = await call('GET', `/exports/${artifact.id}/file`);
         assert.match(String(download.headers['content-disposition']), /attachment/);
         assert.equal(sha256(download.rawPayload), artifact.hash);
-        const files = await readArchive(download.rawPayload);
+        const files = await unpack(artifact);
+        if (target === 'HYDRO') { assert.match(await markdown(artifact), /## 输入格式/); assert.match(await markdown(artifact), /```text\n1 2\r\n```/); assert.match(await markdown(artifact, '题解.md'), /## 旧题解/); }
         assert.deepEqual(files.get('7.in'), Buffer.from('1 2\r\n')); assert.deepEqual(files.get('7.ans'), Buffer.from('3\r\n'));
         const configName = target === 'HYDRO' ? 'config.yaml' : 'problem.yml', checkerName = target === 'HYDRO' ? 'checker.cc' : 'checker.cpp';
         const config = parseYaml(files.get(configName)!.toString());
@@ -70,12 +91,22 @@ try {
       assert.equal(await tx.testRun.count({ where: { problemId } }), 0);
       assert.deepEqual((await problemSnapshot(tx, problemId)).manifest, before);
       const revision = await tx.problemRevision.create({ data: { problemId, number: 1, label: 'Draft export', ...snapshot, manifest: snapshot.manifest as unknown as Prisma.InputJsonValue, createdById: userId } });
+      await call('PUT', `/documents/${statement.id}`, { ...documentBody, expectedVersion: 2, body: String.raw`\Description 新题面。\InputFile 新输入。` });
+      await call('PUT', `/documents/${editorial.id}`, { ...documentBody, expectedVersion: 2, body: String.raw`\section{新题解}新的做法。`, sampleRevisionIds: [] });
+      const current = (await call('POST', url, { target: 'HYDRO', language: 'zh-CN' })).json();
+      assert.match(await markdown(current), /新题面/); assert.match(await markdown(current, '题解.md'), /## 新题解/);
+      const english = await tx.document.create({ data: { problemId, language: 'en', kind: 'STATEMENT' } });
+      await call('PUT', `/documents/${english.id}`, { ...documentBody, expectedVersion: 1, body: String.raw`\InputFile English input.`, sampleRevisionIds: [] });
+      const en = (await call('POST', url, { target: 'HYDRO', language: 'en' })).json();
+      assert.match(await markdown(en), /## Input/); assert.match(await markdown(en, '题解.md'), /No enabled document editorial/);
       await call('PUT', `/tests/${testcase.id}`, { ...body, expectedVersion: 1, answerBase64: null });
       await call('POST', url, { target: 'HYDRO' }, 422);
       const fixed = (await call('POST', url, { target: 'HYDRO', revisionId: revision.id })).json();
       assert.equal(fixed.revisionId, revision.id);
-      assert.deepEqual((await readArchive((await call('GET', `/exports/${fixed.id}/file`)).rawPayload)).get('7.ans'), Buffer.from('3\r\n'));
-      assert.deepEqual((await readArchive((await call('GET', `/exports/${artifactIds[0]}/file`)).rawPayload)).get('7.ans'), Buffer.from('3\r\n'));
+      assert.deepEqual((await unpack(fixed)).get('7.ans'), Buffer.from('3\r\n'));
+      assert.match(await markdown(fixed, '题解.md'), /## 旧题解/); assert(!((await markdown(fixed)).includes('新题面')));
+      const historical = (await call('GET', `/problems/${problemId}/exports`)).json().find((e: any) => e.id === artifactIds[0]);
+      assert.deepEqual((await unpack(historical)).get('7.ans'), Buffer.from('3\r\n')); assert.match(await markdown(historical, '题解.md'), /## 旧题解/);
       const other = await tx.problem.create({ data: { title: 'Other rollback problem', members: { create: { userId, role: 'OWNER' } } } });
       await call('POST', `/problems/${other.id}/test-data-exports`, { target: 'HYDRO', revisionId: revision.id }, 404);
       await call('PUT', `/problems/${problemId}/judge-settings`, { expectedVersion: 1, settings: { ...defaultJudgeSettings, interactionMode: 'INTERACTIVE' } });
@@ -86,7 +117,7 @@ try {
       const interactiveRevision = await tx.problemRevision.create({ data: { problemId, number: 2, label: 'Interactive export', ...interactive, manifest: interactive.manifest as unknown as Prisma.InputJsonValue, createdById: userId } });
       for (const target of ['HYDRO', 'NOVAJUDGE']) for (const revisionId of [undefined, interactiveRevision.id]) {
         const artifact = (await call('POST', url, { target, ...(revisionId ? { revisionId } : {}) })).json();
-        const files = await readArchive((await call('GET', `/exports/${artifact.id}/file`)).rawPayload);
+        const files = await unpack(artifact);
         const configName = target === 'HYDRO' ? 'config.yaml' : 'problem.yml', interactorName = target === 'HYDRO' ? 'interactor.cc' : 'interactor.cpp';
         assert.deepEqual([...files.keys()].sort(), ['8.in', interactorName, 'testlib.h', 'testlib.LICENSE', configName].sort());
         assert.deepEqual(files.get('8.in'), Buffer.from('1 2\r\n'));
@@ -104,7 +135,7 @@ try {
       await tx.problemMember.deleteMany({ where: { problemId, userId } });
       await call('GET', `/exports/${artifactIds[0]}/file`, undefined, 404);
       await call('POST', url, { target: 'HYDRO' }, 404);
-      evidence.push({ api: 'passed', platforms: ['Hydro', 'NovaJudge'], checks: ['working data without revisions or acceptance', 'draft revision export', 'byte hashes', 'immutable downloads after answer change', 'missing batch answer', 'interactive input-only exports even with saved answers', 'target-specific tool extensions and config references', 'schema/CSRF/cross-problem/outsider/revoked membership', 'no publication', 'no source data mutation or queued jobs'] });
+      evidence.push({ api: 'passed', platforms: ['Hydro', 'NovaJudge'], checks: ['working content without revisions or acceptance', 'Chinese filename and RFC 5987 download', 'statement and document editorial Markdown', 'bound sample bytes', 'selected language and missing editorial', 'latest saved documents and fixed historical content', 'draft revision export', 'byte hashes', 'immutable downloads after answer change', 'missing batch answer', 'interactive input-only tests even with saved answers', 'target-specific tool extensions and config references', 'schema/CSRF/cross-problem/outsider/revoked membership', 'no publication', 'no source data mutation or queued jobs'] });
       throw rollback;
     } finally { for (const item of saved.reverse()) item.object[item.method] = item.original; }
   }, { timeout: 45000 }).catch(error => { if (error !== rollback) throw error; });
