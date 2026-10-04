@@ -3,7 +3,7 @@ import type * as Ast from '@unified-latex/unified-latex-types';
 import { parse as parseYaml } from 'yaml';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { DocumentKind, AdminStyle } from '@problemforge/contracts';
+import { defaultJudgeSettings, type JudgeSettingsValue, type DocumentKind, type AdminStyle } from '@problemforge/contracts';
 import { SAMPLE_LAYOUT_PREAMBLE, renderSamplePairs } from './samples.ts';
 
 export const POLICY_VERSION = 'pf-content-5';
@@ -193,6 +193,15 @@ export function printableSample(bytes: Buffer) {
   if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value)) throw new Error('题面样例包含不能显示的控制字节，原始测试数据未改变');
 }
 export type SamplePaths = { inputPath: string; answerPath: string };
+export const STATEMENT_RENDERER_VERSION = 'pf-statement-1';
+export type StatementSettings = { timeLimitMs: number; memoryLimitMb: number; inputFile: string; outputFile: string };
+export function statementSettings(settings: JudgeSettingsValue = defaultJudgeSettings): StatementSettings {
+  return {
+    timeLimitMs: settings.timeLimitMs, memoryLimitMb: settings.memoryLimitMb,
+    inputFile: settings.ioMode === 'STDIO' ? 'standard input' : settings.inputFile,
+    outputFile: settings.ioMode === 'STDIO' ? 'standard output' : settings.outputFile,
+  };
+}
 export const CONTEST_RENDERER_VERSION='pf-contest-2';
 export type ContestRenderInput={title:string;author:string;stage:string;dateHeader:string;dateCover:string;entries:{namespace:string;code:string;body:string;metadata:{title:string;author:string};assetPaths:string[];samples:SamplePaths[];timeLimitMs:number;memoryLimitMb:number;inputFile:string;outputFile:string}[]};
 export function renderContest(files:TemplateFiles,kind:DocumentKind,input:ContestRenderInput){
@@ -224,18 +233,27 @@ export function renderContest(files:TemplateFiles,kind:DocumentKind,input:Contes
   }
   return result;
 }
-export function render(files: TemplateFiles, kind: DocumentKind, body: string, metadata: { title: string; author: string }, assetPaths: string[] = [], mode: 'single' | 'booklet' = 'single', samples: SamplePaths[] = []) {
+export function render(files: TemplateFiles, kind: DocumentKind, body: string, metadata: { title: string; author: string }, assetPaths: string[] = [], mode: 'single' | 'booklet' = 'single', samples: SamplePaths[] = [], settings: StatementSettings = statementSettings()) {
   validateTemplate(files, kind);
   validateBody(body, kind, assetPaths);
   const result: Record<string, string> = {};
   for (const [name, source] of Object.entries(files)) {
     if (/\.(tex|sty|cls|def)$/.test(name)) result[name] = source;
   }
+  // Published built-in versions used this literal header. Bind its fields in
+  // the rendered copy only; do not rewrite immutable template versions or body text.
+  if (kind === 'STATEMENT') for (const name of ['main.tex', 'problem.tex']) if (result[name]) {
+    result[name] = result[name].replace(
+      String.raw`\begin{problem}{ {{TITLE}} }{standard input}{standard output}{1 s}{256 MB}`,
+      String.raw`\begin{problem}{ {{TITLE}} }{ {{INPUT_FILE}} }{ {{OUTPUT_FILE}} }{ {{TIME_LIMIT}} }{ {{MEMORY_LIMIT}} }`,
+    );
+  }
   const context = publicationContext(files);
+  const timeLimit = `${settings.timeLimitMs / 1000} s`, memoryLimit = `${settings.memoryLimitMb} MB`;
   const values: Record<string, string> = { TITLE: escapeTex(metadata.title), AUTHOR: escapeTex(metadata.author), BODY: '\\input{content.tex}',
-    CONTENTS: '\\input{problem.tex}', CODE: 'A', TIME_LIMIT: '1 s', MEMORY_LIMIT: '256 MB', INPUT_FILE:'standard input', OUTPUT_FILE:'standard output',
+    CONTENTS: '\\input{problem.tex}', CODE: 'A', TIME_LIMIT: escapeTex(timeLimit), MEMORY_LIMIT: escapeTex(memoryLimit), INPUT_FILE: escapeTex(settings.inputFile), OUTPUT_FILE: escapeTex(settings.outputFile),
     CONTEST_TITLE: escapeTex(context.contestTitle), CONTEST_STAGE: escapeTex(context.contestStage), CONTEST_DATE_HEADER: escapeTex(context.dateHeader), CONTEST_DATE_COVER: escapeTex(context.dateCover),
-    PROBLEM_LIST: `A & ${escapeTex(metadata.title)} & 1 s & 256 MB \\\\\n` };
+    PROBLEM_LIST: `A & ${escapeTex(metadata.title)} & ${escapeTex(timeLimit)} & ${escapeTex(memoryLimit)} \\\\\n` };
   for (const [name, source] of Object.entries(result)) result[name] = source.replace(/\{\{([A-Z_]+)\}\}/g, (_, k: string) => values[k] ?? `{{${k}}}`);
   if (mode === 'booklet') { if (!result['booklet.tex']) throw new Error('模板未提供题册入口'); result['main.tex'] = result['booklet.tex']; if(result['item.tex'])result['problem.tex']=result['item.tex']; }
   result['content.tex'] = body;

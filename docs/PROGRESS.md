@@ -722,3 +722,17 @@ Hydro config.yaml 改用常规缩进 YAML，工具编译说明同步 `lang: auto
 经原 `localhost:5180` 为这份已保存题面创建 Build `cmuthbot80003ktac6ya1qwu3`，沿用正文修订 `cmutgyfn0007akty83cufw9mo` 和 CWNU 挑战赛比赛题面 v2；原独立 Linux TeX 沙箱返回 Accepted，CPU 1647 ms、299 MiB，状态 SUCCEEDED、没有缓存复用、当前性有效。实际下载 Artifact `cmuthbqio0001ktg0oqnaa2m4`，核对 PDF 文件头、63891 字节及 SHA-256。保留模板 pgfplots 兼容提示和多轮编译初轮的引用提示，没有未定义箭头错误。证据、日志及 PDF 在 Git 忽略的 `.local/xrightarrow/`，验证会话已退出。前后题目完整快照、比赛编排、模板指纹一致，只有预期构建/产物及审计新增。
 
 **环境与边界：**再次确认活动 Build/TestRun 为 0 并核对主目录服务树后，仅重启原 pnpm dev；仍使用 5180/3100、原数据库/Redis/存储/沙箱。收尾根进程 80008，Vite 82664、API 57396，两个 Worker 55008 / 67588；监听和 Worker 均属该树且无额外服务，首页 200、健康 ok、stderr 为空。服务记录 services.json / services-verified.json，后续重新核对 PID。未另跑题解/Beamer 的真实编译、PDF 逐页视觉检查、Judge、全量/E2E、外部 OJ 或部署；三类参数策略由上述定向检查覆盖。无依赖、迁移或新端口，本轮无阻塞；TEMPLATES、PLAN 和交接已同步，差异检查后本地提交，不 push，P7.2/P8 继续暂缓。
+
+## 单题 PDF 使用已保存时空限制（2026-10-04）
+
+**原因与实现：**配置入口原本位于「程序、数据与验收 → 判题配置」，但单题构建未读取该配置，两套内置单题题头和渲染器均写死 1 s / 256 MB。新增 `pf-statement-1`，API 将时间、内存及有效输入输出名称固定进题面构建快照和缓存哈希，Worker 仅使用这份快照，模板预览使用受控默认值。新内置题头改为现有插槽，既有内置版本的原样标准题头仅在渲染副本中接入插槽，已发布模板原记录、作者正文及历史 PDF 不改写；任意自定义硬编码题头不做猜测替换。单题册目录和题头使用相同值，比赛原有逐题配置逻辑保留。
+
+时间、内存、有效 I/O 或题面渲染版本不一致时，构建详情与列表标为历史，发布接口锁定并核对当前题目设置，拒绝过期题面；旧无配置快照的失败任务应新建构建，不通过重试改换快照。无关的 Checker/输出限制及标准输入模式下未使用的文件名不使 PDF 过期，文档题解不受题面设置影响。配置页补充单位换算和重新构建说明，保存配置后通知工作区刷新构建状态。
+
+**定向验证：**`pnpm check template-engine api tex-worker web` 通过；显式运行 statement-settings.test.ts、policy.test.ts、contest.test.ts 的 11 项检查全部通过，覆盖新旧两套题面模板、单题/题册、分数秒和内存、文件名转义、源对象不变、既有正文/数学/样例及比赛回归。默认轻量快查未扩展。`node --import tsx scripts/verify-statement-settings.ts --rollback --sandbox` 通过真实 API / 原数据库事务：分别修改时间、内存、I/O 检查输入哈希与过期状态，拒绝过期发布，确认无关配置复用输入、旧快照不变及题解不受影响。队列使用内存替身，全部用户/题目/构建/发布/审计夹具回滚；成功状态元数据仅用于路由检查，不冒充实际 Worker 结果。
+
+回滚结束后，用该固定的 2500 ms / 512 MiB 快照及现有已发布模板经原独立 Linux TeX 沙箱实际编译，Accepted，生成 22035 字节 PDF，临时沙箱文件清理。使用 Poppler 渲染并目视确认完整单页题头显示 2.5 s / 512 MB，布局正常。证据 `.local/statement-settings/api-verification.json`、sandbox-fixture.log/pdf/png。
+
+**原服务实际验证：**经原 5180 为「双色通行证」保存中的修订 `cmuthfqzu000ektacf64ctrpj` 创建 Build `cmuthzn7g0003kttgqi18zxyj`，保留 CWNU 挑战赛比赛题面 v2 和用户已保存的 2000 ms / 256 MiB，未修改业务内容。原 Worker 实际编译 Accepted，CPU 1572 ms、224 MiB、没有缓存复用，Artifact `cmuthzonw0001ktig77cimv2b` 为 63894 字节。下载核对 SHA-256，渲染首页确认题头实际显示 2 s / 256 MB，正文与箭头正常；新记录当前有效，旧记录显示历史。证据 live-check.json、build-result.json、live.pdf、live-page-1.png；验证会话退出。题目完整快照、比赛编排与模板指纹前后一致，仅新增预期构建/私有 PDF 和审计。
+
+**环境与收尾：**确认零活动任务并核对主目录服务树后重启同一 pnpm dev，仍用原 5180/3100、数据库/Redis/存储/沙箱，没有新端口、依赖或迁移。重启后第一次验证请求早于 API 就绪而失败，健康检查通过后重试成功。收尾根进程 81412，Vite 14248、API 30868、Worker 58620 / 82312，均属该树且无额外服务，首页 200、健康 ok、stderr 为空，见 services.json / services-verified.json，后续重新核对 PID。未执行浏览器表单交互、真实多题比赛构建、Judge、全量/E2E、部署或公网发布；前端通过类型检查，题册/比赛路径由定向检查覆盖。用户指南、模板协议与 PLAN 已更新，无阻塞，差异检查后本地提交，不 push，P7.2/P8 继续暂缓。

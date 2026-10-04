@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { TemplateInput, TemplateRenameInput, TemplateCopyInput, TemplateDraftInput, ReasonInput, Kind } from '@problemforge/contracts';
 import { db } from '@problemforge/database';
 import { hashObject, HttpError, audit, root } from '@problemforge/domain';
-import { validateTemplate, applyAdminStyle, templateLanguages, type TemplateFiles, POLICY_VERSION, TEX_PROFILE, CONTEST_RENDERER_VERSION, ContentPolicyError } from '@problemforge/template-engine';
+import { validateTemplate, applyAdminStyle, templateLanguages, type TemplateFiles, POLICY_VERSION, TEX_PROFILE, CONTEST_RENDERER_VERSION, STATEMENT_RENDERER_VERSION, statementSettings, ContentPolicyError } from '@problemforge/template-engine';
 import { GO_JUDGE_VERSION } from '@problemforge/judge-adapter';
 import { admin, authenticate, type Api } from '../app.ts';
 import { taskQuota } from '@problemforge/domain';
@@ -91,6 +91,7 @@ export async function templateRoutes(app: Api) {
     const files = version.files as TemplateFiles; checkFiles(files, version.template.kind);
     const multi=!!files['booklet.tex']?.includes('{{CONTENTS}}');
     const input = { kind: version.template.kind, mode: multi?'contest':files['booklet.tex'] ? 'booklet' : 'single', body: files['preview.tex'], metadata: { title: 'A + B', author: 'ProblemForge' }, files,
+      ...(!multi && version.template.kind === 'STATEMENT' ? { statementSettings: statementSettings(), statementRendererVersion: STATEMENT_RENDERER_VERSION } : {}),
       ...(multi?{contestRendererVersion:CONTEST_RENDERER_VERSION,contest:{title:'ProblemForge 比赛预览',author:'ProblemForge',stage:'模板验证',dateHeader:'2026/10/01',dateCover:'2026 年 10 月 1 日',entries:[{namespace:'p1',code:'A',body:files['preview.tex'],metadata:{title:'A + B',author:'ProblemForge'},assetPaths:[],samples:[],timeLimitMs:1000,memoryLimitMb:256,inputFile:'standard input',outputFile:'standard output'}]}}:{}),
       templateHash: version.hash, contentHash: hashObject(files['preview.tex']), policy: POLICY_VERSION, toolchain: TEX_PROFILE, sandboxVersion: GO_JUDGE_VERSION };
     const requestKey=hashObject([req.user.id,'template-validation',version.id,input]);

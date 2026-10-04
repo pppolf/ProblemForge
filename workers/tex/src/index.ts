@@ -2,13 +2,13 @@ import { Worker } from 'bullmq';
 import { db } from '@problemforge/database';
 import { config, redisConnection, hashObject, sha256, ManagedStorage, claimTask, renewLease, workerHeartbeat } from '@problemforge/domain';
 import { PrivateFileStorage } from '@problemforge/storage';
-import { render, renderContest, CONTEST_RENDERER_VERSION, type ContestRenderInput, templateImage, printableSample, POLICY_VERSION, TEX_PROFILE, SAMPLE_RENDERER_VERSION, ContentPolicyError, type TemplateFiles } from '@problemforge/template-engine';
+import { render, renderContest, CONTEST_RENDERER_VERSION, type ContestRenderInput, templateImage, printableSample, POLICY_VERSION, TEX_PROFILE, SAMPLE_RENDERER_VERSION, STATEMENT_RENDERER_VERSION, type StatementSettings, ContentPolicyError, type TemplateFiles } from '@problemforge/template-engine';
 import type { DocumentKind } from '@problemforge/contracts';
 import { SandboxClient, InfrastructureError, GO_JUDGE_VERSION, type SandboxCommand } from '@problemforge/judge-adapter';
 
 const sandbox = new SandboxClient(config.sandboxUrl, config.sandboxToken);
 const storage = new ManagedStorage(config.storageRoot);
-type Input = { kind: DocumentKind; body: string; mode?: 'single' | 'booklet' | 'contest';contest?:ContestRenderInput;contestRendererVersion?:string; metadata: { title: string; author: string }; files: TemplateFiles; templateHash: string; policy: string; toolchain: string; sandboxVersion: string; sampleRendererVersion?: string; assets?: { path: string; key: string; hash: string; bytes: number }[]; samples?: { revisionId: string; inputPath: string; answerPath: string; input: { key: string; hash: string; bytes: number }; answer: { key: string; hash: string; bytes: number } }[] };
+type Input = { kind: DocumentKind; body: string; mode?: 'single' | 'booklet' | 'contest';contest?:ContestRenderInput;contestRendererVersion?:string; metadata: { title: string; author: string }; files: TemplateFiles; templateHash: string; policy: string; toolchain: string; sandboxVersion: string; sampleRendererVersion?: string; statementSettings?: StatementSettings; statementRendererVersion?: string; assets?: { path: string; key: string; hash: string; bytes: number }[]; samples?: { revisionId: string; inputPath: string; answerPath: string; input: { key: string; hash: string; bytes: number }; answer: { key: string; hash: string; bytes: number } }[] };
 const stopHeartbeat=await workerHeartbeat('tex');
 const active=new Set<AbortController>();
 const worker = new Worker('tex', async job => {
@@ -46,6 +46,7 @@ const worker = new Worker('tex', async job => {
     const input = build.input as unknown as Input;
     if (hashObject(build.input) !== build.inputHash || hashObject(input.files) !== input.templateHash) throw new Error('构建快照哈希不匹配');
     if (input.policy !== POLICY_VERSION || input.toolchain !== TEX_PROFILE || input.sandboxVersion !== GO_JUDGE_VERSION) throw new Error('构建策略或工具链与当前 Worker 不一致，需创建新构建');
+    if (input.kind === 'STATEMENT' && input.mode !== 'contest' && (input.statementRendererVersion !== STATEMENT_RENDERER_VERSION || !input.statementSettings)) throw new Error('题面时空限制渲染版本与当前 Worker 不一致，请创建新构建');
     if (input.samples?.length && input.sampleRendererVersion !== SAMPLE_RENDERER_VERSION) throw new Error('样例渲染版本与当前 Worker 不一致，需创建新构建');
     const assets = input.assets ?? [];
     if(input.mode==='contest'&&(!input.contest||input.contestRendererVersion!==CONTEST_RENDERER_VERSION))throw new Error('比赛渲染版本与当前 Worker 不一致，请新建构建');
@@ -54,7 +55,7 @@ const worker = new Worker('tex', async job => {
       const artifact=cached?.artifacts[0];
       if(artifact){let pdf:Buffer|undefined;try{pdf=await storage.get(artifact.key);if(sha256(pdf)!==artifact.hash||pdf.length!==artifact.bytes)pdf=undefined;}catch{}if(pdf){await finishPdf(pdf,`缓存命中：复用固定构建 ${cached!.id}；内容、模板、工具链和渲染策略哈希相同。\n本次未重新编译。`,[],cached!.id);return;}}
     }
-    const sources = input.mode==='contest'?renderContest(input.files,input.kind,input.contest!):render(input.files, input.kind, input.body, input.metadata, assets.map(a => a.path), input.mode, input.samples);
+    const sources = input.mode==='contest'?renderContest(input.files,input.kind,input.contest!):render(input.files, input.kind, input.body, input.metadata, assets.map(a => a.path), input.mode, input.samples, input.statementSettings);
     const copyIn: SandboxCommand['copyIn'] = Object.fromEntries(Object.entries(sources).map(([name, content]) => [name, { content }]));
     for (const [name, encoded] of Object.entries(input.files)) if (/\.(png|jpe?g)$/.test(name)) {
       const fileId = await sandbox.upload(name.split('/').at(-1)!, templateImage(encoded, name));

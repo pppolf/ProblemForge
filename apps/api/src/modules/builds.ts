@@ -1,8 +1,8 @@
 import { Type } from '@sinclair/typebox';
-import { BuildInput, PublishInput } from '@problemforge/contracts';
+import { BuildInput, PublishInput, defaultJudgeSettings, type JudgeSettingsValue } from '@problemforge/contracts';
 import { db, type Build } from '@problemforge/database';
 import { config, hashObject, HttpError, problemAccess, problemPermission, documentAccess, contestAccess, texQueue, token, audit, taskQuota, recoverTasks, checkRetry } from '@problemforge/domain';
-import { validateBody, templateLanguages, printableSample, POLICY_VERSION, TEX_PROFILE, SAMPLE_RENDERER_VERSION, type TemplateFiles } from '@problemforge/template-engine';
+import { validateBody, templateLanguages, printableSample, POLICY_VERSION, TEX_PROFILE, SAMPLE_RENDERER_VERSION, STATEMENT_RENDERER_VERSION, statementSettings, type TemplateFiles } from '@problemforge/template-engine';
 import { GO_JUDGE_VERSION } from '@problemforge/judge-adapter';
 import { admin, authenticate, storage, type Api } from '../app.ts';
 import { assetPath } from './assets.ts';
@@ -34,10 +34,14 @@ async function writeAccess(req:{user:{id:string;role:string}},build:Build){
   else if(build.documentId){const doc=await db.document.findUniqueOrThrow({where:{id:build.documentId}});await documentAccess(req.user,doc.problemId,doc.language,true);}
   else if(build.problemId)await problemAccess(req.user,build.problemId,true);
 }
+function statementSettingsMatch(build: Build, settings: JudgeSettingsValue) {
+  const input = build.input as Record<string, unknown>;
+  return input.statementRendererVersion === STATEMENT_RENDERER_VERSION && !!input.statementSettings && hashObject(input.statementSettings) === hashObject(statementSettings(settings));
+}
 async function staleBuild(build:Build){
   if(build.contestId){const current=await db.$transaction(tx=>currentContestRevisionIds(tx,build.contestId!),{isolationLevel:'RepeatableRead',timeout:30000});return !build.contestRevisionId||!current.has(build.contestRevisionId);}
-  const doc=build.documentId?await db.document.findUnique({where:{id:build.documentId}}):null;
-  return !!doc&&(doc.currentRevisionId!==build.revisionId||doc.templateVersionId!==build.templateVersionId||!doc.enabled);
+  const doc=build.documentId?await db.document.findUnique({where:{id:build.documentId},include:{problem:{select:{judgeSettings:true}}}}):null;
+  return !!doc&&(doc.currentRevisionId!==build.revisionId||doc.templateVersionId!==build.templateVersionId||!doc.enabled||doc.kind==='STATEMENT'&&!statementSettingsMatch(build,(doc.problem.judgeSettings??defaultJudgeSettings) as JudgeSettingsValue));
 }
 export async function buildRoutes(app: Api) {
   let reconciling = false;
@@ -49,7 +53,7 @@ export async function buildRoutes(app: Api) {
   reconciliation.unref();
   app.addHook('onClose', async () => { clearInterval(reconciliation); await queue.close(); });
   app.post('/api/builds', { preHandler: authenticate, schema: { body: BuildInput, tags: ['构建'] } }, async req => {
-    const doc = await db.document.findUnique({ where: { id: req.body.documentId }, include: { currentRevision: true, templateVersion: { include: { template: true } } } });
+    const doc = await db.document.findUnique({ where: { id: req.body.documentId }, include: { currentRevision: true, templateVersion: { include: { template: true } }, problem: { select: { judgeSettings: true } } } });
     if (!doc) throw new HttpError(404, '文稿不存在'); await documentAccess(req.user, doc.problemId,doc.language,true);
     if (!doc.enabled || !doc.currentRevision || !doc.templateVersion) throw new HttpError(422, '文稿必须启用、有正文且已选择模板');
     if (!['PUBLISHED', 'ARCHIVED'].includes(doc.templateVersion.state)) throw new HttpError(422, `模板版本不可构建：${doc.templateVersion.reason ?? doc.templateVersion.state}`);
@@ -68,6 +72,7 @@ export async function buildRoutes(app: Api) {
       files: doc.templateVersion.files as TemplateFiles, templateHash: doc.templateVersion.hash, contentHash: doc.currentRevision.hash,
       revisionId: doc.currentRevision.id, contentVersion: doc.version, templateNumber: doc.templateVersion.number, assets: assetSnapshot, samples,
       ...(samples.length ? { sampleRendererVersion: SAMPLE_RENDERER_VERSION } : {}),
+      ...(doc.kind === 'STATEMENT' ? { statementSettings: statementSettings((doc.problem.judgeSettings ?? defaultJudgeSettings) as JudgeSettingsValue), statementRendererVersion: STATEMENT_RENDERER_VERSION } : {}),
       policy: POLICY_VERSION, toolchain: TEX_PROFILE, sandboxVersion: GO_JUDGE_VERSION };
     const inputHash = hashObject(input), requestKey = req.body.requestKey ? hashObject([req.user.id, 'build', req.body.requestKey]) : hashObject([req.user.id, 'build', doc.id, inputHash]);
     const build = await db.$transaction(async tx => {
@@ -134,10 +139,12 @@ export async function buildRoutes(app: Api) {
     if (role !== 'OWNER' && req.user.role !== 'ADMIN') throw new HttpError(403, '只有题目负责人可以发布');
     const result = await db.$transaction(async tx => {
       await tx.$queryRaw`SELECT id FROM "Document" WHERE id = ${doc.id} FOR UPDATE`;
-      const current = await tx.document.findUniqueOrThrow({ where: { id: doc.id } });
+      if (doc.kind === 'STATEMENT') await tx.$queryRaw`SELECT id FROM "Problem" WHERE id = ${doc.problemId} FOR UPDATE`;
+      const current = await tx.document.findUniqueOrThrow({ where: { id: doc.id }, include: { problem: { select: { judgeSettings: true } } } });
       const build = await tx.build.findUnique({ where: { id: req.body.buildId }, include: { artifacts: true } });
       const template = current.templateVersionId ? await tx.templateVersion.findUnique({ where: { id: current.templateVersionId } }) : null;
       if (!current.enabled || !build || build.documentId !== current.id || build.state !== 'SUCCEEDED' || build.revisionId !== current.currentRevisionId || build.templateVersionId !== current.templateVersionId || !build.artifacts.length || template?.state === 'REVOKED') throw new HttpError(409, '必须发布当前文稿和模板对应的成功构建，模板不能已撤回');
+      if (current.kind === 'STATEMENT' && !statementSettingsMatch(build, (current.problem.judgeSettings ?? defaultJudgeSettings) as JudgeSettingsValue)) throw new HttpError(409, '题目时空限制或输入输出设置已改变，请重新构建当前题面');
       return tx.publication.create({ data: { documentId: current.id, buildId: build.id, token: token() } });
     });
     await audit(req.user.id, 'PUBLISH_DOCUMENT', doc.id, { kind: doc.kind, buildId: req.body.buildId });
