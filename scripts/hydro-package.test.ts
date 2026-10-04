@@ -66,7 +66,7 @@ test('tables, explicit sample blocks, images and unsupported constructs retain t
 \begin{unknownenvironment}保留原始内容\end{unknownenvironment}`);
   assert.match(result.markdown, /\| 顺序 \| 发送方 \| 内容 \|\n\| --- \| --- \| --- \|/);
   assert.match(result.markdown, /\| 1 \| 选手 \| `\? 1 2` \|/);
-  assert.match(result.markdown, /\$\\\|x\\\|\$/); assert.match(result.markdown, /```text\n1  2\n3\n```/);
+  assert.match(result.markdown, /\$\\\|x\\\|\$/); assert.match(result.markdown, /```input1\n1  2\n3\n```\n\n```output1\n6\n```/);
   assert.deepEqual(result.assets, ['assets/image1.png']); assert.match(result.markdown, /!\[题目插图\]\(assets\/image1.png\)/);
   assert.equal(result.warnings.length, 2); assert.match(result.markdown, /不丢弃/); assert.match(result.markdown, /```latex\n\\begin\{unknownenvironment\}保留原始内容/);
   assert.match(latexToMarkdown(String.raw`\InputFile Input.`, { language: 'en' }).markdown, /^## Input/);
@@ -76,6 +76,18 @@ test('tables, explicit sample blocks, images and unsupported constructs retain t
 
 test('code fences cannot be closed by sample contents', () => {
   assert.equal(fencedCode('```\n# literal\n````\n'), '`````text\n```\n# literal\n````\n`````');
+});
+
+test('Hydro samples pair in display order across embedded and bound examples', () => {
+  const result = latexToMarkdown(String.raw`题目正文。\InputFile 输入。\OutputFile 输出。\Examples\exmp{内嵌输入}{内嵌输出}\Explanation 解释。`, {
+    statement: true, samples: [{ input: '第一组\r\n', output: '1\r\n' }, { input: '```\n# 原样保留\n', output: '' }],
+  });
+  assert.deepEqual([...result.markdown.matchAll(/^`{3,}(input\d+|output\d+)$/gm)].map(m => m[1]), ['input1', 'output1', 'input2', 'output2', 'input3', 'output3']);
+  assert.match(result.markdown, /^## 题目描述\n\n题目正文/);
+  assert.match(result.markdown, /```input2\n第一组\r\n```\n\n```output2\n1\r\n```/);
+  assert.match(result.markdown, /````input3\n```\n# 原样保留\n````\n\n```output3\n\n```\n\n## 样例解释/);
+  assert(!/^## 样例$|^### 样例(?:输入|输出)/m.test(result.markdown));
+  assert.match(latexToMarkdown(String.raw`Plain description.\Note Explain.`, { statement: true, language: 'en', samples: [{ input: '1', output: '2' }] }).markdown, /^## Description[\s\S]*```output1[\s\S]*## Sample explanation/);
 });
 
 test('Hydro package has the requested UTF-8 tree, current documents and pinned samples', async () => {
@@ -91,8 +103,9 @@ test('Hydro package has the requested UTF-8 tree, current documents and pinned s
   assert.deepEqual([...files.keys()], ['statement.md', '题解.md', 'assets/pic.png', 'tests/1.in', 'tests/1.ans', 'tests/3.in', 'tests/3.ans', 'tests/checker.cc', 'tests/config.yaml'].map(p => `${directory}/${p}`));
   assert.equal(result.report.find(r => r.fileName)?.fileName, `${directory}.zip`);
   const statement = files.get(`${directory}/statement.md`)!.toString();
-  assert.match(statement, /^# 文稿标题/); assert.match(statement, /```text\n1  2\r\n```/);
-  assert(statement.indexOf('## 样例') < statement.indexOf('## 说明'));
+  assert.match(statement, /^## 题目描述/); assert.match(statement, /```input1\n1  2\r\n```\n\n```output1\n3\r\n```/);
+  assert(statement.indexOf('```output1') < statement.indexOf('## 样例解释'));
+  assert(!/^# |^## 样例$|^### 样例(?:输入|输出)|^```text/m.test(statement));
   assert(!statement.includes('NEW SAMPLE')); assert(!statement.includes('PRIVATE'));
   assert.match(files.get(`${directory}/题解.md`)!.toString(), /## 做法\n\n\*\*相加\*\*即可/);
   assert.deepEqual(files.get(`${directory}/tests/3.in`), Buffer.from([0, 255, 13, 10]));
@@ -111,7 +124,7 @@ test('interactive hidden tests stay input-only while bound sample output is in M
   assert(!paths.some(p => p.endsWith('.ans') || p.endsWith('tests/1.in') || p.endsWith('checker.cc')));
   assert.equal(result.files.get(`${directory}/tests/interactor.cc`)!.toString(), m.programs[0].source);
   assert.deepEqual(result.files.get(`${directory}/tests/testlib.h`), support.testlib);
-  assert.match(result.files.get(`${directory}/statement.md`)!.toString(), /样例输出 1\n\n```text\n3\r\n```/);
+  assert.match(result.files.get(`${directory}/statement.md`)!.toString(), /```output1\n3\r\n```/);
   const config = parseYaml(result.files.get(`${directory}/tests/config.yaml`)!.toString());
   assert.deepEqual(config.interactor, { file: 'interactor.cc', lang: 'auto' });
   assert.deepEqual(config.subtasks, [{ score: 100, id: 1, type: 'sum', cases: [{ input: '3.in', output: '/dev/null' }] }]);

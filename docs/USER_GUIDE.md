@@ -357,6 +357,8 @@ int main() {
 
 Hydro 的 `tests/` 按原编号保存普通题的 `*.in` / `*.ans`、所需 `checker.cc` / `interactor.cc`、`config.yaml` 和工具依赖。交互题只放隐藏测试 `*.in`，不导出或补空 `.ans`，展示样例仍在 `statement.md`。解压后分别使用 Markdown 题面和题解，并在 Hydro 测试数据管理中上传 `tests/` 内的文件，或仅将该目录内容另打成 ZIP 上传。
 
+题面按“题目描述 → 输入格式 → 输出格式 → 样例代码块 → 样例解释”导出。样例的代码块标记为 `input1` / `output1`，多组从 1 开始连续编号，不额外显示“样例输入／输出”标题；原有其他小节仍保留。调整导出格式后请重新生成题目包，历史下载不会改写。
+
 NovaJudge 继续选择「导出测试数据 ZIP」，测试数据、`.cpp` 工具和 `problem.yml` 位于 ZIP 根目录，可上传到对应题目的测试数据管理。两站均可选择已有固定修订，无需先冻结；历史下载内容不变，旧 Hydro 数据 ZIP 需重新导出才能得到新目录。
 
 Hydro 交互题的 `tests/config.yaml` 使用 `interactor: { file: interactor.cc, lang: auto }`，测试点放在 `subtasks` 下总分 100、编号 1 的 `sum` 组中，每个测试点指定 `input: 编号.in` 和 `output: /dev/null`。时空限制取当前导出版本的题目配置，测试点按实际非样例编号升序列出，所有引用相对 tests/。

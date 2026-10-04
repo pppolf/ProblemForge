@@ -28,7 +28,8 @@ const inlineCode = (text: string) => {
 const environmentName = (node: Ast.Environment) => typeof node.env === 'string' ? node.env : printRaw(node.env);
 
 // Read structure only: no TeX compilation, template execution or external resources.
-export function latexToMarkdown(body: string, options: { language?: string; samples?: string } = {}) {
+export type MarkdownSample = { input: string; output: string };
+export function latexToMarkdown(body: string, options: { language?: string; samples?: MarkdownSample[]; statement?: boolean } = {}) {
   if (body.length > 500_000 || body.includes('\0')) throw new PackageError('LaTeX 正文超出转换限制');
   let root: Ast.Root;
   try { root = parser.parse(body); } catch { throw new PackageError('LaTeX 正文无法解析，请先修正括号或环境配对'); }
@@ -41,6 +42,11 @@ export function latexToMarkdown(body: string, options: { language?: string; samp
   check(root, 0);
   const warnings = new Set<string>(), assets = new Set<string>(), english = options.language?.startsWith('en');
   const label = (zh: string, en: string) => english ? en : zh;
+  let sampleNumber = 0;
+  const sample = ({ input, output }: MarkdownSample) => {
+    const number = ++sampleNumber;
+    return `${fencedCode(input, `input${number}`)}\n\n${fencedCode(output, `output${number}`)}`;
+  };
   const argument = (node: Ast.Macro) => node.args?.filter(a => a.openMark === '{').at(-1)?.content ?? [];
   const literal = (nodes: Ast.Node[]) => {
     const start = nodes[0]?.position?.start.offset, end = nodes.at(-1)?.position?.end.offset;
@@ -133,6 +139,8 @@ export function latexToMarkdown(body: string, options: { language?: string; samp
       }
       case 'macro': {
         const name = node.content;
+        if (options.statement && ['Example', 'Examples'].includes(name)) return '';
+        if (options.statement && sampleNumber && ['Note', 'Notes'].includes(name)) return block(`## ${label('样例解释', 'Sample explanation')}`);
         if (sections[name]) return block(`${['InteractionStart', 'InteractionQuery', 'InteractionAnswer'].includes(name) ? '###' : '##'} ${sections[name][english ? 1 : 0]}`);
         if (['section', 'subsection', 'subsubsection', 'paragraph'].includes(name)) return block(`${'#'.repeat(['section', 'subsection', 'subsubsection', 'paragraph'].indexOf(name) + 2)} ${render(argument(node)).trim()}`);
         if (['textbf', 'textit', 'emph', 'underline'].includes(name)) {
@@ -150,7 +158,7 @@ export function latexToMarkdown(body: string, options: { language?: string; samp
         if (name === 'exmp') {
           const args = node.args?.filter(a => a.openMark === '{') ?? [];
           if (args.length !== 2) return fallback(node, '样例');
-          return block(`### ${label('样例输入', 'Sample input')}\n\n${fencedCode(literal(args[0].content))}\n\n### ${label('样例输出', 'Sample output')}\n\n${fencedCode(literal(args[1].content))}`);
+          return block(sample({ input: literal(args[0].content), output: literal(args[1].content) }));
         }
         if (name === 'footnote') return `（${render(argument(node)).trim()}）`;
         if (name === 'caption') return block(render(argument(node)).trim());
@@ -164,11 +172,12 @@ export function latexToMarkdown(body: string, options: { language?: string; samp
       default: return fallback(node, `节点 ${(node as Ast.Node).type}`);
     }
   };
-  // Match the PDF renderer: bound sample revisions precede the first top-level Note.
-  const note = root.content.findIndex(n => n.type === 'macro' && ['Note', 'Notes'].includes(n.content));
+  // Render in order so embedded and bound samples share one sequence of pair IDs.
+  const note = root.content.findIndex(n => n.type === 'macro' && ['Note', 'Notes', 'Explanation', 'Explanations'].includes(n.content));
   const offset = note < 0 ? root.content.length : note;
-  const markdown = options.samples
-    ? render(root.content.slice(0, offset)).trim() + block(options.samples) + render(root.content.slice(offset)).trim()
+  let markdown = options.samples?.length
+    ? render(root.content.slice(0, offset)).trim() + block(options.samples.map(sample).join('\n\n')) + render(root.content.slice(offset)).trim()
     : render(root.content).trim();
+  if (options.statement && markdown.trim() && !/^#{1,6} /.test(markdown.trimStart())) markdown = `## ${label('题目描述', 'Description')}\n\n${markdown.trim()}`;
   return { markdown: markdown.trim() + '\n', assets: [...assets], warnings: [...warnings] };
 }

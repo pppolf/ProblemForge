@@ -78,7 +78,7 @@ try {
         assert.match(String(download.headers['content-disposition']), /attachment/);
         assert.equal(sha256(download.rawPayload), artifact.hash);
         const files = await unpack(artifact);
-        if (target === 'HYDRO') { assert.match(await markdown(artifact), /## 输入格式/); assert.match(await markdown(artifact), /```text\n1 2\r\n```/); assert.match(await markdown(artifact, '题解.md'), /## 旧题解/); }
+        if (target === 'HYDRO') { const statement = await markdown(artifact); assert.match(statement, /## 输入格式/); assert.match(statement, /```input1\n1 2\r\n```\n\n```output1\n3\r\n```\n\n## 样例解释/); assert(!/^# |^## 样例$|^### 样例(?:输入|输出)/m.test(statement)); assert.match(await markdown(artifact, '题解.md'), /## 旧题解/); }
         assert.deepEqual(files.get('7.in'), Buffer.from('1 2\r\n')); assert.deepEqual(files.get('7.ans'), Buffer.from('3\r\n'));
         const configName = target === 'HYDRO' ? 'config.yaml' : 'problem.yml', checkerName = target === 'HYDRO' ? 'checker.cc' : 'checker.cpp';
         const config = parseYaml(files.get(configName)!.toString());

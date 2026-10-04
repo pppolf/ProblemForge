@@ -702,3 +702,13 @@ Hydro config.yaml 改用常规缩进 YAML，工具编译说明同步 `lang: auto
 浏览器实看原站新入口、zh-CN 来源、中文下载名和新/旧 Hydro 历史标签，检查导出按钮可用、专用包无公开发布按钮、NovaJudge 入口可切换，console 无 warn/error；没有在浏览器编辑业务数据。证据 browser-result.json、hydro-page.png。两次验证登录均退出，临时标签关闭。完整题目快照、比赛 JSON/编排 v8、模板版本指纹前后一致，活动 Build/TestRun 均为 0，见 before/after.json；仅新增上述两个私有导出及必要审计记录。
 
 **运行环境与边界：**核对原开发进程树并确认无活动任务后，在主目录重启原 pnpm dev 加载最终实现；仍用原 5180/3100、数据库/Redis/存储/沙箱，没有新增实例、端口或迁移。收尾根进程 34060，Vite 68520、API 68804，Worker 20508 / 75980，均属同一进程树且无额外 Worker；首页 200、代理健康 ok、stderr 为空。证据 services.json、services-verified.json、dev.out/err.log，后续重新核对 PID。未执行 Judge、TeX、全量/E2E、生产构建、外部 OJ 上传/判题、部署或公网发布；用户自定义目录不冒充 Hydro 原生一键导入协议。PACKAGES、USER_GUIDE、PLAN 和本交接已同步，无本轮功能阻塞，差异检查通过后本地 Git 提交，不 push；P7.2/P8 继续暂缓。
+
+## Hydro 样例采用 inputN / outputN 格式（2026-10-04）
+
+**用户纠正与实现：**用户给出「还差几个座位」完整 Markdown 示例，要求样例使用 input1/output1 代码块。本轮将绑定样例及手写 exmp 统一为成对、从 1 连续编号的 inputN/outputN，去掉额外的“样例”“样例输入／输出”标题；编号按最终展示顺序，不使用测试点编号，混用手写与绑定样例也不会重复。题面不再额外加一级题名，无标题的开头描述补二级“题目描述”，已有标题保留。绑定样例置于首个顶层 Note/Notes/Explanation/Explanations 前，有样例时 Note/Notes 转为“样例解释”；英文稿用对应英文标题。文档题解、普通代码块、原始样例空白/换行、tests/ 数据/工具/配置及既有 ZIP 保持原行为。
+
+**实际定向检查：**`pnpm check problem-format api` 通过；`node --import tsx --test scripts/hydro-package.test.ts` 9 项通过，包括多个内嵌/绑定样例连续配对、空输出、样例含反引号的围栏保护、CRLF、英文标题，以及图片、固定样例、交互仅输入和文件路径回归。`node --import tsx scripts/verify-test-data-export.ts --rollback` 通过原库回滚事务/真实 API，当前与固定题包中的 input1/output1、样例解释及无额外标题均核对，同时保留两站数据与权限回归。存储仅内存、夹具全部回滚，默认快查不扩展；证据 `.local/hydro-sample-format/api-verification.json`。
+
+**原环境验证：**经原 5180 管理员登录新生成「还差几个座位_2026-10-04_13-53-26.zip」，下载并读取 statement.md，逐项核对用户给定的 5 组输入、输出及四个二级标题顺序。与上轮历史题包比较，本次题面恰好只有上述格式变化，其余 11 个文件逐字节相同；旧下载内容保留。包与 Markdown 在 `.local/hydro-sample-format/downloads/`，记录 live-check.json，验证登录已退出。原题目/比赛/模板指纹前后一致，活动 Build/TestRun 均为 0；只新增这个私有导出及必要审计，没有改用户正文、样例或判题设置。
+
+**服务与收尾：**核对原主目录开发树、确认零活动任务后，重启同一 pnpm dev 加载改动；仍用 5180/3100 及原数据库/Redis/存储/沙箱，无新增实例、端口、依赖或迁移。收尾根进程 4044，Vite 54816、API 34928，Worker 79384 / 81236，均属于原服务树且无额外 Worker；首页 200、代理健康 ok、stderr 为空，见 services.json、services-verified.json，后续重新核对 PID。未重新操作浏览器、执行 Judge/TeX、全量/E2E、外部 OJ 上传或判题、部署/发布；本轮仅调整导出文本。文档和交接已更新，差异检查通过后本地提交，不 push，无阻塞。

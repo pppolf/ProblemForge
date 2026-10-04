@@ -1,7 +1,7 @@
 import type { ManifestDocument, ProblemManifest, StoredBlob } from '@problemforge/contracts';
 import { limits, PackageError, safeExportPath } from './archive.ts';
 import { digest } from './native.ts';
-import { escapeMarkdown, fencedCode, latexToMarkdown } from './markdown.ts';
+import { escapeMarkdown, latexToMarkdown, type MarkdownSample } from './markdown.ts';
 import { exportTestData } from './test-data.ts';
 import type { Issue, PackageResult } from './types.ts';
 
@@ -50,27 +50,28 @@ export async function exportHydroProblem(
       return text;
     } catch { throw new PackageError('题面绑定样例不是可展示的 UTF-8 文本，请修正样例后导出'); }
   };
-  const sampleBlocks: string[] = [], english = language?.startsWith('en');
-  for (const [index, revisionId] of statement.sampleRevisionIds.entries()) {
+  const samples: MarkdownSample[] = [], english = language?.startsWith('en');
+  for (const revisionId of statement.sampleRevisionIds) {
     const sample = manifest.samples.find(s => s.revisionId === revisionId);
     if (!sample || !sample.answer) throw new PackageError('题面绑定的样例版本或示例输出缺失，请重新绑定完整样例');
-    sampleBlocks.push(`### ${english ? 'Sample input' : '样例输入'} ${index + 1}\n\n${fencedCode(await sampleText(sample.input))}\n\n### ${english ? 'Sample output' : '样例输出'} ${index + 1}\n\n${fencedCode(await sampleText(sample.answer))}`);
+    samples.push({ input: await sampleText(sample.input), output: await sampleText(sample.answer) });
   }
   const referencedAssets = new Set<string>();
-  const document = (doc: ManifestDocument, filename: string, samples?: string) => {
-    const converted = latexToMarkdown(doc.body, { language, samples });
+  const document = (doc: ManifestDocument, filename: string, samples?: MarkdownSample[]) => {
+    const converted = latexToMarkdown(doc.body, { language, samples, statement: doc.kind === 'STATEMENT' });
     for (const path of converted.assets) referencedAssets.add(path);
-    put(filename, Buffer.from(`# ${escapeMarkdown((doc.metadata.title || manifest.meta.title).replace(/[\r\n]+/g, ' '))}\n\n${converted.markdown}`));
+    const heading = doc.kind === 'STATEMENT' ? '' : `# ${escapeMarkdown((doc.metadata.title || manifest.meta.title).replace(/[\r\n]+/g, ' '))}\n\n`;
+    put(filename, Buffer.from(heading + converted.markdown));
     report.push({ area: filename, status: 'MAPPED', message: `${language} ${doc.kind === 'STATEMENT' ? '题面' : '文档题解'} v${doc.version} 已转成 Markdown，数学公式保留 $…$ / $$…$$。` });
     for (const warning of converted.warnings) report.push({ area: filename, status: 'WARNING', message: warning });
   };
-  document(statement, 'statement.md', sampleBlocks.length ? `## ${english ? 'Examples' : '样例'}\n\n${sampleBlocks.join('\n\n')}` : undefined);
+  document(statement, 'statement.md', samples);
   if (editorial) document(editorial, '题解.md');
   else {
     put('题解.md', Buffer.from(`# ${escapeMarkdown(manifest.meta.title.replace(/[\r\n]+/g, ' '))}\n\n${english ? 'No enabled document editorial is available for this language.' : '当前语言尚无已启用的文档题解。'}\n`));
     report.push({ area: '题解.md', status: 'WARNING', message: `${language} 文档题解缺失或已停用，文件中已注明；请保存并启用文档题解后重新导出。` });
   }
-  if (sampleBlocks.length) report.push({ area: '题面样例', status: 'MAPPED', message: `${sampleBlocks.length} 组绑定样例按固定版本写入题面，保留输入/输出的空格、换行和顺序。` });
+  if (samples.length) report.push({ area: '题面样例', status: 'MAPPED', message: `${samples.length} 组绑定样例按固定版本写入 inputN / outputN 代码块，保留输入/输出的空格、换行和顺序。` });
   for (const path of referencedAssets) {
     const asset = manifest.assets.find(a => a.path === path);
     if (!asset) throw new PackageError(`题面或题解引用的图片不存在：${path}`);
