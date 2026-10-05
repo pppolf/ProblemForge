@@ -1,17 +1,17 @@
 // Build-time check only: native PM2 cluster/loader/reload and Caddy validation.
 // The fixture never opens an HTTP port or touches an application database.
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
-import { caddySite, cloudSettings, ecosystem } from './cloud-config.mjs';
+import { caddySite, cloudSettings, ecosystem, mergeCaddyfile, hasCaddyHost } from './cloud-config.mjs';
 if (process.platform !== 'linux' || !process.argv.includes('--build-check')) throw new Error('仅在显式 Linux 构建检查中运行');
 const scratch = await mkdtemp(join(tmpdir(), 'problemforge-pm2-check-'));
 const env = { ...process.env, PM2_HOME: join(scratch, 'pm2') };
-const run = (bin, args) => {
-  const result = spawnSync(bin, args, { env, encoding: 'utf8', timeout: 90000 });
+const run = (bin, args, options = {}) => {
+  const result = spawnSync(bin, args, { env, encoding: 'utf8', timeout: 90000, ...options });
   if (result.status !== 0) throw new Error(`${bin} failed: ${result.stderr}\n${result.stdout}`);
   return result.stdout;
 };
@@ -20,6 +20,17 @@ await writeFile(caddy, caddySite(settings));
 const adapted = JSON.parse(run('caddy', ['adapt', '--adapter', 'caddyfile', '--config', caddy]));
 assert.ok(JSON.stringify(adapted).includes(`127.0.0.1:${settings.ports.api}`));
 run('caddy', ['validate', '--adapter', 'caddyfile', '--config', caddy]);
+const customDir = join(scratch, '.hydro');
+await mkdir(join(customDir, 'sites'), { recursive: true });
+await writeFile(join(customDir, 'sites/hydro.caddy'), 'hydro.example.invalid {\n reverse_proxy 127.0.0.1:8888\n}\n');
+const original = 'import sites/hydro.caddy\n';
+const custom = cloudSettings({ caddyFile: join(customDir, 'Caddyfile'), caddyReload: 'caddy' });
+const merged = mergeCaddyfile(original, custom);
+assert.ok(merged.startsWith(original));
+await writeFile(custom.caddyFile, merged);
+const customAdapted = JSON.parse(run('caddy', ['adapt', '--adapter', 'caddyfile', '--config', custom.caddyFile], { cwd: customDir }));
+assert.ok(hasCaddyHost(customAdapted, 'hydro.example.invalid') && hasCaddyHost(customAdapted, custom.domain));
+run('caddy', ['validate', '--adapter', 'caddyfile', '--config', custom.caddyFile], { cwd: customDir });
 await writeFile(join(scratch, 'app.env'), 'PF_SMOKE_ENV=loaded\n');
 await writeFile(join(scratch, 'api.env'), 'ASSOCIATION_APP_KEY=smoke-test-only\n');
 // Keep the fixture under /app so package resolution uses the real tsx installation.
@@ -62,7 +73,8 @@ try {
   assert.equal(after.length, 4); assert.ok(after.every(p => p.pm2_env.status === 'online' && !before.includes(p.pid)));
   assert.deepEqual(after.filter(p => p.name !== app.name).map(p => p.pid), workerPids);
   for (const pid of before) assert.equal(await readFile(join(scratch, `${pid}.stopped`), 'utf8'), 'graceful');
-  const report = { passed: true, caddyValidated: true, freshPm2ListParsed: true, pm2ClusterInstances: 2, pm2ForkWorkers: 2, workerAppKeyExcluded: true,
+  const report = { passed: true, caddyValidated: true, customCaddyPathValidated: true, existingCaddyImportPreserved: true,
+    freshPm2ListParsed: true, pm2ClusterInstances: 2, pm2ForkWorkers: 2, workerAppKeyExcluded: true,
     envFilesLoaded: true, typescriptEsmLoaded: true,
     reloadReplacedBothProcesses: true, oldProcessesStoppedGracefully: true, httpListenerStarted: false, applicationDatabaseAccessed: false };
   await writeFile('/tmp/problemforge-cloud-runtime-check.json', JSON.stringify(report, null, 2));

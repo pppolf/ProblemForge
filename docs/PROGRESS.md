@@ -812,3 +812,11 @@ Python 标准库独立读取最终 PAX/gzip 包，388 个文件全部核对路�
 上传前扫描 HEAD 全部可达历史：1,583 个 Git 对象、901 个 blob，未发现真实协会 APPKEY、GitHub token、私钥标记或已提交的 .env/.local/私有 JSON；不把当前文件忽略误当成历史没有密钥。报告 `.local/github-upload/history-scan.json`，仅保存结果，不保存凭据或敏感原文。已创建公开仓库 `https://github.com/pppolf/ProblemForge`，新增 origin 并将 master 推送、建立上游跟踪；首次上传提交为 `eae6c72`。匿名 GitHub API 核对公开属性、默认分支、386 个源码文件、远端 SHA 与本地一致，以及部署说明字节完全相同，私有配置与原题库未上传。证据 `.local/github-upload/repository.json`、verification.json；后者随最终推送更新。
 
 **首次 GitHub 检查修正：**首次上传的 Actions 已成功安装依赖及生成 Prisma 客户端，但差异检查收到 GitHub 新分支事件的全零 before SHA 后失败。`scripts/ci.mjs` 现仅对 push 事件的已知全零基准读取当前提交文件清单；其他未知基准仍拒绝，不任意回退全仓。Node 语法及定向 plan 检查通过：首次范围 386 个文件、正常 diff 保持、非 push 全零与未知基准拒绝；不执行真实集成、Judge/TeX，也不改变默认快查。记录 initial-ci-check.json，修正提交后由 GitHub 自动复核，实际结果在 verification.json / Actions 页面查看。本机开发服务与业务数据未更改，未在云主机安装或启动站点。
+
+## 适配 /root/.hydro/Caddyfile 与详细服务器命令（2026-10-05）
+
+用户说明服务器 Caddyfile 在 `/root/.hydro`，需要可直接复制的详细命令。原脚本固定 `/etc/caddy/Caddyfile` 和 caddy.service，不适合该路径及 PM2 管理方式。本轮新增 `caddyFile`、`caddyReload` 部署设置，旧配置继续默认 systemd；提供 `infra/cloud-settings.hydro.json` 选择 `/root/.hydro/Caddyfile` 和 Caddy CLI 平滑重载。初次与维护操作均从持久化设置读取实际路径；文件验证、备份、候选配置、相对 import 和失败恢复使用同一路径。CLI 模式只连接 Caddy 配置指定的回环 TCP 管理接口，核对实际运行 JSON 与文件一致后再合并，不自动覆盖未保存的其他站点；关闭管理接口、非回环或 Unix socket 当前明确拒绝，需单独确认管理方式。
+
+新增 DEPLOY_HYDRO_CADDY 分步命令，覆盖 root/架构/原配置检查与备份、基础工具及缺失 Docker 安装、专用 `/opt/problemforge-tools` Node/pnpm/PM2、Git 拉取、静默输入 APPKEY、固定发布目录构建、部署与管理员登录。专用 Node 22.23.3 的 Linux x64 归档 SHA-256 已经从官方版本校验清单读回并固定；不会通过全局 Node/PM2 升级去改变 Hydro 的工具路径。实际 APPKEY 仍不进入文档或 Git。
+
+**实际验证：**Node 语法、13 项部署定向检查、Hydro 设置的只读 plan 通过。Linux 独立构建使用真实 Caddy adapt/validate，验证自定义 `.hydro` 目录及相对导入的原站点保留，同时保留 PM2 双 cluster / 两个 fork 的启动、APPKEY 隔离与重载检查；未监听 HTTP 或访问应用数据库。证据 `.local/caddy-pm2/custom-caddy-evidence/runtime-check.json`。详细指引中 7 个 Bash 代码块均通过 `bash -n`，检查不执行代码块；安装命令设为出错即停止，归档校验失败不会继续解包。原 5180、API 3100、数据库/文件/Worker 保持原环境，没有运行上述服务器命令、连接云端、修改实际 Hydro、部署/重载线上 Caddy 或执行 Judge/TeX。Ubuntu 安装、真实管理接口与证书仍待目标主机验证。按此前用户明确的 GitHub 交付授权，本轮定向检查及记录后本地提交并推送同一公开仓库，供用户拉取执行。

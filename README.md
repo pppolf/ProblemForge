@@ -94,3 +94,5 @@ pnpm build:web
 Ubuntu 22.04/24.04 的 Caddy + PM2 一键部署见 [部署说明](docs/CADDY_PM2.md)。`pnpm package:cloud <版本标识>` 生成不含密钥和题库数据的上传包；服务器解压后执行 `sudo bash deploy.sh --secrets-file ../problemforge.secrets.json`。默认域名 `problems.cwnupaa.com`，PM2 运行 2 个 API 进程，两个 Worker 与 Linux 执行沙箱独立管理。
 
 从 GitHub 克隆的仓库先使用 `node scripts/package-cloud.mjs` 生成带校验清单的发布目录，再执行其中的部署入口；完整首次拉取和后续 `git pull --ff-only` 步骤见上述部署说明的「从 GitHub 拉取部署」。APPKEY 单独上传到服务器，源码仓库不包含私有配置或现有题库数据。
+
+Caddyfile 位于 `/root/.hydro/Caddyfile` 的服务器使用 [逐步复制的部署命令](docs/DEPLOY_HYDRO_CADDY.md)，首次选择 `infra/cloud-settings.hydro.json`，通过 Caddy CLI 平滑重载现有实例。

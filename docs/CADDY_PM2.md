@@ -2,9 +2,11 @@
 
 适用于 Ubuntu 22.04 / 24.04 x86_64。域名默认为 `problems.cwnupaa.com`，安装目录为 `/opt/problemforge`。API 由 PM2 cluster 运行 2 个进程，共享回环端口 5181；TeX 和 Judge 各 1 个独立 Worker。Caddy 使用服务器现有服务负责 HTTPS 和反代，PostgreSQL、Redis、两个执行沙箱由本项目专用 Docker Compose 管理。
 
+用户现有 Caddyfile 在 `/root/.hydro/Caddyfile` 时，直接按 [Hydro Caddy 分步命令](DEPLOY_HYDRO_CADDY.md) 操作，首次传入 `infra/cloud-settings.hydro.json`。该模式通过 Caddy 自身的管理接口平滑重载，兼容 PM2 管理的 Caddy，不要求 caddy.service。
+
 ## 首次部署
 
-服务器需已具备：Node.js 22.12+ 或 24、**pnpm 10.11.1**、PM2、rootful Docker 与 Compose v2，以及正在运行且使用 `/etc/caddy/Caddyfile` 的 Caddy 服务。Node、pnpm、PM2 必须能由专用系统用户读取和执行；仅装在 `/root/.nvm` 下的工具通常不满足此条件。脚本会检查系统与工具，不自动改变其他站点依赖的全局版本。
+服务器需已具备：Node.js 22.12+ 或 24、**pnpm 10.11.1**、PM2、rootful Docker 与 Compose v2，以及正在运行的 Caddy。默认配置使用 `/etc/caddy/Caddyfile` 和 caddy.service；自定义路径可用 `caddyFile` 指定，`caddyReload: "caddy"` 通过 Caddy CLI 重载。Node、pnpm、PM2 必须能由专用系统用户读取和执行；仅装在 `/root/.nvm` 下的工具通常不满足此条件。脚本会检查系统与工具，不自动改变其他站点依赖的全局版本。
 
 域名解析到目标云主机，服务器允许 Caddy 接收入站 80/443。Caddyfile 可保留已有其他站点；目标域名首次接入时应尚未被现有非托管站点块占用。首次构建需要访问 npm registry、Docker 镜像仓库和 Debian 软件源，TeX / Judge 镜像构建可能持续数分钟。
 
@@ -81,6 +83,8 @@ Docker Compose project 固定为 `problemforge-cloud`，首次发现同名已有
 ```
 
 配置只在首次创建实例时写入，升级使用原配置；不直接手工改其中一个环境文件来迁移端口。脚本拒绝占用原开发环境 5180/3100。本机开发环境继续使用原入口和原库。
+
+Caddy 自定义示例：`{"caddyFile":"/root/.hydro/Caddyfile","caddyReload":"caddy"}`，与上面的域名/进程/端口字段放在同一个 JSON 中。CLI 重载模式先验证该文件，并读取配置中的回环管理地址（默认 localhost:2019），确认运行配置与文件一致后才允许追加本站；不会自动接管运行中的未保存配置。需要启用本地 TCP 管理接口；关闭管理接口、非回环地址或 Unix socket 会明确拒绝，需先确定实际管理方式。备份、同目录候选文件、相对 import 和重载失败恢复均使用指定路径，保留已有其他站点。
 
 ## 状态、重载、升级和备份
 

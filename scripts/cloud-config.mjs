@@ -11,12 +11,13 @@ export const CADDY_END = '# END PROBLEMFORGE MANAGED SITE';
 export const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 
 export function cloudSettings(input = {}) {
-  if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(k => !['format', 'domain', 'instances', 'ports'].includes(k))) throw new Error('未知部署配置字段');
+  if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(k => !['format', 'domain', 'instances', 'ports', 'caddyFile', 'caddyReload'].includes(k))) throw new Error('未知部署配置字段');
   if (input.format !== undefined && input.format !== 1) throw new Error('不支持的部署配置版本');
   if (input.ports !== undefined && (!input.ports || typeof input.ports !== 'object' || Array.isArray(input.ports))) throw new Error('ports 必须是端口对象');
   const settings = {
     format: 1, domain: input.domain ?? 'problems.cwnupaa.com', instances: input.instances ?? 2,
     ports: { api: 5181, postgres: 25432, redis: 26379, tex: 25050, judge: 25051, ...input.ports },
+    caddyFile: input.caddyFile ?? CADDY_FILE, caddyReload: input.caddyReload ?? 'systemd',
   };
   if (typeof settings.domain !== 'string' || settings.domain.length > 253 ||
       !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(settings.domain)) throw new Error('域名必须是纯小写 DNS 主机名');
@@ -24,7 +25,24 @@ export function cloudSettings(input = {}) {
   if (Object.keys(settings.ports).sort().join() !== 'api,judge,postgres,redis,tex') throw new Error('未知端口配置');
   const ports = Object.values(settings.ports);
   if (ports.some(p => !Number.isInteger(p) || p < 1024 || p > 65535 || [3100, 5180].includes(p)) || new Set(ports).size !== ports.length) throw new Error('端口必须互不相同且为 1024—65535，不能占用原开发 3100/5180');
+  if (typeof settings.caddyFile !== 'string' || !/^\/(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+$/.test(settings.caddyFile) ||
+      settings.caddyFile.split('/').some(part => part === '.' || part === '..')) throw new Error('caddyFile 必须是无空白、无路径跳转的 Linux 绝对文件路径');
+  if (!['systemd', 'caddy'].includes(settings.caddyReload)) throw new Error('caddyReload 仅支持 systemd 或 caddy');
   return settings;
+}
+
+export function caddyAdminEndpoint(adapted) {
+  if (adapted.admin?.disabled) throw new Error('Caddy 管理接口已关闭，无法平滑重载；请先确认现有 Caddy 的管理方式');
+  const address = adapted.admin?.listen ?? 'localhost:2019';
+  const match = /^(localhost|127\.0\.0\.1|\[::1\]):([0-9]{1,5})$/.exec(address);
+  if (!match || Number(match[2]) < 1 || Number(match[2]) > 65535) throw new Error('caddy 重载模式需要回环 TCP 管理接口，例如 localhost:2019');
+  return { address, url: `http://${address}/config/` };
+}
+
+export function assertCaddyMatches(adapted, running) {
+  const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
+    ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
+  if (!running || JSON.stringify(canonical(adapted)) !== JSON.stringify(canonical(running))) throw new Error('指定 Caddyfile 与运行中的配置不一致，请先核对现有配置，脚本不会覆盖未保存的站点设置');
 }
 
 const environment = object => Object.entries(object).map(([key, value]) => {

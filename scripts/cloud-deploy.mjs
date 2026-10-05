@@ -6,8 +6,9 @@ import { access, chmod, chown, copyFile, lstat, mkdir, open, readFile, readdir, 
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
-import { APP_NAMES, CADDY_BEGIN, CADDY_FILE, INSTALL_ROOT as root, SERVICE_USER as user,
-  cloudSettings, privateConfiguration, ecosystem, mergeCaddyfile, hasCaddyHost, serviceUnit, digest, verifyRelease, checkPendingDeployment, matchesCloudHealth } from './cloud-config.mjs';
+import { APP_NAMES, CADDY_BEGIN, INSTALL_ROOT as root, SERVICE_USER as user,
+  cloudSettings, privateConfiguration, ecosystem, mergeCaddyfile, hasCaddyHost, serviceUnit, digest, verifyRelease, checkPendingDeployment, matchesCloudHealth,
+  caddyAdminEndpoint, assertCaddyMatches } from './cloud-config.mjs';
 import { deployWorkflow } from './cloud-workflow.mjs';
 
 const source = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -107,6 +108,25 @@ async function findBinary(name) {
   if (!/^\/[A-Za-z0-9_./+@-]+$/.test(resolved)) throw new Error(`${name} 安装路径含不支持的字符`);
   return { path, resolved };
 }
+async function adaptedCaddy() {
+  return JSON.parse(await run(bins.caddy, ['adapt', '--adapter', 'caddyfile', '--config', settings.caddyFile],
+    { cwd: dirname(settings.caddyFile), capture: true, timeout: 30000 }));
+}
+async function checkCaddyAdmin(adapted) {
+  const endpoint = caddyAdminEndpoint(adapted);
+  let response;
+  try { response = await fetch(endpoint.url, { signal: AbortSignal.timeout(5000), redirect: 'error' }); }
+  catch { throw new Error(`无法读取 Caddy 回环管理接口 ${endpoint.address}；请确认现有 Caddy 已启动且管理接口可用`); }
+  if (!response.ok) throw new Error(`Caddy 管理接口返回 HTTP ${response.status}，停止修改配置`);
+  assertCaddyMatches(adapted, await response.json());
+  return endpoint.address;
+}
+async function reloadCaddy(address, allowFailure = false) {
+  return settings.caddyReload === 'systemd'
+    ? run('systemctl', ['reload', 'caddy'], { timeout: 30000, allowFailure })
+    : run(bins.caddy, ['reload', '--adapter', 'caddyfile', '--config', settings.caddyFile, '--address', address],
+      { cwd: dirname(settings.caddyFile), timeout: 30000, allowFailure });
+}
 async function preflight() {
   if (process.platform !== 'linux' || process.arch !== 'x64' || process.getuid() !== 0) throw new Error('请在 Ubuntu x86_64 云主机使用 sudo bash deploy.sh；本脚本不会在 Windows 开发环境执行部署');
   const os = await readFile('/etc/os-release', 'utf8');
@@ -122,11 +142,16 @@ async function preflight() {
   const docker = JSON.parse(await run(bins.docker, ['info', '--format', '{{json .}}'], { capture: true }));
   if (docker.OSType !== 'linux' || (docker.SecurityOptions ?? []).some(v => v.includes('rootless'))) throw new Error('需要 Linux rootful Docker，以运行独立沙箱');
   await run(bins.docker, ['compose', 'version'], { timeout: 10000 });
-  await run('systemctl', ['is-active', '--quiet', 'caddy'], { timeout: 10000 });
-  const caddyService = await run('systemctl', ['show', 'caddy', '--property=ExecStart', '--value'], { capture: true, timeout: 10000 });
-  if (!/\/etc\/caddy\/Caddyfile(?:\s|;|$)/.test(caddyService)) throw new Error('现有 Caddy 服务未明确使用 /etc/caddy/Caddyfile，请先核对配置入口');
-  if ((await lstat(CADDY_FILE)).isSymbolicLink()) throw new Error('Caddyfile 为符号链接，请先按部署文档整理配置入口');
-  await run(bins.caddy, ['validate', '--adapter', 'caddyfile', '--config', CADDY_FILE], { timeout: 30000 });
+  if (settings.caddyReload === 'systemd') {
+    await run('systemctl', ['is-active', '--quiet', 'caddy'], { timeout: 10000 });
+    const service = await run('systemctl', ['show', 'caddy', '--property=ExecStart', '--value'], { capture: true, timeout: 10000 });
+    const path = settings.caddyFile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (!new RegExp(`${path}(?:\\s|;|$)`).test(service)) throw new Error(`现有 Caddy 服务未明确使用 ${settings.caddyFile}，请核对配置入口或使用 caddy 重载模式`);
+  }
+  const stat = await lstat(settings.caddyFile);
+  if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('caddyFile 必须指向已有的普通文件，不能为符号链接');
+  await run(bins.caddy, ['validate', '--adapter', 'caddyfile', '--config', settings.caddyFile], { cwd: dirname(settings.caddyFile), timeout: 30000 });
+  if (settings.caddyReload === 'caddy') await checkCaddyAdmin(await adaptedCaddy());
 }
 async function provision(settingsInput, secretsPath) {
   if (await exists(root) && (await lstat(root)).isSymbolicLink()) throw new Error('安装目录不能为符号链接');
@@ -240,21 +265,22 @@ async function installStartup() {
   await run('systemctl', ['enable', 'problemforge-pm2.service']);
 }
 async function activateCaddy() {
-  const original = await readFile(CADDY_FILE, 'utf8');
-  const adapted = JSON.parse(await run(bins.caddy, ['adapt', '--adapter', 'caddyfile', '--config', CADDY_FILE], { capture: true }));
+  const original = await readFile(settings.caddyFile, 'utf8');
+  const adapted = await adaptedCaddy();
+  const address = settings.caddyReload === 'caddy' ? await checkCaddyAdmin(adapted) : undefined;
   if (!original.includes(CADDY_BEGIN) && hasCaddyHost(adapted, settings.domain)) throw new Error('Caddy 导入配置已包含目标域名，不自动接管');
-  const candidate = `${dirname(CADDY_FILE)}/.problemforge-candidate-${process.pid}`;
+  const candidate = `${dirname(settings.caddyFile)}/.problemforge-candidate-${process.pid}`;
   const saved = `${shared}/backups/Caddyfile-${Date.now()}`;
-  const stat = await lstat(CADDY_FILE);
+  const stat = await lstat(settings.caddyFile);
   try {
     await writeFile(candidate, mergeCaddyfile(original, settings), { flag: 'wx', mode: stat.mode & 0o777 });
     await chown(candidate, stat.uid, stat.gid);
-    await run(bins.caddy, ['validate', '--adapter', 'caddyfile', '--config', candidate], { timeout: 30000 });
-    if (await readFile(CADDY_FILE, 'utf8') !== original) throw new Error('Caddyfile 在部署期间被修改，停止覆盖');
+    await run(bins.caddy, ['validate', '--adapter', 'caddyfile', '--config', candidate], { cwd: dirname(settings.caddyFile), timeout: 30000 });
+    if (await readFile(settings.caddyFile, 'utf8') !== original) throw new Error('Caddyfile 在部署期间被修改，停止覆盖');
     await writeFile(saved, original, { flag: 'wx', mode: 0o600 });
-    await rename(candidate, CADDY_FILE);
-    try { await run('systemctl', ['reload', 'caddy'], { timeout: 30000 }); }
-    catch (error) { await writeFile(CADDY_FILE, original); await run('systemctl', ['reload', 'caddy'], { timeout: 30000, allowFailure: true }); throw error; }
+    await rename(candidate, settings.caddyFile);
+    try { await reloadCaddy(address); }
+    catch (error) { await writeFile(settings.caddyFile, original); await reloadCaddy(address, true); throw error; }
   } finally { await rm(candidate, { force: true }); }
 }
 
@@ -265,12 +291,14 @@ async function main() {
   if (command === 'plan') {
     const proposed = cloudSettings(settingsInput);
     console.log(JSON.stringify({ installRoot: root, domain: proposed.domain, apiInstances: proposed.instances, loopbackPorts: proposed.ports,
-      prerequisites: ['Ubuntu 22.04/24.04 x86_64', 'Node 22.12+ or 24', 'pnpm 10.11.1', 'PM2', 'rootful Docker + Compose v2', 'active Caddy service'],
+      caddyFile: proposed.caddyFile, caddyReload: proposed.caddyReload,
+      prerequisites: ['Ubuntu 22.04/24.04 x86_64', 'Node 22.12+ or 24', 'pnpm 10.11.1', 'PM2', 'rootful Docker + Compose v2', 'running Caddy with the selected configuration'],
       actions: ['create project service user and private configuration', 'build immutable release and isolated sandbox images',
         'on upgrade: require idle tasks, stop only this app, backup database and private files', 'migrate database and preserve/init administrator',
         'start PM2 API cluster and one worker per kind', 'require full local health before merging Caddy site', 'enable startup and verify HTTPS'],
       executesDeployment: false }, null, 2)); return;
   }
+  settings = cloudSettings(await exists(marker) ? await json(`${shared}/settings.json`) : settingsInput);
   await preflight();
   const manifest = command === 'install' ? await verifyRelease(source) : null;
   if (command !== 'install' && !await exists(marker)) throw new Error('尚未部署');

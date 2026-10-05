@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
-import { cloudSettings, privateConfiguration, ecosystem, mergeCaddyfile, hasCaddyHost, safeReleasePath, CADDY_BEGIN, checkPendingDeployment, matchesCloudHealth, digest, verifyRelease } from './cloud-config.mjs';
+import { cloudSettings, privateConfiguration, ecosystem, mergeCaddyfile, hasCaddyHost, safeReleasePath, CADDY_BEGIN, checkPendingDeployment, matchesCloudHealth, digest, verifyRelease, caddyAdminEndpoint, assertCaddyMatches } from './cloud-config.mjs';
 import { deployWorkflow } from './cloud-workflow.mjs';
 
 test('configuration rejects injected domain, overlapping/dev ports and excessive processes', () => {
@@ -12,6 +12,27 @@ test('configuration rejects injected domain, overlapping/dev ports and excessive
   for (const instances of [0, 1, 9, 'max']) assert.throws(() => cloudSettings({ instances }));
   for (const input of [null, [], { format: 2 }, { ports: [] }, { unknown: true }]) assert.throws(() => cloudSettings(input));
   assert.equal(cloudSettings().instances, 2);
+});
+
+test('Hydro Caddy path and CLI reload are explicit while existing systemd settings retain defaults', () => {
+  const settings = cloudSettings({ caddyFile: '/root/.hydro/Caddyfile', caddyReload: 'caddy' });
+  assert.equal(settings.caddyFile, '/root/.hydro/Caddyfile');
+  assert.equal(settings.caddyReload, 'caddy');
+  assert.equal(cloudSettings().caddyFile, '/etc/caddy/Caddyfile');
+  assert.equal(cloudSettings().caddyReload, 'systemd');
+  for (const caddyFile of ['relative/Caddyfile', '/root/../etc/Caddyfile', '/root/.hydro/./Caddyfile', '/root/x\nstop', '/root/x;stop']) assert.throws(() => cloudSettings({ caddyFile }));
+  assert.throws(() => cloudSettings({ caddyReload: 'pm2 restart all' }));
+});
+
+test('Caddy CLI reload only contacts a local enabled admin and verifies the current configuration', () => {
+  assert.deepEqual(caddyAdminEndpoint({}), { address: 'localhost:2019', url: 'http://localhost:2019/config/' });
+  assert.equal(caddyAdminEndpoint({ admin: { listen: '127.0.0.1:2020' } }).address, '127.0.0.1:2020');
+  assert.equal(caddyAdminEndpoint({ admin: { listen: '[::1]:2019' } }).url, 'http://[::1]:2019/config/');
+  for (const admin of [{ disabled: true }, { listen: 'example.org:2019' }, { listen: 'localhost:0' }, { listen: '127.0.0.1:65536' }]) assert.throws(() => caddyAdminEndpoint({ admin }));
+  const saved = { apps: { http: { routes: [{ host: ['hydro.example.org'], handler: 'reverse_proxy' }] } }, admin: { listen: 'localhost:2019' } };
+  const live = { admin: { listen: 'localhost:2019' }, apps: { http: { routes: [{ handler: 'reverse_proxy', host: ['hydro.example.org'] }] } } };
+  assert.doesNotThrow(() => assertCaddyMatches(saved, live));
+  assert.throws(() => assertCaddyMatches(saved, { apps: { http: {} } }), /配置不一致/);
 });
 test('fresh installations generate independent secrets and do not put APPKEY or admin credentials in workers/PM2', () => {
   const settings = cloudSettings(), input = { associationAppKey: 'test-only-not-a-real-key' };

@@ -1,0 +1,6 @@
+{
+  "domain": "problems.cwnupaa.com",
+  "instances": 2,
+  "caddyFile": "/root/.hydro/Caddyfile",
+  "caddyReload": "caddy"
+}
