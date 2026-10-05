@@ -799,4 +799,6 @@ Compose config JSON 检查确认四个基础服务、全部回环映射、intern
 
 **实际交付包：**兼容修正提交 `837356e` 后，成功执行 `pnpm package:cloud ubuntu-20261005-837356e`。交付 `.local/releases/problemforge-caddy-pm2-ubuntu-20261005-837356e.tar.gz`（1,292,126 字节）及同名 `.sha256`，SHA-256 为 `aaeba07194524c12b6815eb610fecf685bd58f697102e14ea60a25a590f41e86`。另外从原私有配置生成 Git 忽略的 `.local/releases/problemforge.secrets.json`，仅供用户上传，内容未写入日志或源码包。完整安装步骤见 CADDY_PM2。
 
-Python 标准库独立读取最终 PAX/gzip 包，388 个文件全部核对路径、成员唯一性和内容哈希，其中 386 个已跟踪文件逐一与该提交 Git blob 完全一致；3 个中文资源名正确，deploy.sh 为 LF，未含 APPKEY、原 .env、题库数据、node_modules 或开发目录。独立解包后，再运行安装器的 verifyRelease，387 条清单全部通过；证据 `.local/caddy-pm2/package-verification.json`。部署包来源固定为 `837356ebfbf6044dd1bd07740e6e268bc1e57d8d`，后续收尾提交只记交付证据、不改包中代码。本轮无本地实现阻塞；云端完整安装/运行验收和原数据迁移仍未执行。
+Python 标准库独立读取最终 PAX/gzip 包，388 个文件全部核对路径、成员唯一性和内容哈希，其中 386 个已跟踪文件逐一与该提交 Git blob 完全一致；3 个中文资源名正确，deploy.sh 为 LF，未含 APPKEY、原 .env、题库数据、node_modules 或开发目录。独立解包后，再运行安装器的 verifyRelease，387 条清单全部通过；证据 `.local/caddy-pm2/package-verification.json`。部署包来源固定为 `837356ebfbf6044dd1bd07740e6e268bc1e57d8d`，后续收尾提交只补验证脚本和记录，不改变部署及应用代码。本轮无本地实现阻塞；云端完整安装/运行验收和原数据迁移仍未执行。
+
+**Worker 启动补充检查：**因 Worker 使用直接 `.ts` 入口，与 API 的 `.mjs` 包装入口不同，补充真实 PM2 fork 夹具核对。独立 Linux 构建现同时启动 2 个 cluster API 夹具、TeX/Judge 各 1 个 fork 夹具；直接 TypeScript 入口和 app.env 加载成功，两个 Worker 未加载 APPKEY，API reload 保留两个 Worker PID 不变。更新后的 runtime-check.json 全部通过，无 HTTP 监听、应用数据库或真实任务。此项只增强验证脚本，已交付包中的实际 PM2 配置与应用代码无需修改。
