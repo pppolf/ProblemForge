@@ -7,19 +7,21 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { APP_NAMES, CADDY_BEGIN, INSTALL_ROOT as root, SERVICE_USER as user,
   cloudSettings, privateConfiguration, ecosystem, mergeCaddyfile, hasCaddyHost, serviceUnit, digest, verifyRelease, checkPendingDeployment, matchesCloudHealth,
-  caddyAdminEndpoint, matchingCaddyInvocation } from './cloud-config.mjs';
+  caddyAdminEndpoint, matchingCaddyInvocation, pendingReleasePath } from './cloud-config.mjs';
 import { deployWorkflow } from './cloud-workflow.mjs';
 import { runCloudCommand } from './cloud-process.mjs';
+import { inspectCloudPorts, assertCloudPorts, repairCloudNetwork, assertHostPortUse, hostProbeCode } from './cloud-network.mjs';
 
-const source = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+let source = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const shared = `${root}/shared`, current = `${root}/current`, marker = `${root}/.problemforge-managed`;
 const args = process.argv.slice(2);
 const command = args[0] && !args[0].startsWith('--') ? args.shift() : 'install';
+const recoveringNetwork = command === 'resume-network';
 const flags = {};
 for (let i = 0; i < args.length; i++) {
   const name = args[i];
   if (name === '--help') { flags.help = true; continue; }
-  if (!['--secrets-file', '--settings-file'].includes(name) || !args[i + 1] || flags[name]) throw new Error('参数：install / plan / check-caddy / status / backup / reload-api；--secrets-file JSON；--settings-file JSON');
+  if (!['--secrets-file', '--settings-file'].includes(name) || !args[i + 1] || flags[name]) throw new Error('参数：install / resume-network / plan / check-caddy / status / backup / reload-api；--secrets-file JSON；--settings-file JSON');
   flags[name] = resolve(args[++i]);
 }
 const exists = async path => { try { await access(path); return true; } catch { return false; } };
@@ -62,6 +64,20 @@ async function processAction(action, names = APP_NAMES) {
   const rows = await processList();
   const present = names.filter(name => rows.some(p => p.name === name));
   if (present.length) await pm2([action, ...present]);
+}
+async function checkHostPortUse() {
+  const ownPids = (await processList()).map(row => row.pid).filter(pid => Number.isInteger(pid) && pid > 0);
+  const pidFile = `${shared}/pm2/pm2.pid`;
+  if (await exists(pidFile)) {
+    const pid = Number((await readFile(pidFile, 'utf8')).trim());
+    if (Number.isInteger(pid) && pid > 0 && await exists(`/proc/${pid}/status`)) {
+      const status = await readFile(`/proc/${pid}/status`, 'utf8');
+      if (Number(status.match(/^Uid:\s+(\d+)/m)?.[1]) === identity.uid) ownPids.push(pid);
+    }
+  }
+  const listeners = await run('ss', ['-H', '-lntp'], { capture: true, timeout: 10000 });
+  await assertHostPortUse(argv => run(bins.docker, argv, { capture: true, timeout: 30000 }), listeners, settings.ports, ownPids);
+  say(`端口归属已检查：${Object.values(settings.ports).join('、')} 为空闲或本项目占用。`);
 }
 async function health(url, attempts = 30) {
   const deploymentId = (await readFile(`${shared}/app.env`, 'utf8')).match(/^PF_DEPLOYMENT_ID=([a-f0-9]{32})$/m)?.[1];
@@ -267,8 +283,8 @@ async function activateCaddy() {
 }
 
 async function main() {
-  if (flags.help) { console.log('sudo bash deploy.sh [install|status|backup|reload-api]\n首次：--secrets-file /私有路径/problemforge.secrets.json\n可选首次配置：--settings-file settings.json\n只读预览：bash deploy.sh plan\n只读 Caddy 检查：node scripts/cloud-deploy.mjs check-caddy --settings-file settings.json\n详见 docs/CADDY_PM2.md'); return; }
-  if (!['install', 'plan', 'check-caddy', 'status', 'backup', 'reload-api'].includes(command)) throw new Error('未知部署命令');
+  if (flags.help) { console.log('sudo bash deploy.sh [install|status|backup|reload-api]\n首次：--secrets-file /私有路径/problemforge.secrets.json\n可选首次配置：--settings-file settings.json\n只读预览：bash deploy.sh plan\n只读 Caddy 检查：node scripts/cloud-deploy.mjs check-caddy --settings-file settings.json\n旧包网络恢复并继续同一版本：node scripts/cloud-deploy.mjs resume-network\n详见 docs/CADDY_PM2.md'); return; }
+  if (!['install', 'resume-network', 'plan', 'check-caddy', 'status', 'backup', 'reload-api'].includes(command)) throw new Error('未知部署命令');
   const settingsInput = flags['--settings-file'] ? await json(flags['--settings-file']) : undefined;
   if (command === 'plan') {
     const proposed = cloudSettings(settingsInput);
@@ -289,7 +305,11 @@ async function main() {
     return;
   }
   await preflight();
-  const manifest = command === 'install' ? await verifyRelease(source) : null;
+  if (recoveringNetwork) {
+    source = pendingReleasePath(await json(`${shared}/pending-deploy.json`));
+    if (await realpath(source) !== source || !await exists(`${source}/.prepared`)) throw new Error('待完成版本不是已准备的原始部署目录');
+  }
+  const manifest = command === 'install' || recoveringNetwork ? await verifyRelease(source) : null;
   if (command !== 'install' && !await exists(marker)) throw new Error('尚未部署');
   await provision(settingsInput, flags['--secrets-file']);
   const lock = `${root}/.deploy.lock`;
@@ -301,26 +321,44 @@ async function main() {
     previous = await activeRelease();
     const pendingFile = `${shared}/pending-deploy.json`;
     const pending = await exists(pendingFile) ? await json(pendingFile) : null;
-    checkPendingDeployment(pending, command, manifest?.buildId);
+    if (recoveringNetwork && pendingReleasePath(pending) !== source) throw new Error('待完成版本已变化；停止网络恢复');
+    checkPendingDeployment(pending, recoveringNetwork ? 'install' : command, manifest?.buildId);
     if (command === 'status') { await status(); return; }
-    if (!previous && command !== 'install') throw new Error('没有已安装的应用版本');
+    if (!previous && command !== 'install' && !recoveringNetwork) throw new Error('没有已安装的应用版本');
     if (command === 'reload-api') { await pm2(['reload', APP_NAMES[0]]); await pm2(['save']); await status(); return; }
     if (command === 'backup') {
       await quiesce(previous);
       try { await backup(previous); } finally { await processAction('restart'); }
       await status(false); return;
     }
+    await checkHostPortUse();
     let release, backupPath = pending?.backupPath ?? null;
     await deployWorkflow({
       prepare: async () => { release = await prepare(manifest); },
       buildSandboxes: async () => {
+        if (recoveringNetwork) {
+          const rows = await inspectCloudPorts(argv => run(bins.docker, argv, { capture: true, timeout: 10000 }), settings.ports, manifest.buildId);
+          for (const kind of ['tex', 'judge']) {
+            const image = await run(bins.docker, ['image', 'inspect', `problemforge-${kind}:${manifest.buildId}`, '--format', '{{.Id}}'], { capture: true, timeout: 10000 });
+            if (rows.find(row => row.name === `${kind}-sandbox`).actual.imageId !== image) throw new Error(`${kind} 镜像标签已变化；停止同版本恢复`);
+          }
+          say(`继续待完成版本 ${manifest.buildId}；复用已构建的 TeX / Judge 镜像。`);
+          return;
+        }
         say('构建独立 TeX / Judge 沙箱镜像（独立下载缓存；最长 30 分钟，可按 Ctrl+C 取消）。');
         await compose(release, manifest.buildId, ['--progress', 'plain', 'build', 'tex-sandbox', 'judge-sandbox'], { processGroup: true });
       },
       quiesce: () => quiesce(previous), backup: async () => { backupPath = await backup(previous); },
       startInfrastructure: async () => {
+        await checkHostPortUse();
         if (pending) await processAction('stop');
-        await compose(release, manifest.buildId, ['up', '-d', '--no-build', '--wait', '--wait-timeout', '180']);
+        if (!recoveringNetwork) await compose(release, manifest.buildId, ['up', '-d', '--no-build', '--wait', '--wait-timeout', '180']);
+      },
+      checkInfrastructure: async () => {
+        const docker = argv => run(bins.docker, argv, { capture: true, timeout: 30000 });
+        if (recoveringNetwork) await repairCloudNetwork(docker, settings.ports, manifest.buildId);
+        else assertCloudPorts(await inspectCloudPorts(docker, settings.ports, manifest.buildId));
+        await asApp(bins.node, ['--eval', hostProbeCode, JSON.stringify(settings.ports)], { cwd: release, timeout: 40000 });
       },
       migrate: async () => {
         await writeOwned(pendingFile, JSON.stringify({ buildId: manifest.buildId, previousBuildId: pending?.previousBuildId ?? previous?.manifest.buildId ?? null, backupPath }, null, 2), 0o600);

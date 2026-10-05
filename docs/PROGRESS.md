@@ -848,3 +848,15 @@ Python 标准库独立读取最终 PAX/gzip 包，388 个文件全部核对路�
 **实际验证：**独立 Linux 通过 Node 语法与 16 项定向检查，覆盖超时/模拟 SIGINT 时父进程及忽略 SIGTERM 的插件均退出、监听恢复、捕获/退出码及备份不覆盖。真实并行构建 `problemforge-tex:download-check-20261005` 和 `problemforge-judge:download-check-20261005` 成功，仅执行 build、未 up。两个新缓存从下载索引开始，TeX 354 MB 依赖下载约 73 秒，下载与安装步骤 128.1 秒，Judge 安装步骤 71.1 秒；这是本机网络和硬件结果，不是云端 ETA。导出 dpkg 清单核对 TeX 10 项、Judge 7 项固定版本全部一致；报告与清单 `.local/caddy-pm2/download-build-evidence/`。Compose config 与部署只读 plan 通过。
 
 **未验证与环境：**未重新运行作者 TeX、判题或业务集成；没有运行新应用实例、打开监听端口、切换本机原数据库/镜像或重启原 5180/3100（仍为 Vite 69040、API 65472）。云端停止、遗留进程、重新下载速度和完整部署结果均待用户执行；本轮没有云主机访问权限。按已有 GitHub 交付授权提交推送修正，保留原密钥与站点配置。
+
+## 云端 PostgreSQL P1001 与宿主机端口映射恢复（2026-10-05）
+
+**云端证据与用户约束：**用户在 Ubuntu 云服务器迁移时遇到 Prisma P1001，目标为 127.0.0.1:25432。用户返回的日志确认 PostgreSQL 16.13 已在容器内监听 5432 并接受连接，HostConfig.PortBindings 为 127.0.0.1:25432 → 5432，但 NetworkSettings.Ports 为 null；随后四个 problemforge-cloud 容器均运行，PG/Redis healthy，全部仅显示内部端口。PM2 部署 Compose 错误地只连接 internal backend，容器内健康检查未覆盖宿主机访问。用户说明原 PostgreSQL 用 5432，服务器有很多服务，要求每次先观察端口及服务归属，禁止随意变更已有服务；已补入 AGENTS。再次索取只读 ss 与容器信息，用户回复中没有 ss 输出，因此没有据此宣称预定端口为空闲。
+
+**实现：**仅 PM2 部署的四个基础服务增加独立 host-access bridge，所有发布地址仍显式为 127.0.0.1，backend 保留 internal；作者执行的 go-judge 网络命名空间、挂载和命令不改。PostgreSQL 容器健康检查改用 TCP，避免临时初始化 Unix socket 提前通过。每次安装/恢复开始和启动基础设施前读取 ss、Docker 发布端口元数据及本项目 PM2 PID；非本站容器、非预期映射、未知监听或其他地址占用都会停止，既不自动换端口，也不终止占用进程。迁移前检查 Docker 实际映射，再以真实 problemforge UID 检查四个回环端口，失败时不新写迁移开始标记。
+
+新增 `node scripts/cloud-deploy.mjs resume-network`，用于此次已有 pending 的恢复：从 pending 读取原 /opt/problemforge/releases/<buildId>，验证不可变源码哈希及准备标记，检查运行容器和同版本镜像 ID 后直接复用。不给原包打补丁、不生成新版、不执行 Compose up/build、容器重建或删除数据卷；只为本项目四个运行容器创建/连接有明确归属的 host-access 网络。随后重新核验实际映射与应用用户连接，调用原包的迁移和启动流程。重试可复用已连接网络，其他项目或选项异常的同名网络拒绝接管。原 pending、密钥与备份保留，只有完整部署成功才按原规则清除 pending。说明文件区分“拉取恢复工具”与“切换应用版本”，提供云端 root 可直接执行的命令。
+
+**实际验证：**Node 语法、Windows 21 项部署/网络定向检查、Linux 23 项部署/网络/命令执行检查通过；覆盖原有 5432 保留、目标端口冲突/未知监听拒绝、其他容器及网络拒绝、仅四个容器连接与幂等、发布为 null 拒绝、原版本路径校验、迁移前失败顺序、TCP 错误脱敏。Linux 中执行真实恢复 CLI，以明确标注的 Docker/宿主机 TCP 命令替身模拟云端状态，在原版本迁移入口主动停止：确认选中原包、源码与密钥未变、无 Compose up/build、pending 保留、锁释放、Caddy 原文不变，没有启动监听或业务数据库。证据 `.local/caddy-pm2/network-recovery-evidence/verification.json`（dockerCommandsMocked/hostTcpMocked=true）。Compose config 核对两类网络、四个回环映射与 PG TCP 健康检查，通过；11 个指南 Bash 块仅做 bash -n。首轮 Linux 夹具因 .local 被 Docker 上下文忽略失败，补专用允许清单；随后原进程退出检查遇到 /proc 读取竞态 ESRCH，将其与 ENOENT 同样视为已退出，最终通过，未修改命令执行器。
+
+**未验证与收尾：**尚未在用户云端执行恢复、实际网络连接、迁移、Caddy 合并或 HTTPS；本轮没有云服务器访问凭据，不能把命令替身检查称为实机部署。未执行真实作者 TeX/Judge、全量/E2E、生产依赖更新或本机业务数据库操作。原主目录 5180/3100 服务与数据库保留，无新增业务实例/端口。按既有公开 GitHub 交付授权提交并推送供用户拉取；云端命令自身再次检查实际端口占用，若冲突会停在修改本站服务之前。

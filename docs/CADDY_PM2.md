@@ -70,6 +70,8 @@ Git 仓库保存源码，`cloud-release.json` 和 `release.json` 在打包时生
 
 Docker Compose project 固定为 `problemforge-cloud`，首次发现同名已有资源会拒绝接管。只有沙箱容器 privileged；应用用户不加入 Docker 组。作者程序和 TeX 继续仅通过沙箱执行，不在 PM2 宿主机直接编译或执行。
 
+PM2 运行在宿主机，因此四个基础服务除 backend 内部网络外，还连接本项目的 host-access bridge，显式发布到 127.0.0.1；默认 PostgreSQL 为宿主机 25432 → 容器 5432，与服务器已有 5432 服务独立。go-judge 的作者执行仍使用独立网络命名空间。仅有 internal 网络不能满足宿主机端口访问。安装器在部署开始和启动容器前读取 `ss` 与 Docker 的发布端口元数据，只接受空闲端口或已确认属于本站的监听；有冲突就停止，不自动换端口或操作占用服务。容器启动后再核对实际映射，并以 problemforge 用户连接四个回环端口，通过后才进入迁移。
+
 会话、权限、任务与存储配额继续由 PostgreSQL / Redis 共享。登录限流使用 Redis，API 只信任 Caddy 的 `127.0.0.1/32`，Caddy 覆盖外部转发头。每用户 SSE 上限为跨 API 进程共 5 个，使用 Redis 租约，崩溃后 30 秒内释放；reload 主动关闭连接，浏览器按已有重连机制恢复。Caddy 对 `text/event-stream` 自动即时刷新，不设置无限缓冲或对写请求自动重试。
 
 首次需要其他空闲回环端口或 2—8 个 API 进程时，可通过 `--settings-file` 指定 JSON，例如：
@@ -102,6 +104,8 @@ sudo bash /opt/problemforge/current/deploy.sh backup
 
 迁移开始前失败会恢复原进程。迁移开始后失败不会自动运行旧版本或反向修改数据库；`pending-deploy.json` 保留待完成版本和原备份位置，只允许检查状态或重试同一个部署包。新应用不健康时会停下；应用本机健康但 HTTPS 失败时保留新应用，修复域名/Caddy 后重试同一部署包完成收尾。
 
+旧 PM2 部署包若在首次迁移报 P1001，且 Docker `HostConfig.PortBindings` 有回环映射而 `NetworkSettings.Ports` 为 null，可以从新版源码运行 `node scripts/cloud-deploy.mjs resume-network`。这是对待完成版本的网络恢复：读取 pending 中的原版本目录并校验其全部源码哈希，复用已构建镜像，检查端口归属，为该项目四个容器补接 host-access 网络，再继续原版本的迁移、启动和健康验证。不会生成或切换到新应用包，不修改原发布文件、密钥、数据卷或 pending 保护；仅在完整部署成功后清除 pending。同名网络归属、容器状态、指定版本镜像或回环映射不符合预期时拒绝修复。详细命令见 [云服务器分步指引](DEPLOY_HYDRO_CADDY.md#数据库-p1001-且实际端口映射为-null)。
+
 备份文件是服务器私有目录中的原始数据，不是对外分发包；如需异机保存，按 [维护说明](MAINTENANCE.md) 的密钥管理原则加密并独立保管。当前一键入口提供部署、重载、升级前备份和手动备份；没有提供覆盖现有数据库的自动回退。恢复需按备份版本在空目标完成数据库和全部文件校验，再进行版本升级。
 
 `problemforge-pm2.service` 用于开机恢复已保存的本项目 PM2 进程组；不替换其他 PM2 服务。日志由 `/etc/logrotate.d/problemforge` 轮转，容器 JSON 日志也有大小与份数限制。当前运行的 PM2 无需为安装开机服务而被强制关闭，实际主机重启仍属于云端验收。
@@ -110,7 +114,7 @@ sudo bash /opt/problemforge/current/deploy.sh backup
 
 开发者在干净的已提交工作区执行 `pnpm package:cloud <版本标识>`，输出位于 Git 忽略的 `.local/releases/`。包包含来源提交、迁移清单及逐文件 SHA-256，打包器拒绝私有数据路径、路径越界和符号链接；部署前重新核对，不复制开发 node_modules。
 
-定向入口：`node --test scripts/cloud-deploy.test.mjs`；跨进程 SSE 的实 Redis 检查为 `PF_VERIFY_REDIS=1 node --import tsx --test apps/api/src/stream-lease.test.ts`，仅使用随机验证键并清理；默认快查没有扩展。`scripts/verify-cloud-runtime.mjs --build-check` 是独立 Linux 构建检查，用无 HTTP 监听、无应用数据库的夹具核对真实 PM2 的 ESM / tsx 加载、环境文件、两个 cluster 进程及重载信号，同时运行 Caddy adapt/validate。
+定向入口：`node --test scripts/cloud-deploy.test.mjs scripts/cloud-network.test.mjs scripts/cloud-process.test.mjs`；跨进程 SSE 的实 Redis 检查为 `PF_VERIFY_REDIS=1 node --import tsx --test apps/api/src/stream-lease.test.ts`，仅使用随机验证键并清理；默认快查没有扩展。`scripts/verify-cloud-runtime.mjs --build-check` 是独立 Linux 构建检查，用无 HTTP 监听、无应用数据库的夹具核对真实 PM2 的 ESM / tsx 加载、环境文件、两个 cluster 进程及重载信号，同时运行 Caddy adapt/validate。
 
 云端沙箱构建默认使用清华 TUNA Debian 镜像，APT 保留签名验证和已固定的工具版本；基础镜像没有 CA 证书包，默认使用镜像站支持的 HTTP 地址。可在 `/opt/problemforge/shared/infra.env` 中设置 `DEBIAN_MIRROR` / `DEBIAN_SECURITY_MIRROR` 覆盖。两类沙箱分开缓存锁，TeX 包合并安装；下载空闲超时 30 秒、重试 3 次，构建总超时 30 分钟。新增 `scripts/cloud-process.test.mjs` 定向检查超时和 Ctrl+C 后父进程及插件退出、信号监听清理、备份排他写入；不加入默认快查。旧版慢构建的停止、遗留锁检查与恢复命令见 [分步指引](DEPLOY_HYDRO_CADDY.md)。
 

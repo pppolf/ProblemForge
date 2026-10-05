@@ -11,9 +11,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?configure POSTGRES_PASSWORD}
     ports: ['127.0.0.1:${PF_PG_PORT:?configure PF_PG_PORT}:5432']
     volumes: [database:/var/lib/postgresql/data]
-    networks: [backend]
+    networks: [backend, host-access]
     healthcheck:
-      test: [CMD-SHELL, 'pg_isready -U problemforge -d problemforge']
+      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -U problemforge -d problemforge']
       interval: 5s
       timeout: 3s
       retries: 20
@@ -25,7 +25,7 @@ services:
     command: [sh, -c, 'exec redis-server --appendonly yes --maxmemory-policy noeviction --requirepass "$$REDIS_PASSWORD"']
     ports: ['127.0.0.1:${PF_REDIS_PORT:?configure PF_REDIS_PORT}:6379']
     volumes: [redis:/data]
-    networks: [backend]
+    networks: [backend, host-access]
     healthcheck:
       test: [CMD-SHELL, 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG']
       interval: 5s
@@ -44,7 +44,7 @@ services:
     environment: {ES_AUTH_TOKEN: '${TEX_SANDBOX_TOKEN:?configure TEX_SANDBOX_TOKEN}'}
     privileged: true
     shm_size: 256mb
-    networks: [backend]
+    networks: [backend, host-access]
     ports: ['127.0.0.1:${PF_TEX_PORT:?configure PF_TEX_PORT}:5050']
     command: [-http-addr, ':5050', -mount-conf, /opt/tex-mount.yaml, -parallelism, '1', -pre-fork, '1', -container-cred-start, '20000', -tmp-fs-param, 'size=128m,nr_inodes=4096', -output-limit, 32m, -copy-out-limit, 16m, -file-timeout, 10m]
     restart: unless-stopped
@@ -60,13 +60,19 @@ services:
     environment: {ES_AUTH_TOKEN: '${JUDGE_SANDBOX_TOKEN:?configure JUDGE_SANDBOX_TOKEN}'}
     privileged: true
     shm_size: 256mb
-    networks: [backend]
+    networks: [backend, host-access]
     ports: ['127.0.0.1:${PF_JUDGE_PORT:?configure PF_JUDGE_PORT}:5050']
     command: [-http-addr, ':5050', -mount-conf, /opt/judge-mount.yaml, -parallelism, '2', -pre-fork, '2', -container-cred-start, '21000', -tmp-fs-param, 'size=128m,nr_inodes=4096', -output-limit, 8m, -copy-out-limit, 8m, -file-timeout, 1h]
     restart: unless-stopped
     logging: *logging
 networks:
   backend: {internal: true}
+  # PM2 runs on the host. Internal-only networks do not publish host ports.
+  # Author processes still use go-judge's separate, isolated network namespace.
+  host-access:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.host_binding_ipv4: '127.0.0.1'
 volumes:
   database:
   redis:

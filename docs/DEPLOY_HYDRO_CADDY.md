@@ -153,6 +153,31 @@ bash "$pf_release/deploy.sh" \
 )
 ```
 
+### 数据库 P1001 且实际端口映射为 null
+
+PostgreSQL 日志显示监听 5432、容器 healthy，但 Prisma 无法连接 127.0.0.1:25432，并且 inspect 显示配置端口存在、实际端口为 null，说明旧包的 internal-only 网络没有建立宿主机映射。5432 是容器内部端口，25432 是本站指定宿主机端口；不应改连服务器原有的其他 PostgreSQL 服务。
+
+先在**云服务器**读取监听及本站容器信息：
+
+```bash
+ss -lntp '( sport = :5432 or sport = :5181 or sport = :25432 or sport = :26379 or sport = :25050 or sport = :25051 )'
+docker ps -a --filter label=com.docker.compose.project=problemforge-cloud --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+```
+
+下面拉取仅用于获取新的恢复工具。`resume-network` 从 pending 锁定原应用包，不执行新包打包或升级；保留原数据库、Redis、密钥与已构建的 TeX/Judge 镜像。工具会先自动核对端口与服务归属，有冲突就停止，不会停止其他服务或更换端口。
+
+```bash
+(
+set -e
+. /opt/problemforge-tools/env.sh
+cd /root/ProblemForge
+git pull --ff-only
+node scripts/cloud-deploy.mjs resume-network
+)
+```
+
+它只补接 `problemforge-cloud` 四个基础服务的宿主机访问网络，不重启 Docker 或服务器。实际回环映射和应用用户 TCP 连接检查通过后，继续同一版本的部署，包括既有的本站 PM2、Caddy 合并及 HTTPS 验证。原 Caddy 配置仍须完整匹配才会合并本站域名。看到“部署完成”才进入下一步；若出现冲突、锁或其他报错，保留提示和 pending，不清卷或删除 pending。
+
 ## 6. 查看管理员账号并检查网站
 
 ```bash

@@ -7,6 +7,7 @@ export async function deployWorkflow(ops, upgrading) {
     await ops.buildSandboxes();
     if (upgrading) { await ops.quiesce(); stopped = true; await ops.backup(); }
     await ops.startInfrastructure();
+    await ops.checkInfrastructure();
     migrationStarted = true;
     await ops.migrate();
     await ops.bootstrap();

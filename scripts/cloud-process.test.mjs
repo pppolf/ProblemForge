@@ -24,7 +24,7 @@ test('Linux build cancellation stops its child and plugin and restores signal ha
   const folder = await mkdtemp(join(tmpdir(), 'pf-build-cancel-'));
   const active = async pid => {
     try { const stat = await readFile(`/proc/${pid}/stat`, 'utf8'); return stat.slice(stat.lastIndexOf(')') + 2, stat.lastIndexOf(')') + 3) !== 'Z'; }
-    catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+    catch (error) { if (error.code === 'ENOENT' || error.code === 'ESRCH') return false; throw error; }
   };
   try {
     for (const reason of ['timeout', 'SIGINT']) {

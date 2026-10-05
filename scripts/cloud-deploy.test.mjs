@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
-import { cloudSettings, privateConfiguration, ecosystem, mergeCaddyfile, hasCaddyHost, safeReleasePath, CADDY_BEGIN, checkPendingDeployment, matchesCloudHealth, digest, verifyRelease, caddyAdminEndpoint, assertCaddyMatches, matchingCaddyInvocation } from './cloud-config.mjs';
+import { cloudSettings, privateConfiguration, ecosystem, mergeCaddyfile, hasCaddyHost, safeReleasePath, CADDY_BEGIN, checkPendingDeployment, matchesCloudHealth, digest, verifyRelease, caddyAdminEndpoint, assertCaddyMatches, matchingCaddyInvocation, pendingReleasePath } from './cloud-config.mjs';
 import { deployWorkflow } from './cloud-workflow.mjs';
 
 test('configuration rejects injected domain, overlapping/dev ports and excessive processes', () => {
@@ -117,6 +117,9 @@ test('persisted unfinished migration only permits retry of the same release or s
   assert.doesNotThrow(() => checkPendingDeployment(pending, 'install', 'release-1'));
   assert.doesNotThrow(() => checkPendingDeployment(pending, 'status'));
   for (const command of ['install', 'backup', 'reload-api']) assert.throws(() => checkPendingDeployment(pending, command, 'release-2'));
+  assert.equal(pendingReleasePath(pending), '/opt/problemforge/releases/release-1');
+  for (const buildId of ['../escape', '/root/other-project', 'release\n1', null, 123]) assert.throws(() => pendingReleasePath({ buildId }));
+  assert.throws(() => pendingReleasePath(null));
 });
 test('HTTPS health must belong to this deployment rather than another healthy site', () => {
   const expected = 'this-deployment';
@@ -124,7 +127,7 @@ test('HTTPS health must belong to this deployment rather than another healthy si
   for (const body of [{ status: 'ok' }, { status: 'ok', appName: 'ProblemForge', deploymentId: 'old-deployment' }, { status: 'degraded', appName: 'ProblemForge', deploymentId: expected }]) assert.equal(matchesCloudHealth(body, expected), false);
 });
 
-const operations = ['prepare', 'buildSandboxes', 'quiesce', 'backup', 'startInfrastructure', 'migrate', 'bootstrap', 'startApplication', 'checkLocal', 'activateVersion', 'installStartup', 'activateProxy', 'checkHttps', 'recordSuccess', 'resumePrevious', 'stopApplication', 'reportFailure'];
+const operations = ['prepare', 'buildSandboxes', 'quiesce', 'backup', 'startInfrastructure', 'checkInfrastructure', 'migrate', 'bootstrap', 'startApplication', 'checkLocal', 'activateVersion', 'installStartup', 'activateProxy', 'checkHttps', 'recordSuccess', 'resumePrevious', 'stopApplication', 'reportFailure'];
 async function scenario(failure, upgrading = true) {
   const events = [];
   const ops = Object.fromEntries(operations.map(name => [name, async () => { events.push(name); if (name === failure) throw new Error(name); }]));
@@ -135,6 +138,7 @@ async function scenario(failure, upgrading = true) {
 test('deployment only activates public proxy and records success after health checks', async () => {
   const events = await scenario();
   assert.ok(events.indexOf('backup') < events.indexOf('migrate'));
+  assert.ok(events.indexOf('checkInfrastructure') < events.indexOf('migrate'));
   assert.ok(events.indexOf('checkLocal') < events.indexOf('activateProxy'));
   assert.ok(events.indexOf('checkHttps') < events.indexOf('recordSuccess'));
   const fresh = await scenario(undefined, false);
@@ -143,6 +147,12 @@ test('deployment only activates public proxy and records success after health ch
 test('a build failure leaves old processes running, a backup failure resumes them without migrating', async () => {
   const build = await scenario('buildSandboxes'); assert.ok(!build.includes('quiesce') && !build.includes('resumePrevious'));
   const backup = await scenario('backup'); assert.ok(backup.includes('resumePrevious') && !backup.includes('migrate'));
+});
+test('unreachable host dependencies fail before migration and before stopping a fresh application', async () => {
+  const fresh = await scenario('checkInfrastructure', false);
+  assert.ok(!fresh.includes('migrate') && !fresh.includes('bootstrap') && !fresh.includes('stopApplication'));
+  const upgrade = await scenario('checkInfrastructure');
+  assert.ok(upgrade.includes('resumePrevious') && !upgrade.includes('migrate'));
 });
 test('migration or new application failure never restarts old code against uncertain schema', async () => {
   for (const failure of ['migrate', 'startApplication', 'checkLocal']) {

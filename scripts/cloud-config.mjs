@@ -153,6 +153,11 @@ export function checkPendingDeployment(pending, command, buildId) {
   if (command !== 'install' || pending.buildId !== buildId) throw new Error('上次部署尚未完成，只能检查 status 或重试同一部署包；不自动切换其他版本或重新备份部分迁移状态');
 }
 
+export function pendingReleasePath(pending) {
+  if (typeof pending?.buildId !== 'string' || !/^[a-z0-9][a-z0-9.-]{2,80}$/.test(pending.buildId)) throw new Error('没有有效的待完成部署；resume-network 仅用于保留原版本的网络恢复');
+  return `${INSTALL_ROOT}/releases/${pending.buildId}`;
+}
+
 export function matchesCloudHealth(body, deploymentId) {
   return !!deploymentId && body?.status === 'ok' && body.appName === 'ProblemForge' && body.deploymentId === deploymentId;
 }
