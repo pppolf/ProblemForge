@@ -4,7 +4,10 @@ import { resolve } from 'node:path';
 const args=process.argv.slice(2),index=args.indexOf('--base'),base=index>=0?args[index+1]:process.env.PF_DIFF_BASE;
 const supplied=args.indexOf('--files'),plan=args.includes('--plan');
 function git(argv){const r=spawnSync('git',argv,{encoding:'utf8'});if(r.status!==0)throw new Error('不能确定变更范围；请显式指定有效 --base 或 --files，不回退全仓');return r.stdout.trim().split(/\r?\n/).filter(Boolean);}
-const files=supplied>=0?args.slice(supplied+1).filter(v=>v!=='--plan'):(base?git(['diff','--name-only',base,'--']):(()=>{throw new Error('没有差异基准；使用 --base <commit> 或 --files <paths>');})());
+// GitHub marks a newly pushed branch with an all-zero before SHA. Its initial
+// scope is the committed tree; other missing/invalid bases still fail closed.
+const initialPush=process.env.GITHUB_EVENT_NAME==='push'&&/^0{40}$/.test(base??'');
+const files=supplied>=0?args.slice(supplied+1).filter(v=>v!=='--plan'):(initialPush?git(['ls-tree','-r','--name-only','HEAD']):(base?git(['diff','--name-only',base,'--']):(()=>{throw new Error('没有差异基准；使用 --base <commit> 或 --files <paths>');})()));
 const packages=[];
 for(const group of ['apps','packages','workers'])for(const name of await readdir(group)){try{const dir=`${group}/${name}`,p=JSON.parse(await readFile(`${dir}/package.json`,'utf8'));packages.push({dir,name:p.name,scope:p.name.replace('@problemforge/',''),deps:Object.keys({...p.dependencies,...p.devDependencies})});}catch{}}
 const affected=new Set();

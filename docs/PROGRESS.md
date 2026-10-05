@@ -809,4 +809,6 @@ Python 标准库独立读取最终 PAX/gzip 包，388 个文件全部核对路�
 
 补充 GitHub clone → 从提交生成固定发布清单 → 执行发布目录 deploy.sh 的完整步骤，同一提交使用固定构建标识，支持失败后同包重试；源码仓库不提交生成的发布清单。根目录私有 JSON 和 cloud-release.json 加入忽略规则。此次只改部署指引和忽略规则，不改应用运行代码、依赖或原 5180 服务。
 
-上传前扫描 HEAD 全部可达历史：1,583 个 Git 对象、901 个 blob，未发现真实协会 APPKEY、GitHub token、私钥标记或已提交的 .env/.local/私有 JSON；不把当前文件忽略误当成历史没有密钥。报告 `.local/github-upload/history-scan.json`，仅保存结果，不保存凭据或敏感原文。待本地提交说明后，推送 master 并核对远端提交及公开读取状态；私有配置与原题库继续留在本机，不上传 GitHub。
+上传前扫描 HEAD 全部可达历史：1,583 个 Git 对象、901 个 blob，未发现真实协会 APPKEY、GitHub token、私钥标记或已提交的 .env/.local/私有 JSON；不把当前文件忽略误当成历史没有密钥。报告 `.local/github-upload/history-scan.json`，仅保存结果，不保存凭据或敏感原文。已创建公开仓库 `https://github.com/pppolf/ProblemForge`，新增 origin 并将 master 推送、建立上游跟踪；首次上传提交为 `eae6c72`。匿名 GitHub API 核对公开属性、默认分支、386 个源码文件、远端 SHA 与本地一致，以及部署说明字节完全相同，私有配置与原题库未上传。证据 `.local/github-upload/repository.json`、verification.json；后者随最终推送更新。
+
+**首次 GitHub 检查修正：**首次上传的 Actions 已成功安装依赖及生成 Prisma 客户端，但差异检查收到 GitHub 新分支事件的全零 before SHA 后失败。`scripts/ci.mjs` 现仅对 push 事件的已知全零基准读取当前提交文件清单；其他未知基准仍拒绝，不任意回退全仓。Node 语法及定向 plan 检查通过：首次范围 386 个文件、正常 diff 保持、非 push 全零与未知基准拒绝；不执行真实集成、Judge/TeX，也不改变默认快查。记录 initial-ci-check.json，修正提交后由 GitHub 自动复核，实际结果在 verification.json / Actions 页面查看。本机开发服务与业务数据未更改，未在云主机安装或启动站点。
