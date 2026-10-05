@@ -66,6 +66,10 @@ test('fresh installations generate independent secrets and do not put APPKEY or 
   const pm = ecosystem(settings, '/opt/problemforge/releases/release-1', '/usr/bin/node');
   assert.equal(pm.apps[0].exec_mode, 'cluster'); assert.equal(pm.apps[0].instances, 2);
   assert.equal(pm.apps[0].wait_ready, true);
+  for (const app of pm.apps) {
+    assert.deepEqual(app.node_args.slice(0, 2), ['--import', '/opt/problemforge/releases/release-1/node_modules/tsx/dist/loader.mjs']);
+    assert.equal(app.cwd, '/opt/problemforge/releases/release-1');
+  }
   for (const worker of pm.apps.slice(1)) {
     assert.equal(worker.exec_mode, 'fork'); assert.equal(worker.instances, 1);
     assert.ok(!worker.node_args.some(arg => arg.includes('api.env') || arg.includes('admin.env')));

@@ -860,3 +860,13 @@ Python 标准库独立读取最终 PAX/gzip 包，388 个文件全部核对路�
 **实际验证：**Node 语法、Windows 21 项部署/网络定向检查、Linux 23 项部署/网络/命令执行检查通过；覆盖原有 5432 保留、目标端口冲突/未知监听拒绝、其他容器及网络拒绝、仅四个容器连接与幂等、发布为 null 拒绝、原版本路径校验、迁移前失败顺序、TCP 错误脱敏。Linux 中执行真实恢复 CLI，以明确标注的 Docker/宿主机 TCP 命令替身模拟云端状态，在原版本迁移入口主动停止：确认选中原包、源码与密钥未变、无 Compose up/build、pending 保留、锁释放、Caddy 原文不变，没有启动监听或业务数据库。证据 `.local/caddy-pm2/network-recovery-evidence/verification.json`（dockerCommandsMocked/hostTcpMocked=true）。Compose config 核对两类网络、四个回环映射与 PG TCP 健康检查，通过；11 个指南 Bash 块仅做 bash -n。首轮 Linux 夹具因 .local 被 Docker 上下文忽略失败，补专用允许清单；随后原进程退出检查遇到 /proc 读取竞态 ESRCH，将其与 ENOENT 同样视为已退出，最终通过，未修改命令执行器。
 
 **未验证与收尾：**尚未在用户云端执行恢复、实际网络连接、迁移、Caddy 合并或 HTTPS；本轮没有云服务器访问凭据，不能把命令替身检查称为实机部署。未执行真实作者 TeX/Judge、全量/E2E、生产依赖更新或本机业务数据库操作。原主目录 5180/3100 服务与数据库保留，无新增业务实例/端口。按既有公开 GitHub 交付授权提交并推送供用户拉取；云端命令自身再次检查实际端口占用，若冲突会停在修改本站服务之前。
+
+## 云端 PM2 cluster 预加载 tsx 路径修正（2026-10-05）
+
+**目标主机证据：**用户运行恢复后到达 PM2 启动阶段，两个 Worker 启动，但 API 两个进程退出，安装器报告在线数不符并仅停止三个 problemforge-* 名称。用户补充 API/PM2 日志 `ERR_MODULE_NOT_FOUND: Cannot find package 'tsx' imported from /opt/problemforge/`，以及进程列表：root 原 PM2 v6.0.14 使用 /root/.pm2，本站 problemforge 用户 PM2 v7.0.4 使用 /opt/problemforge/shared/pm2。此次不是依据进程名猜测原 PM2 被操作；两套用户与 HOME 已由用户回传证实。原有 Caddy/Hydro/MongoDB/xcpc 等服务保持用户给出的状态，不对其执行维护。
+
+**原因与实现：**PM2 cluster 在切换应用 cwd 之前执行 Node 的 --import，裸包名 tsx 因而从守护进程工作目录 /opt/problemforge 解析，找不到安装在 releases/<buildId> 下的依赖；之前无监听 PM2 夹具把守护进程和应用都放在 /app，遗漏真实目录差异。新 ecosystem 为 API 和两个 Worker 固定该发布目录的 node_modules/tsx/dist/loader.mjs 绝对路径（仓库锁定 tsx 4.20.6 的公开入口）。prepare 后、迁移前，通过真实服务 UID 从父目录预加载一次，只加载工具而不启动应用、连数据库或监听端口。新恢复工具可继续 pending 原包，仅更新 shared/ecosystem.config.cjs，不改不可变应用包、全局依赖、已有 PM2 或沙箱镜像。
+
+**实际验证：**15 项部署定向检查通过。独立 Linux 构建使用真实 PM2 v7.0.4，把守护进程 cwd 放在没有 node_modules 的临时父目录：旧裸 tsx 的负向对照准确复现用户错误；保留生成配置绝对加载器后，两 API cluster / 两 Worker fork 的 TypeScript 及环境加载成功，Worker 无 APPKEY，两个 API 重载更换 PID 并优雅退出。另起仅供夹具使用的独立 PM2_HOME 与无监听进程，前后 PID/重启数一致；两套夹具最终清理，未操作宿主机用户服务。Caddy adapt/validate 夹具继续通过。证据 `.local/caddy-pm2/loader-evidence/runtime-check.json`，明确 httpListenerStarted=false、applicationDatabaseAccessed=false，不冒充实际应用数据库/HTTP 验收。原恢复 CLI 的隔离命令替身夹具同步新增预加载步骤，检查仍选中原版本并保留 pending/源码/密钥。
+
+**未验证与交付：**本轮没有云主机访问权限，尚未验证云端最终 API、HTTPS、协会登录、TeX/Judge 或重启；仅据用户日志确认上一轮已进入应用启动阶段，不补写完整上线成功。原本机 5180/3100 服务 PID 69040/65472 与原数据库、存储保持不变，没有新监听/业务实例。按用户 GitHub 拉取部署的持续授权提交推送，云端继续同一 resume-network 命令，仍会先检查端口及服务归属，不升级或操作 root 原 PM2。

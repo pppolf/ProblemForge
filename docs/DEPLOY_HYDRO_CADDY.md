@@ -178,6 +178,12 @@ node scripts/cloud-deploy.mjs resume-network
 
 它只补接 `problemforge-cloud` 四个基础服务的宿主机访问网络，不重启 Docker 或服务器。实际回环映射和应用用户 TCP 连接检查通过后，继续同一版本的部署，包括既有的本站 PM2、Caddy 合并及 HTTPS 验证。原 Caddy 配置仍须完整匹配才会合并本站域名。看到“部署完成”才进入下一步；若出现冲突、锁或其他报错，保留提示和 pending，不清卷或删除 pending。
 
+### API 启动报 Cannot find package 'tsx'
+
+如果 ProblemForge API 在线数检查失败，并在日志看到 `Cannot find package 'tsx' imported from /opt/problemforge/`，原因是旧配置从 PM2 守护进程目录解析预加载器；已安装的依赖实际位于固定发布目录。这不是要求在 `/opt/problemforge` 或全局重新安装 tsx。新版恢复工具使用发布目录的绝对加载路径，并先以服务用户核验可加载性。
+
+仍有 pending 时，在云服务器执行上面的 `git pull --ff-only` 与 `node scripts/cloud-deploy.mjs resume-network` 整段命令即可；保留当前应用版本、镜像和数据库，只重新生成本站 PM2 启动配置并继续部署。该命令始终限定 problemforge 用户及 `/opt/problemforge/shared/pm2`，不会调用 root 的 `/root/.pm2` 去停止或升级既有服务。用户当前 root PM2 v6.0.14 与本站 PM2 v7.0.4 分别运行，看到不同进程列表是预期行为。
+
 ## 6. 查看管理员账号并检查网站
 
 ```bash

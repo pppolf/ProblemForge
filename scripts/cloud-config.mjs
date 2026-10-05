@@ -100,7 +100,9 @@ export function privateConfiguration(settings, input) {
 export function ecosystem(settings, release, node) {
   const shared = `${INSTALL_ROOT}/shared`;
   const common = {
-    cwd: release, interpreter: node, node_args: ['--import', 'tsx', `--env-file=${shared}/app.env`],
+    // Cluster preloads run before PM2 changes into the app cwd. Resolve the
+    // pinned tsx entry inside this release, never from the daemon's directory.
+    cwd: release, interpreter: node, node_args: ['--import', `${release}/node_modules/tsx/dist/loader.mjs`, `--env-file=${shared}/app.env`],
     autorestart: true, watch: false, min_uptime: '10s', max_restarts: 10, restart_delay: 3000,
     kill_timeout: 30000, listen_timeout: 60000, merge_logs: true, time: true,
     env: { NODE_ENV: 'production' },

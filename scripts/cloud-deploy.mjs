@@ -334,7 +334,12 @@ async function main() {
     await checkHostPortUse();
     let release, backupPath = pending?.backupPath ?? null;
     await deployWorkflow({
-      prepare: async () => { release = await prepare(manifest); },
+      prepare: async () => {
+        release = await prepare(manifest);
+        // Use the daemon's parent directory and actual service UID, without
+        // loading the application or opening any connection/listener.
+        await asApp(bins.node, ['--import', `${release}/node_modules/tsx/dist/loader.mjs`, '--eval', ''], { cwd: root, timeout: 10000 });
+      },
       buildSandboxes: async () => {
         if (recoveringNetwork) {
           const rows = await inspectCloudPorts(argv => run(bins.docker, argv, { capture: true, timeout: 10000 }), settings.ports, manifest.buildId);

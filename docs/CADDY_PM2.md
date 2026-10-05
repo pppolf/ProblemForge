@@ -72,6 +72,8 @@ Docker Compose project 固定为 `problemforge-cloud`，首次发现同名已有
 
 PM2 运行在宿主机，因此四个基础服务除 backend 内部网络外，还连接本项目的 host-access bridge，显式发布到 127.0.0.1；默认 PostgreSQL 为宿主机 25432 → 容器 5432，与服务器已有 5432 服务独立。go-judge 的作者执行仍使用独立网络命名空间。仅有 internal 网络不能满足宿主机端口访问。安装器在部署开始和启动容器前读取 `ss` 与 Docker 的发布端口元数据，只接受空闲端口或已确认属于本站的监听；有冲突就停止，不自动换端口或操作占用服务。容器启动后再核对实际映射，并以 problemforge 用户连接四个回环端口，通过后才进入迁移。
 
+ProblemForge 使用 problemforge 用户及 `/opt/problemforge/shared/pm2`，与 root 的 `/root/.pm2` 独立；root 直接执行 `pm2 list` 显示的是原服务组。API cluster 的 Node 预加载发生在 PM2 切换应用 cwd 之前，因此生成配置中的 `--import` 固定为该发布目录下 `node_modules/tsx/dist/loader.mjs` 的绝对路径，不依赖守护进程工作目录或全局 tsx。准备阶段以服务用户从 `/opt/problemforge` 实际预加载一次，不启动应用、不访问数据库；缺失或不可读会在迁移前报错。原包已迁移但因 `Cannot find package 'tsx' imported from /opt/problemforge/` 启动失败时，可用新版源码的 `resume-network` 继续原版本，重写本站可变 PM2 配置而不修改原应用包、全局 Node/PM2 或依赖安装。
+
 会话、权限、任务与存储配额继续由 PostgreSQL / Redis 共享。登录限流使用 Redis，API 只信任 Caddy 的 `127.0.0.1/32`，Caddy 覆盖外部转发头。每用户 SSE 上限为跨 API 进程共 5 个，使用 Redis 租约，崩溃后 30 秒内释放；reload 主动关闭连接，浏览器按已有重连机制恢复。Caddy 对 `text/event-stream` 自动即时刷新，不设置无限缓冲或对写请求自动重试。
 
 首次需要其他空闲回环端口或 2—8 个 API 进程时，可通过 `--settings-file` 指定 JSON，例如：
