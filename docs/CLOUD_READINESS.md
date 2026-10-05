@@ -6,7 +6,7 @@
 
 | 顺序 | 项目 | 当前证据与下一步 |
 | --- | --- | --- |
-| 1 | 依赖安全更新 | 官方 npm 审计报告 10 条 high、9 条 moderate、1 条 low。核对可达路径，升级直接依赖和兼容的间接依赖，回归权限/校验、Swagger、ZIP/YAML 和 Judge 通信，再重新审计。不能直接运行自动 major 升级或把审计数量当作已证实的平台漏洞数量。 |
+| 1 | 依赖安全更新 | 2026-10-05 部署包锁文件已修复此前 10 high / 9 moderate / 1 low，官方 npm 生产审计为 0 条。Linux Prisma 生成、6 个后端包类型及 24 项代理/Swagger/JSON/ZIP/YAML 检查通过；原 Windows 开发服务仍使用原安装依赖，尚未切换。目标云主机真实运行仍需验收。 |
 | 2 | 普通用户登录 | 原 `.env` 已配置用户提供的 APPKEY，原页面已启用协会登录，单次随机不存在账号的请求收到 `LOGIN_FAILED`。真实账号成功登录由用户自行在 5180 测试；云端私有配置及云主机普通用户登录仍待验收。管理员独立入口继续可用。 |
 | 3 | 主机与 HTTPS | 已确定 `https://problems.cwnupaa.com`，2026-10-05 查询 A 记录为 `43.136.170.90`；尚未核对服务器访问方式或 TLS。确认 Linux、CPU/内存/磁盘、架构、证书和公网或内网范围，核对 Docker/cgroup 与沙箱能力；配置代理、精确 APP_ORIGIN、受信任代理地址、请求大小和 SSE。 |
 | 4 | 原数据迁移 | 迁移原数据库及实际私有目录，不能只上传源码、导出 Hydro 包或复制旧演练实例。需要确定停写窗口、生成一致备份，并在空目标恢复、逐文件核对。 |
@@ -40,7 +40,7 @@ Nginx 示例的域名及 HTTP 重定向已改为 `problems.cwnupaa.com`；生产
 | yaml | problem-format | moderate |
 | yauzl | judge-core | moderate |
 
-Fastify 的请求校验和受限 trustProxy 下的转发头问题已有[维护者公告](https://github.com/fastify/fastify/security/advisories/GHSA-jx2c-rxcm-jvmq)、[转发头公告](https://github.com/fastify/fastify/security/advisories/GHSA-444r-cwp2-x5xf)。应选择满足全部适用公告的修复版本，而非仅达到某一条旧公告的最低版本。此次 IP 限流补丁不替代框架安全更新，代理配置先保持未启用。
+Fastify 的请求校验和受限 trustProxy 下的转发头问题已有[维护者公告](https://github.com/fastify/fastify/security/advisories/GHSA-jx2c-rxcm-jvmq)、[转发头公告](https://github.com/fastify/fastify/security/advisories/GHSA-444r-cwp2-x5xf)。以上表格是首次审计记录；后续部署准备已固定 Fastify 5.12.5、Swagger UI 6.1.1 / static 10.1.5、Prisma 6.19.3、ws 8.21.0、yauzl 3.2.1、yaml 2.8.3，并对 Prisma 配置中的 deepmerge-ts 使用兼容的 8.0.0 安全覆盖。新生产审计为 0 条，证据 `.local/caddy-pm2/dependency-audit.json`；原开发进程未加载新依赖，代理配置继续留空。
 
 ## 原开发数据如何迁移
 

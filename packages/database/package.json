@@ -6,6 +6,6 @@
     "migrate": "tsx ../../scripts/database.ts migrate",
     "check": "tsc -p tsconfig.json"
   },
-  "dependencies": { "@prisma/client": "6.19.0", "dotenv": "16.6.1" },
-  "devDependencies": { "prisma": "6.19.0" }
+  "dependencies": { "@prisma/client": "6.19.3", "dotenv": "16.6.1" },
+  "devDependencies": { "prisma": "6.19.3" }
 }

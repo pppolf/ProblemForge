@@ -7,3 +7,7 @@ onlyBuiltDependencies:
   - '@prisma/engines'
   - prisma
   - esbuild
+overrides:
+  # Prisma 6 config uses the compatible deepmerge API; v8 fixes prototype pollution.
+  '@prisma/config>deepmerge-ts': 8.0.0
+  'yaml@<2.8.3': 2.8.3

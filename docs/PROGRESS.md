@@ -772,3 +772,11 @@ Hydro config.yaml 改用常规缩进 YAML，工具编译说明同步 `lang: auto
 **原环境状态：**核对主目录原进程树并确认活动 Build/TestRun 均为 0 后，仅重启原 `pnpm dev` 加载密钥。当前根进程 30600，Vite 69040、API 65472、两个 Worker 80592 / 85032；原 5180/3100 的监听与两个 Worker 均在同一进程树，无额外 Worker。数据库、Redis、私有存储、模板和 Linux 沙箱不变；原 7 题完整快照、比赛编排与模板版本指纹前后一致，活动任务仍为 0。记录 `.local/association-connection/pre-restart.json`、after.json、services.json、services-verified.json、dev.out/err.log；后续重新核对 PID。API 已加载上一轮代理配置代码，但本机 `API_TRUSTED_PROXIES` 仍未启用。
 
 **未验证与下一步：**真实账号成功登录等待用户页面测试；云端私有配置、服务器规格/访问方式/开放范围、证书、`nginx -t` 和实际部署均未完成。依赖安全更新、原库一致迁移、新最终镜像及目标主机验收沿用 CLOUD_READINESS 待办，本轮未改依赖、运行 Judge/TeX、全量/E2E、重建镜像、改 DNS 或公网发布。ACCOUNTS、CLOUD_READINESS、DEPLOYMENT 和 PLAN 已同步。`git diff --check` 通过，`.env` 和验证目录被 Git 忽略，扫描全部 370 个已跟踪文件未发现该密钥；原开发 Origin 与未启用代理状态检查通过，见 private-config-check.json。收尾本地提交，不 push。
+
+## Caddy / PM2 部署准备：依赖安全更新（2026-10-05）
+
+用户要求一键部署版本，确认 Ubuntu 22.04/24.04、Caddy 反代与 PM2 负载均衡。先修复此前已记录的依赖阻塞：Fastify 5.12.5、Swagger UI 6.1.1（static 10.1.5）、Prisma/client 6.19.3、ws 8.21.0、yauzl 3.2.1、yaml 2.8.3；限定覆盖 Prisma 配置的 deepmerge-ts 8.0.0 和旧 YAML。Prisma 保持 6.x，未改数据库 schema 或迁移。新官方 npm 生产审计 high/moderate/low/critical 均为 0，报告 `.local/caddy-pm2/dependency-audit.json`。
+
+升级检查发现 Swagger UI 的 uiHooks 不覆盖静态路由，因此将整个文档子树放入独立鉴权作用域，统一保护 HTML、JSON 与资源，新增两项依赖集成检查。独立 Linux 构建实际完成新锁文件安装、Prisma 6.19.3 客户端生成，database/domain/judge-adapter/judge-core/problem-format/api 六包类型检查，以及 24 项 Swagger 鉴权/严格 JSON/受信代理与限流/ZIP 路径/判定语义/Hydro Markdown/YAML 回归。镜像 `problemforge-dependency-check:20261005` 仅作构建验证，未启动服务或执行作者程序。
+
+“停止开发服务并安装依赖”的组合命令被自动审批以策略阻止拒绝；未重试停服，改用锁文件更新与独立 Docker 构建。原 5180/3100、根进程 30600、Vite 69040、API 65472、两个 Worker 和原数据库/存储继续使用原安装依赖，未安装本机新 node_modules、重启服务、创建新应用实例或监听端口。新依赖尚未完成原库登录/实际 Judge 通信或云端运行验收；这些不能由纯构建检查代替。差异检查通过，先本地提交本依赖块再继续一键部署实现，不 push。

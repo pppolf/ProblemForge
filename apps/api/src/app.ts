@@ -2,7 +2,7 @@ import Fastify, { type FastifyRequest, type FastifyError } from 'fastify';
 import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
-import swaggerUI from '@fastify/swagger-ui';
+import { protectedSwaggerUI } from './swagger-ui.ts';
 import type { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import { Redis } from 'ioredis';
 import { db } from '@problemforge/database';
@@ -63,7 +63,7 @@ export async function createApp(logging = true) {
   await app.register(cookie);
   await app.register(rateLimit, { global: false, redis, skipOnError: false });
   await app.register(swagger, { openapi: { info: { title: `${config.appName} API`, version: '0.1.0' }, components: { securitySchemes: { session: { type: 'apiKey', in: 'cookie', name: 'pf_session' } } } } });
-  await app.register(swaggerUI, { routePrefix: '/api/docs', uiHooks: { onRequest: authenticate } });
+  await protectedSwaggerUI(app, authenticate);
   app.addHook('onRequest', async (req, reply) => {
     reply.header('X-Content-Type-Options', 'nosniff').header('Cache-Control', 'no-store').header('Referrer-Policy', 'same-origin');
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers.origin !== config.origin) throw new HttpError(403, '请求来源不被允许', 'ORIGIN_FAILED');
