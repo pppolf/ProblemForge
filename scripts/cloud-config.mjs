@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { readFile, lstat, realpath } from 'node:fs/promises';
-import { resolve, sep } from 'node:path';
+import { posix, resolve, sep } from 'node:path';
 
 export const INSTALL_ROOT = '/opt/problemforge';
 export const SERVICE_USER = 'problemforge';
@@ -39,10 +39,32 @@ export function caddyAdminEndpoint(adapted) {
   return { address, url: `http://${address}/config/` };
 }
 
+const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
+  ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
+const sameCaddyConfig = (adapted, running) => !!running && JSON.stringify(canonical(adapted)) === JSON.stringify(canonical(running));
+
 export function assertCaddyMatches(adapted, running) {
-  const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
-    ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
-  if (!running || JSON.stringify(canonical(adapted)) !== JSON.stringify(canonical(running))) throw new Error('指定 Caddyfile 与运行中的配置不一致，请先核对现有配置，脚本不会覆盖未保存的站点设置');
+  if (sameCaddyConfig(adapted, running)) return;
+  const paths = [];
+  const visit = (a, b, path = '') => {
+    if (paths.length >= 8 || JSON.stringify(canonical(a)) === JSON.stringify(canonical(b))) return;
+    if (a && b && typeof a === 'object' && typeof b === 'object' && Array.isArray(a) === Array.isArray(b)) {
+      for (const key of [...new Set([...Object.keys(a), ...Object.keys(b)])].sort()) {
+        visit(a[key], b[key], `${path}/${key.replaceAll('~', '~0').replaceAll('/', '~1')}`);
+      }
+    } else paths.push(path || '/');
+  };
+  visit(adapted, running);
+  throw new Error(`指定 Caddyfile 与运行中的配置不一致，脚本不会覆盖未保存的站点设置；差异字段（最多 8 项，不含配置值）：${paths.map(path => JSON.stringify(path.slice(0, 300))).join('、')}`);
+}
+
+export async function matchingCaddyInvocation(file, adapted, running, adapt) {
+  if (sameCaddyConfig(adapted, running)) return file;
+  // Caddy run defaults to a relative Caddyfile; file_server records that spelling
+  // in its hidden-file list. Re-adapt the same file, preserving every config value.
+  const relative = posix.basename(file);
+  assertCaddyMatches(await adapt(relative), running);
+  return relative;
 }
 
 const environment = object => Object.entries(object).map(([key, value]) => {

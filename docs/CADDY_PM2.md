@@ -86,6 +86,8 @@ Docker Compose project 固定为 `problemforge-cloud`，首次发现同名已有
 
 Caddy 自定义示例：`{"caddyFile":"/root/.hydro/Caddyfile","caddyReload":"caddy"}`，与上面的域名/进程/端口字段放在同一个 JSON 中。CLI 重载模式先验证该文件，并读取配置中的回环管理地址（默认 localhost:2019），确认运行配置与文件一致后才允许追加本站；不会自动接管运行中的未保存配置。需要启用本地 TCP 管理接口；关闭管理接口、非回环地址或 Unix socket 会明确拒绝，需先确定实际管理方式。备份、同目录候选文件、相对 import 和重载失败恢复均使用指定路径，保留已有其他站点。
 
+直接以 `caddy run` 启动的实例可能使用相对 `Caddyfile`，与绝对路径适配结果的自动隐藏文件列表不同。安装器尝试两种文件名表示，只有完整 JSON 匹配才继续，重载和失败恢复沿用匹配的表示。可从源码目录运行 `node scripts/cloud-deploy.mjs check-caddy --settings-file infra/cloud-settings.hydro.json` 进行只读检查；失败时仅显示差异字段路径，不输出配置值。
+
 ## 状态、重载、升级和备份
 
 ```sh

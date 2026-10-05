@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { APP_NAMES, CADDY_BEGIN, INSTALL_ROOT as root, SERVICE_USER as user,
   cloudSettings, privateConfiguration, ecosystem, mergeCaddyfile, hasCaddyHost, serviceUnit, digest, verifyRelease, checkPendingDeployment, matchesCloudHealth,
-  caddyAdminEndpoint, assertCaddyMatches } from './cloud-config.mjs';
+  caddyAdminEndpoint, matchingCaddyInvocation } from './cloud-config.mjs';
 import { deployWorkflow } from './cloud-workflow.mjs';
 
 const source = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -19,7 +19,7 @@ const flags = {};
 for (let i = 0; i < args.length; i++) {
   const name = args[i];
   if (name === '--help') { flags.help = true; continue; }
-  if (!['--secrets-file', '--settings-file'].includes(name) || !args[i + 1] || flags[name]) throw new Error('参数：install / plan / status / backup / reload-api；--secrets-file JSON；--settings-file JSON');
+  if (!['--secrets-file', '--settings-file'].includes(name) || !args[i + 1] || flags[name]) throw new Error('参数：install / plan / check-caddy / status / backup / reload-api；--secrets-file JSON；--settings-file JSON');
   flags[name] = resolve(args[++i]);
 }
 const exists = async path => { try { await access(path); return true; } catch { return false; } };
@@ -108,8 +108,8 @@ async function findBinary(name) {
   if (!/^\/[A-Za-z0-9_./+@-]+$/.test(resolved)) throw new Error(`${name} 安装路径含不支持的字符`);
   return { path, resolved };
 }
-async function adaptedCaddy() {
-  return JSON.parse(await run(bins.caddy, ['adapt', '--adapter', 'caddyfile', '--config', settings.caddyFile],
+async function adaptedCaddy(configArgument = settings.caddyFile) {
+  return JSON.parse(await run(bins.caddy, ['adapt', '--adapter', 'caddyfile', '--config', configArgument],
     { cwd: dirname(settings.caddyFile), capture: true, timeout: 30000 }));
 }
 async function checkCaddyAdmin(adapted) {
@@ -118,13 +118,13 @@ async function checkCaddyAdmin(adapted) {
   try { response = await fetch(endpoint.url, { signal: AbortSignal.timeout(5000), redirect: 'error' }); }
   catch { throw new Error(`无法读取 Caddy 回环管理接口 ${endpoint.address}；请确认现有 Caddy 已启动且管理接口可用`); }
   if (!response.ok) throw new Error(`Caddy 管理接口返回 HTTP ${response.status}，停止修改配置`);
-  assertCaddyMatches(adapted, await response.json());
-  return endpoint.address;
+  const configArgument = await matchingCaddyInvocation(settings.caddyFile, adapted, await response.json(), adaptedCaddy);
+  return { address: endpoint.address, configArgument };
 }
-async function reloadCaddy(address, allowFailure = false) {
+async function reloadCaddy(checked, allowFailure = false) {
   return settings.caddyReload === 'systemd'
     ? run('systemctl', ['reload', 'caddy'], { timeout: 30000, allowFailure })
-    : run(bins.caddy, ['reload', '--adapter', 'caddyfile', '--config', settings.caddyFile, '--address', address],
+    : run(bins.caddy, ['reload', '--adapter', 'caddyfile', '--config', checked.configArgument, '--address', checked.address],
       { cwd: dirname(settings.caddyFile), timeout: 30000, allowFailure });
 }
 async function preflight() {
@@ -267,7 +267,7 @@ async function installStartup() {
 async function activateCaddy() {
   const original = await readFile(settings.caddyFile, 'utf8');
   const adapted = await adaptedCaddy();
-  const address = settings.caddyReload === 'caddy' ? await checkCaddyAdmin(adapted) : undefined;
+  const checked = settings.caddyReload === 'caddy' ? await checkCaddyAdmin(adapted) : undefined;
   if (!original.includes(CADDY_BEGIN) && hasCaddyHost(adapted, settings.domain)) throw new Error('Caddy 导入配置已包含目标域名，不自动接管');
   const candidate = `${dirname(settings.caddyFile)}/.problemforge-candidate-${process.pid}`;
   const saved = `${shared}/backups/Caddyfile-${Date.now()}`;
@@ -279,14 +279,14 @@ async function activateCaddy() {
     if (await readFile(settings.caddyFile, 'utf8') !== original) throw new Error('Caddyfile 在部署期间被修改，停止覆盖');
     await writeFile(saved, original, { flag: 'wx', mode: 0o600 });
     await rename(candidate, settings.caddyFile);
-    try { await reloadCaddy(address); }
-    catch (error) { await writeFile(settings.caddyFile, original); await reloadCaddy(address, true); throw error; }
+    try { await reloadCaddy(checked); }
+    catch (error) { await writeFile(settings.caddyFile, original); await reloadCaddy(checked, true); throw error; }
   } finally { await rm(candidate, { force: true }); }
 }
 
 async function main() {
-  if (flags.help) { console.log('sudo bash deploy.sh [install|status|backup|reload-api]\n首次：--secrets-file /私有路径/problemforge.secrets.json\n可选首次配置：--settings-file settings.json\n只读预览：bash deploy.sh plan\n详见 docs/CADDY_PM2.md'); return; }
-  if (!['install', 'plan', 'status', 'backup', 'reload-api'].includes(command)) throw new Error('未知部署命令');
+  if (flags.help) { console.log('sudo bash deploy.sh [install|status|backup|reload-api]\n首次：--secrets-file /私有路径/problemforge.secrets.json\n可选首次配置：--settings-file settings.json\n只读预览：bash deploy.sh plan\n只读 Caddy 检查：node scripts/cloud-deploy.mjs check-caddy --settings-file settings.json\n详见 docs/CADDY_PM2.md'); return; }
+  if (!['install', 'plan', 'check-caddy', 'status', 'backup', 'reload-api'].includes(command)) throw new Error('未知部署命令');
   const settingsInput = flags['--settings-file'] ? await json(flags['--settings-file']) : undefined;
   if (command === 'plan') {
     const proposed = cloudSettings(settingsInput);
@@ -299,6 +299,13 @@ async function main() {
       executesDeployment: false }, null, 2)); return;
   }
   settings = cloudSettings(await exists(marker) ? await json(`${shared}/settings.json`) : settingsInput);
+  if (command === 'check-caddy') {
+    if (process.platform !== 'linux') throw new Error('请在 Linux 云服务器执行此只读检查');
+    bins = { caddy: (await findBinary('caddy')).resolved };
+    const checked = await checkCaddyAdmin(await adaptedCaddy());
+    say(`Caddyfile 与运行配置匹配（--config ${checked.configArgument}）；仅检查，未写入或重载。`);
+    return;
+  }
   await preflight();
   const manifest = command === 'install' ? await verifyRelease(source) : null;
   if (command !== 'install' && !await exists(marker)) throw new Error('尚未部署');

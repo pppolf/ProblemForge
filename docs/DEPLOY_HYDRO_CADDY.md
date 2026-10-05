@@ -87,6 +87,16 @@ bash scripts/configure-cloud-secrets.sh
 
 ## 5. 生成发布目录并部署
 
+可以先单独运行一次只读配置检查；它只读取 Caddyfile 和 Caddy 本机管理接口，不写配置、不重载、不安装应用：
+
+```bash
+cd /root/ProblemForge
+. /opt/problemforge-tools/env.sh
+node scripts/cloud-deploy.mjs check-caddy --settings-file infra/cloud-settings.hydro.json
+```
+
+显示“Caddyfile 与运行配置匹配”后，执行：
+
 ```bash
 set -e
 cd /root/ProblemForge
@@ -105,7 +115,7 @@ bash "$pf_release/deploy.sh" \
 
 该配置指定 `/root/.hydro/Caddyfile` 和 `caddy` 重载方式，启动 ProblemForge 专属 PM2 进程组和基础服务。应用健康后，脚本备份并合并该 Caddyfile，只新增本站标记块，用 Caddy CLI 平滑重载。首次构建 TeX/Judge 镜像较慢，看到构建日志时等待完成。脚本最终显示“部署完成”才算成功；预检失败不会自动去改 Hydro 的管理方式。
 
-如果提示 Caddy 管理接口不可用或运行配置不一致，提供最后的报错，先核对实际 Caddy 启动方式和已保存配置；不要为通过预检停掉所有 PM2 进程。
+如果提示 Caddy 管理接口不可用或运行配置不一致，提供最后的报错，先核对实际 Caddy 启动方式和已保存配置；不要为通过预检停掉所有 PM2 进程。`caddy run` 默认从工作目录读取 `Caddyfile`，其自动生成的 `file_server.hide` 可能记录为 `./Caddyfile`；安装器会分别按绝对路径和同目录文件名适配，选择与运行 JSON 完全一致的方式，并保持该方式重载。如果仍不匹配，会显示最多 8 个差异字段路径，不打印配置值；不会忽略真实路由或隐藏文件规则的差异。
 
 ## 6. 查看管理员账号并检查网站
 
@@ -119,6 +129,6 @@ bash /opt/problemforge/current/deploy.sh status
 
 以后升级重复第 4 步的拉取代码和第 5 步。若上一次数据库迁移未完成，先用原版本重试，不能先切换到新提交。查看本项目日志可以运行 `tail -n 80 /opt/problemforge/shared/logs/api.err.log`；不要提供包含私有 JSON 或管理员密码的终端内容。
 
-实际验证范围：本机通过 13 项定向检查；Linux Caddy adapt/validate 验证自定义目录、相对 import 和原站点保留，PM2 启动/重载夹具通过。没有登录用户云服务器或执行真实 Caddy 重载、Ubuntu 安装和业务任务。Node 归档仅核对官方校验清单，未在本机执行上述服务器安装命令。
+实际验证范围：部署定向检查现为 14 项，通过；Linux Caddy 2.10.2 实际复现绝对/相对配置路径导致的 hide 差异，并验证选择相对调用后精确匹配、真实配置差异仍拒绝。只读命令使用模拟的管理接口响应通过，不监听端口。此前已完成自定义目录、相对 import、原站点保留及 PM2 启动/重载夹具。没有登录用户云服务器或执行真实 Caddy 重载、Ubuntu 安装和业务任务。Node 归档仅核对官方校验清单，未在本机执行上述服务器安装命令。
 
 依据：[Caddy reload](https://caddyserver.com/docs/command-line#caddy-reload)、[Caddy 管理接口](https://caddyserver.com/docs/api#get-configpath)、[Node 22.23.3 官方校验清单](https://nodejs.org/dist/v22.23.3/SHASUMS256.txt)、[Ubuntu Compose 包](https://packages.ubuntu.com/noble/docker-compose-v2)。

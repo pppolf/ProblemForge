@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
-import { cloudSettings, privateConfiguration, ecosystem, mergeCaddyfile, hasCaddyHost, safeReleasePath, CADDY_BEGIN, checkPendingDeployment, matchesCloudHealth, digest, verifyRelease, caddyAdminEndpoint, assertCaddyMatches } from './cloud-config.mjs';
+import { cloudSettings, privateConfiguration, ecosystem, mergeCaddyfile, hasCaddyHost, safeReleasePath, CADDY_BEGIN, checkPendingDeployment, matchesCloudHealth, digest, verifyRelease, caddyAdminEndpoint, assertCaddyMatches, matchingCaddyInvocation } from './cloud-config.mjs';
 import { deployWorkflow } from './cloud-workflow.mjs';
 
 test('configuration rejects injected domain, overlapping/dev ports and excessive processes', () => {
@@ -34,6 +34,27 @@ test('Caddy CLI reload only contacts a local enabled admin and verifies the curr
   assert.doesNotThrow(() => assertCaddyMatches(saved, live));
   assert.throws(() => assertCaddyMatches(saved, { apps: { http: {} } }), /配置不一致/);
 });
+test('Caddy invocation selection preserves relative hidden paths without ignoring other changes', async () => {
+  const file = '/root/.hydro/Caddyfile';
+  const config = hide => ({ apps: { http: { servers: { srv0: { routes: [{ handle: [{ handler: 'file_server', hide: [hide] }, { handler: 'reverse_proxy', upstreams: [{ dial: '127.0.0.1:8888' }] }] }] } } } } });
+  const absolute = config(file), relative = config('./Caddyfile');
+  let adaptations = 0;
+  const adapt = async name => { adaptations++; assert.equal(name, 'Caddyfile'); return relative; };
+  assert.equal(await matchingCaddyInvocation(file, absolute, structuredClone(absolute), adapt), file);
+  assert.equal(adaptations, 0);
+  assert.equal(await matchingCaddyInvocation(file, absolute, relative, adapt), 'Caddyfile');
+  assert.equal(adaptations, 1);
+  const changed = structuredClone(relative);
+  changed.apps.http.servers.srv0.routes[0].handle[1].upstreams[0].dial = 'private-upstream-value';
+  await assert.rejects(matchingCaddyInvocation(file, absolute, changed, adapt), error => {
+    assert.match(error.message, /upstreams\/0\/dial/);
+    assert.ok(!error.message.includes('private-upstream-value') && !error.message.includes('127.0.0.1:8888'));
+    return true;
+  });
+  changed.apps.http.servers.srv0.routes[0].handle.reverse();
+  await assert.rejects(matchingCaddyInvocation(file, absolute, changed, adapt), /配置不一致/);
+});
+
 test('fresh installations generate independent secrets and do not put APPKEY or admin credentials in workers/PM2', () => {
   const settings = cloudSettings(), input = { associationAppKey: 'test-only-not-a-real-key' };
   const first = privateConfiguration(settings, input), second = privateConfiguration(settings, input);
