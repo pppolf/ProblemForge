@@ -112,6 +112,8 @@ sudo bash /opt/problemforge/current/deploy.sh backup
 
 定向入口：`node --test scripts/cloud-deploy.test.mjs`；跨进程 SSE 的实 Redis 检查为 `PF_VERIFY_REDIS=1 node --import tsx --test apps/api/src/stream-lease.test.ts`，仅使用随机验证键并清理；默认快查没有扩展。`scripts/verify-cloud-runtime.mjs --build-check` 是独立 Linux 构建检查，用无 HTTP 监听、无应用数据库的夹具核对真实 PM2 的 ESM / tsx 加载、环境文件、两个 cluster 进程及重载信号，同时运行 Caddy adapt/validate。
 
+云端沙箱构建默认使用清华 TUNA Debian 镜像，APT 保留签名验证和已固定的工具版本；基础镜像没有 CA 证书包，默认使用镜像站支持的 HTTP 地址。可在 `/opt/problemforge/shared/infra.env` 中设置 `DEBIAN_MIRROR` / `DEBIAN_SECURITY_MIRROR` 覆盖。两类沙箱分开缓存锁，TeX 包合并安装；下载空闲超时 30 秒、重试 3 次，构建总超时 30 分钟。新增 `scripts/cloud-process.test.mjs` 定向检查超时和 Ctrl+C 后父进程及插件退出、信号监听清理、备份排他写入；不加入默认快查。旧版慢构建的停止、遗留锁检查与恢复命令见 [分步指引](DEPLOY_HYDRO_CADDY.md)。
+
 2026-10-05 实际通过：11 项部署定向检查、API 与初始化脚本类型检查、生产前端构建、Compose 配置解析、跨客户端 Redis 租约检查；独立 Linux 构建使用 Caddy 2.10.2 和 PM2 7.0.4，确认首次守护进程启动、两个 API 夹具进程及 reload 后旧进程正常退出。生产依赖审计为 0 条告警。这里的版本是本次验证环境记录，服务器现有工具仍须通过脚本预检。
 
 当前原 Windows 数据库和 `.local/p3-storage` **没有装入部署包**；首次命令建立新站。已有题库、比赛和发布模板的迁移继续按 [上云清单](CLOUD_READINESS.md) 单独做一致备份和空目标恢复。目标 Ubuntu 主机、真实证书、协会成功登录、实际 Judge / TeX、系统重启、迁移恢复尚须云端验收；本地脚本检查或无监听 PM2 夹具不代表已经上线。

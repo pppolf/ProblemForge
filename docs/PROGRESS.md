@@ -836,3 +836,15 @@ Python 标准库独立读取最终 PAX/gzip 包，388 个文件全部核对路�
 安装器现先尝试绝对路径适配结果；不匹配时从同目录以 basename 再适配，只有完整 JSON 与管理接口配置一致才通过，不删除 hide、放宽路由顺序或忽略配置字段。激活和失败恢复沿用匹配的 config 参数。真实不匹配时返回最多 8 个 JSON 字段路径，不含配置值；增加 `check-caddy` 只读子命令，在源码目录即可执行，避免为排查问题启动安装。指南和当前计划同步。
 
 **实际验证：**Linux 独立构建通过 Node 语法、14 项定向检查；真实 Caddy 2.10.2 相对/绝对适配差异复现、相对形式精确匹配、原站点与新增域名保留、上游变更及处理顺序变更仍拒绝通过。只读命令用真实 Caddy CLI 和模拟管理接口响应分别验证成功/失败分支，确认未写 Caddyfile、未创建安装标记、输出未含配置值。证据 `.local/caddy-pm2/caddy-compare-repro-evidence/caddy-compare-repro.json`，liveAdminMocked=true、listenerStarted=false。首次验证构建漏复制 cloud-workflow.mjs，补齐夹具依赖后通过；该失败不是应用代码错误。未接触实际云主机配置、重载 Caddy、启动新监听或业务实例，也未执行 TeX/Judge。原本机 5180/3100 进程不变。按已有 GitHub 交付授权提交推送，下一步用户拉取后运行只读检查，匹配成功再继续部署。
+
+## 云端沙箱构建下载与取消修正（2026-10-05）
+
+用户截图显示构建已运行 8869.9 秒，仍在从 deb.debian.org 下载 TeX 中文语言包；两个安装步骤都显示约 8817 秒。代码核对确认两类沙箱使用相同默认 APT cache id 和 sharing=locked，不能同时进入安装步骤，慢下载会阻塞另一侧。截图也保留 1799.5 秒的旧进度行；旧命令超时仅终止直接子进程并立即拒绝，没有保证 Docker Compose 插件已退出，但未读取服务器进程树，不能据截图断言具体遗留进程。已说明仅在仍处于镜像构建阶段时按一次 Ctrl+C，不停止 Docker 或删除其缓存、卷。
+
+**实现：**compose.pm2 默认改用清华 TUNA Debian / Debian Security 镜像，支持通过既有私有 infra.env 覆盖两个 URL；不更改宿主机或开发 Compose 的源。实际核对固定 go-judge 基础镜像没有 CA 证书包，默认采用镜像站支持的 HTTP，保留 Debian 的源签名校验。两种 Dockerfile 使用各自的缓存 id，TeX 的 science、humanities 与其他依赖合为一次安装，所有直接固定版本保持不变。APT 空闲网络超时 30 秒、最多重试 3 次，关闭镜像帮助中提到可能引起连接重置的 HTTP pipelining。
+
+构建输出改为 plain，单次构建 30 分钟超时。提取 cloud-process 执行器，仅为沙箱构建建立独立 Linux 进程组；超时或 Ctrl+C 先取消本次组，必要时强制结束同组插件，等待命令关闭再走原部署清理并释放锁，不影响其他 PM2 或 Docker 工作。其他命令保留原参数、捕获和私有备份排他写入语义。详细指南新增旧版构建恢复步骤：先确认没有未完成迁移且旧 PID 已退出，才清理固定路径的遗留锁并拉取新版，绝不直接覆盖进行中的部署。
+
+**实际验证：**独立 Linux 通过 Node 语法与 16 项定向检查，覆盖超时/模拟 SIGINT 时父进程及忽略 SIGTERM 的插件均退出、监听恢复、捕获/退出码及备份不覆盖。真实并行构建 `problemforge-tex:download-check-20261005` 和 `problemforge-judge:download-check-20261005` 成功，仅执行 build、未 up。两个新缓存从下载索引开始，TeX 354 MB 依赖下载约 73 秒，下载与安装步骤 128.1 秒，Judge 安装步骤 71.1 秒；这是本机网络和硬件结果，不是云端 ETA。导出 dpkg 清单核对 TeX 10 项、Judge 7 项固定版本全部一致；报告与清单 `.local/caddy-pm2/download-build-evidence/`。Compose config 与部署只读 plan 通过。
+
+**未验证与环境：**未重新运行作者 TeX、判题或业务集成；没有运行新应用实例、打开监听端口、切换本机原数据库/镜像或重启原 5180/3100（仍为 Vite 69040、API 65472）。云端停止、遗留进程、重新下载速度和完整部署结果均待用户执行；本轮没有云主机访问权限。按已有 GitHub 交付授权提交推送修正，保留原密钥与站点配置。

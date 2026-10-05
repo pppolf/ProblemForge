@@ -35,7 +35,12 @@ services:
     logging: *logging
   tex-sandbox:
     image: problemforge-tex:${PF_RELEASE_ID:?configure PF_RELEASE_ID}
-    build: {context: .., dockerfile: infra/tex-sandbox.Dockerfile}
+    build:
+      context: ..
+      dockerfile: infra/tex-sandbox.Dockerfile
+      args:
+        DEBIAN_MIRROR: ${DEBIAN_MIRROR:-http://mirrors.tuna.tsinghua.edu.cn/debian}
+        DEBIAN_SECURITY_MIRROR: ${DEBIAN_SECURITY_MIRROR:-http://mirrors.tuna.tsinghua.edu.cn/debian-security}
     environment: {ES_AUTH_TOKEN: '${TEX_SANDBOX_TOKEN:?configure TEX_SANDBOX_TOKEN}'}
     privileged: true
     shm_size: 256mb
@@ -46,7 +51,12 @@ services:
     logging: *logging
   judge-sandbox:
     image: problemforge-judge:${PF_RELEASE_ID:?configure PF_RELEASE_ID}
-    build: {context: .., dockerfile: infra/judge-sandbox.Dockerfile}
+    build:
+      context: ..
+      dockerfile: infra/judge-sandbox.Dockerfile
+      args:
+        DEBIAN_MIRROR: ${DEBIAN_MIRROR:-http://mirrors.tuna.tsinghua.edu.cn/debian}
+        DEBIAN_SECURITY_MIRROR: ${DEBIAN_SECURITY_MIRROR:-http://mirrors.tuna.tsinghua.edu.cn/debian-security}
     environment: {ES_AUTH_TOKEN: '${JUDGE_SANDBOX_TOKEN:?configure JUDGE_SANDBOX_TOKEN}'}
     privileged: true
     shm_size: 256mb

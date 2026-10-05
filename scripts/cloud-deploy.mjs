@@ -1,5 +1,4 @@
-import { spawn } from 'node:child_process';
-import { createReadStream, createWriteStream } from 'node:fs';
+import { createReadStream } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:net';
 import { access, chmod, chown, copyFile, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
@@ -10,6 +9,7 @@ import { APP_NAMES, CADDY_BEGIN, INSTALL_ROOT as root, SERVICE_USER as user,
   cloudSettings, privateConfiguration, ecosystem, mergeCaddyfile, hasCaddyHost, serviceUnit, digest, verifyRelease, checkPendingDeployment, matchesCloudHealth,
   caddyAdminEndpoint, matchingCaddyInvocation } from './cloud-config.mjs';
 import { deployWorkflow } from './cloud-workflow.mjs';
+import { runCloudCommand } from './cloud-process.mjs';
 
 const source = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const shared = `${root}/shared`, current = `${root}/current`, marker = `${root}/.problemforge-managed`;
@@ -26,26 +26,8 @@ const exists = async path => { try { await access(path); return true; } catch { 
 const json = async path => JSON.parse(await readFile(path, 'utf8'));
 const cleanEnv = { PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin', HOME: process.env.HOME ?? '/root', LANG: 'C.UTF-8', CI: 'true' };
 const say = message => console.log(`[ProblemForge] ${message}`);
-const run = (bin, argv, options = {}) => new Promise((ok, fail) => {
-  const child = spawn(bin, argv, { cwd: options.cwd ?? source, env: { ...cleanEnv, ...options.env },
-    stdio: ['ignore', options.capture || options.output ? 'pipe' : 'inherit', 'inherit'] });
-  let text = '', length = 0, stream;
-  if (options.output) {
-    stream = createWriteStream(options.output, { flags: 'wx', mode: 0o600 });
-    stream.on('error', error => { child.kill(); fail(error); }); child.stdout.pipe(stream);
-  } else if (options.capture) child.stdout.on('data', chunk => {
-    length += chunk.length;
-    if (length > 16_000_000) { child.kill(); fail(new Error('命令输出过大')); }
-    else text += chunk;
-  });
-  const timeout = setTimeout(() => { child.kill(); fail(new Error(`${bin} 执行超时`)); }, options.timeout ?? 1800_000);
-  child.on('error', fail);
-  child.on('close', async code => {
-    clearTimeout(timeout);
-    if (stream && !stream.writableFinished && !stream.destroyed) await new Promise(r => stream.once('finish', r));
-    if (code !== 0 && !options.allowFailure) fail(new Error(`${bin} 执行失败（${code ?? '进程被终止'}）`));
-    else ok(options.allowFailure ? { code: code ?? 1, text: text.trim() } : text.trim());
-  });
+const run = (bin, argv, options = {}) => runCloudCommand(bin, argv, {
+  ...options, cwd: options.cwd ?? source, env: { ...cleanEnv, ...options.env },
 });
 let settings, bins, identity;
 const appEnv = () => [`HOME=${shared}/home`, `PM2_HOME=${shared}/pm2`,
@@ -331,7 +313,10 @@ async function main() {
     let release, backupPath = pending?.backupPath ?? null;
     await deployWorkflow({
       prepare: async () => { release = await prepare(manifest); },
-      buildSandboxes: async () => { say('构建独立 TeX / Judge 沙箱镜像。'); await compose(release, manifest.buildId, ['build', 'tex-sandbox', 'judge-sandbox']); },
+      buildSandboxes: async () => {
+        say('构建独立 TeX / Judge 沙箱镜像（独立下载缓存；最长 30 分钟，可按 Ctrl+C 取消）。');
+        await compose(release, manifest.buildId, ['--progress', 'plain', 'build', 'tex-sandbox', 'judge-sandbox'], { processGroup: true });
+      },
       quiesce: () => quiesce(previous), backup: async () => { backupPath = await backup(previous); },
       startInfrastructure: async () => {
         if (pending) await processAction('stop');

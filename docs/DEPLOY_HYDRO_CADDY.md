@@ -115,7 +115,43 @@ bash "$pf_release/deploy.sh" \
 
 该配置指定 `/root/.hydro/Caddyfile` 和 `caddy` 重载方式，启动 ProblemForge 专属 PM2 进程组和基础服务。应用健康后，脚本备份并合并该 Caddyfile，只新增本站标记块，用 Caddy CLI 平滑重载。首次构建 TeX/Judge 镜像较慢，看到构建日志时等待完成。脚本最终显示“部署完成”才算成功；预检失败不会自动去改 Hydro 的管理方式。
 
+云端构建默认通过清华 TUNA Debian 镜像下载依赖，TeX 和 Judge 使用各自的 APT 缓存；TeX 的全部包合并安装，避免重复刷新索引和运行格式生成。APT 网络空闲超时为 30 秒、最多重试 3 次；整个镜像构建上限 30 分钟。日志逐行输出，超时或在镜像构建阶段按 Ctrl+C 会取消本次构建进程组，等待其退出后释放部署锁。已有缓存不主动删除，但未完成的安装层可能需要重新下载部分依赖。其他源可在私有 `infra.env` 中指定 `DEBIAN_MIRROR` 和 `DEBIAN_SECURITY_MIRROR`；不修改宿主机的软件源。
+
 如果提示 Caddy 管理接口不可用或运行配置不一致，提供最后的报错，先核对实际 Caddy 启动方式和已保存配置；不要为通过预检停掉所有 PM2 进程。`caddy run` 默认从工作目录读取 `Caddyfile`，其自动生成的 `file_server.hide` 可能记录为 `./Caddyfile`；安装器会分别按绝对路径和同目录文件名适配，选择与运行 JSON 完全一致的方式，并保持该方式重载。如果仍不匹配，会显示最多 8 个差异字段路径，不打印配置值；不会忽略真实路由或隐藏文件规则的差异。
+
+旧版若长时间停在镜像的 `apt-get` 下载阶段，先在该终端按一次 Ctrl+C，等它返回命令提示符，再执行下面的恢复命令。该命令仅在没有未完成数据库迁移、且原部署进程已退出时清理遗留锁；不会停止 Docker、删除缓存或数据卷：
+
+```bash
+(
+set -e
+. /opt/problemforge-tools/env.sh
+cd /root/ProblemForge
+
+if [ -f /opt/problemforge/shared/pending-deploy.json ]; then
+  printf '%s\n' '存在未完成的数据库迁移，请先用原发布包完成恢复。'
+  exit 1
+fi
+
+if [ -f /opt/problemforge/.deploy.lock ]; then
+  pf_previous_pid="$(cat /opt/problemforge/.deploy.lock)"
+  if [[ ! "$pf_previous_pid" =~ ^[1-9][0-9]*$ ]] || kill -0 "$pf_previous_pid" 2>/dev/null; then
+    printf '%s\n' '原部署进程仍存在或锁内容异常，请先提供此提示，不继续部署。'
+    exit 1
+  fi
+  rm -- /opt/problemforge/.deploy.lock
+fi
+
+git pull --ff-only
+pf_build="git-$(git rev-parse HEAD)"
+pf_release="$PWD/.local/releases/cloud-$pf_build/problemforge"
+if [ ! -f "$pf_release/cloud-release.json" ]; then
+  node scripts/package-cloud.mjs "$pf_build"
+fi
+bash "$pf_release/deploy.sh" \
+  --secrets-file /root/problemforge.secrets.json \
+  --settings-file /root/ProblemForge/infra/cloud-settings.hydro.json
+)
+```
 
 ## 6. 查看管理员账号并检查网站
 
