@@ -820,3 +820,11 @@ Python 标准库独立读取最终 PAX/gzip 包，388 个文件全部核对路�
 新增 DEPLOY_HYDRO_CADDY 分步命令，覆盖 root/架构/原配置检查与备份、基础工具及缺失 Docker 安装、专用 `/opt/problemforge-tools` Node/pnpm/PM2、Git 拉取、静默输入 APPKEY、固定发布目录构建、部署与管理员登录。专用 Node 22.23.3 的 Linux x64 归档 SHA-256 已经从官方版本校验清单读回并固定；不会通过全局 Node/PM2 升级去改变 Hydro 的工具路径。实际 APPKEY 仍不进入文档或 Git。
 
 **实际验证：**Node 语法、13 项部署定向检查、Hydro 设置的只读 plan 通过。Linux 独立构建使用真实 Caddy adapt/validate，验证自定义 `.hydro` 目录及相对导入的原站点保留，同时保留 PM2 双 cluster / 两个 fork 的启动、APPKEY 隔离与重载检查；未监听 HTTP 或访问应用数据库。证据 `.local/caddy-pm2/custom-caddy-evidence/runtime-check.json`。详细指引中 7 个 Bash 代码块均通过 `bash -n`，检查不执行代码块；安装命令设为出错即停止，归档校验失败不会继续解包。原 5180、API 3100、数据库/文件/Worker 保持原环境，没有运行上述服务器命令、连接云端、修改实际 Hydro、部署/重载线上 Caddy 或执行 Judge/TeX。Ubuntu 安装、真实管理接口与证书仍待目标主机验证。按此前用户明确的 GitHub 交付授权，本轮定向检查及记录后本地提交并推送同一公开仓库，供用户拉取执行。
+
+## 服务器 APPKEY 输入失败恢复（2026-10-05）
+
+用户反馈旧指引的内联 Node 命令报“APPKEY 格式不正确”。该异常在本地正则校验处抛出，早于写文件，没有调用协会接口；记录不能确定用户当时输入为空、混入命令还是含其他字符，也不能据此判定实际 APPKEY 无效。旧指引将隐藏输入和后续命令放在同一复制块，整块粘贴易让 `read` 读到空行。
+
+新增 `scripts/configure-cloud-secrets.sh`，独立从控制终端隐藏读取，空输入或非法字符重新提示，Node 保存前仅去掉首尾空白；私有 JSON 使用排他创建、600 权限，不回显密钥，不覆盖已有文件。已有合法配置保留内容并收紧权限；已有非法 JSON、符号链接或无交互终端明确失败。DEPLOY_HYDRO_CADDY 改为单独运行脚本，提示出现后再粘贴 APPKEY，成功后才执行部署；安装器原校验规则未放宽。
+
+**实际验证：**独立 Linux 构建通过 Bash 语法与真实伪终端输入检查，依次提交空行、错误格式和带首尾空白的虚构密钥，确认前两次重新提示、第三次保存正确且输出不含密钥；600 权限、已有配置重复执行不改内容、损坏文件与符号链接不覆盖、无终端不生成文件均通过。证据 `.local/caddy-pm2/secrets-input-evidence/secrets-input-check.json`。未使用真实密钥执行该检查或发起网络请求，没有启动应用、Judge/TeX、访问业务数据库或修改云主机；原 5180/3100 的 Vite 69040 和 API 65472 仍来自主目录。按已有 GitHub 交付授权提交并推送该修正；云端实际输入及完整部署结果仍待用户执行。

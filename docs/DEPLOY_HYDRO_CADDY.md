@@ -75,19 +75,15 @@ fi
 cd /root/ProblemForge
 ```
 
-已经上传过 `/root/problemforge.secrets.json` 的可以保留。否则执行下面的命令，在提示后粘贴协会 APPKEY 并回车，输入不显示，实际值不放入命令行历史或 Git：
+下面的配置脚本会保留已有且格式正确的 `/root/problemforge.secrets.json`；文件不存在时，提示输入 APPKEY。先执行这一个代码块，等到输入提示出现，再单独粘贴完整 APPKEY 并回车，暂时不要粘贴下一步的部署命令。输入不显示，实际值不放入命令行历史或 Git：
 
 ```bash
-set -e
+cd /root/ProblemForge
 . /opt/problemforge-tools/env.sh
-if [ ! -f /root/problemforge.secrets.json ]; then
-  read -r -s -p '请输入协会 APPKEY，输入不会显示：' PF_PRIVATE_KEY
-  printf '\n'
-  PF_PRIVATE_KEY="$PF_PRIVATE_KEY" node --input-type=module -e 'import {writeFileSync} from "node:fs"; const key=process.env.PF_PRIVATE_KEY; if(!/^[A-Za-z0-9_-]{16,512}$/.test(key??""))throw new Error("APPKEY 格式不正确"); writeFileSync("/root/problemforge.secrets.json",JSON.stringify({associationAppKey:key,adminEmail:"admin@problems.cwnupaa.com"},null,2),{flag:"wx",mode:0o600});'
-  unset PF_PRIVATE_KEY
-fi
-chmod 600 /root/problemforge.secrets.json
+bash scripts/configure-cloud-secrets.sh
 ```
+
+空输入或格式不正确会重新提示，复制时带入的首尾空白会去掉。出现“私有配置已保存”或“私有配置已存在且 APPKEY 格式正确”后，再继续下一步。这里仅检查格式和保存配置，不验证协会接口是否接受该 APPKEY。旧版内联命令若报“APPKEY 格式不正确”，说明未完成本地格式校验，尚未向协会发起请求；重新拉取代码后用此脚本重试，无需重装工具。
 
 ## 5. 生成发布目录并部署
 
