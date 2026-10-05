@@ -794,3 +794,5 @@ Hydro config.yaml 改用常规缩进 YAML，工具编译说明同步 `lang: auto
 Compose config JSON 检查确认四个基础服务、全部回环映射、internal 网络及仅沙箱 privileged，未执行 up；证据 compose-verification.json。显式 SSE 检查通过两个原 Redis 客户端的 12 次竞争仅获 5 席、释放/替换、续租/过期回收和断连拒绝，只使用随机验证键并清理，无业务 DB 写入。默认快查未扩展。README、DEPLOYMENT、CADDY_PM2、CLOUD_READINESS 与 PLAN 已同步。
 
 **边界与收尾：**尚未连接云主机、执行 Ubuntu 主机级完整安装、真实域名 TLS/成功协会登录、实际 Judge/TeX、重启或备份恢复验收。原 Windows 题库和 `.local/p3-storage` 不进入源码包；首次部署是新站，现有题库/比赛/发布模板的一致迁移仍需单独完成。本机保持原 5180/3100、数据库、Worker、存储与沙箱，没有新应用实例或端口、原库迁移或服务重启。本功能定向检查通过后本地提交，再生成并核验交付包；不 push、不公网发布。目标主机尚未提供访问方式，因此这里只交付可执行版本，不声称已经上云。
+
+**打包兼容修正：**功能提交 `6e9155e` 后，首次打包遇到 Windows bsdtar 用系统代码页读取 Git tar 中的中文模板资源名，归档失败且未交付。显式使用 `hdrcharset=UTF-8` 解包原 source.tar 已成功，打包器据此对 Windows 设置 UTF-8，输出统一采用 PAX 格式；Linux 保留原生 tar，不引入额外打包依赖。收尾只读检查确认原根进程 30600、Vite 69040 / API 65472 / Worker 80592、85032 仍运行，5180 首页 200、健康 ok，未重启；证据 `.local/caddy-pm2/services-final.json`。密钥扫描覆盖已跟踪 386 个文件且无命中，原 Origin 和未启用代理状态保持。

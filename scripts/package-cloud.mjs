@@ -17,7 +17,12 @@ const out = resolve(root, '.local/releases'), stage = resolve(out, `cloud-${buil
 await mkdir(out, { recursive: true }); await mkdir(stage); await mkdir(folder);
 const archive = resolve(stage, 'source.tar');
 git('archive', '--format=tar', `--output=${archive}`, commit);
-function tar(args) { const result = spawnSync('tar', args, { cwd: root, stdio: 'inherit' }); if (result.status !== 0) throw new Error('部署包归档失败'); }
+function tar(args) {
+  // Windows bsdtar otherwise interprets Git's UTF-8 names using the local code page.
+  const charset = process.platform === 'win32' ? ['--options', 'hdrcharset=UTF-8'] : [];
+  const result = spawnSync('tar', [...charset, ...args], { cwd: root, stdio: 'inherit' });
+  if (result.status !== 0) throw new Error('部署包归档失败');
+}
 tar(['-xf', archive, '-C', folder]);
 const migrationsPath = resolve(folder, 'packages/database/prisma/migrations');
 const migrations = [];
@@ -38,6 +43,6 @@ await inventory(folder); files.sort((a, b) => a.path.localeCompare(b.path));
 await writeFile(resolve(folder, 'cloud-release.json'), JSON.stringify({ format: 1, buildId, gitCommit: commit, files }, null, 2));
 await verifyRelease(folder);
 const name = `problemforge-caddy-pm2-${buildId}.tar.gz`;
-tar(['-czf', resolve(out, name), '-C', stage, 'problemforge']);
+tar(['--format=pax', '-czf', resolve(out, name), '-C', stage, 'problemforge']);
 await writeFile(resolve(out, `${name}.sha256`), `${digest(await readFile(resolve(out, name)))}  ${name}\n`);
 console.log(`部署包：${resolve(out, name)}\n不包含 .env、密钥、数据库或私有题库文件。`);
