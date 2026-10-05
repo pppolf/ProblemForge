@@ -30,6 +30,7 @@ import { PackageError } from '@problemforge/problem-format';
 import { operationsRoutes } from './modules/operations.ts';
 import { staticRoutes } from './modules/static.ts';
 import { historyRoutes } from './modules/history.ts';
+import { trustedProxies } from './trusted-proxies.ts';
 
 declare module 'fastify' {
   interface FastifyRequest { user: AuthenticatedUser; sessionId: string; csrfToken: string; }
@@ -37,6 +38,7 @@ declare module 'fastify' {
 export type Api = ReturnType<typeof createTypedApp>;
 function createTypedApp(logging: boolean) {
   return Fastify({ logger: logging ? { redact: ['req.headers.cookie', 'req.headers.authorization', 'req.body.password', 'req.body.credential', 'req.body.appKey', 'req.body.currentPassword', 'req.body.newPassword', 'req.body.resetToken'] } : false,
+    trustProxy: trustedProxies(process.env.API_TRUSTED_PROXIES),
     bodyLimit: 2_500_000, ajv: { customOptions: { removeAdditional: false, coerceTypes: false } },
   }).withTypeProvider<TypeBoxTypeProvider>();
 }

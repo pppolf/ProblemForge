@@ -2,6 +2,8 @@
 
 P5 提供单机 Linux Compose 部署。API 同时提供 Vite 的实际生产静态文件，两个独立 Worker 通过各自的 Linux go-judge 执行。数据库和私有文件是恢复依据；Redis 仅承担调度。开发环境的 `.env` 与生产配置、数据库、卷完全分开。
 
+当前上云评估、依赖安全更新、原 Windows 数据迁移及云端验收清单见 [CLOUD_READINESS](CLOUD_READINESS.md)。下文 P5/P7 镜像和演练端口是历史记录，不能直接当作最新版本上线。
+
 ## 首次部署
 
 需要 Docker Linux 引擎、Compose v2、Node.js 22 和 pnpm 10.11.1。下列命令在本仓库根目录执行，不使用其他项目的容器或目录：
@@ -23,6 +25,10 @@ pnpm ops init-admin --env .local/production.env
 Node/Postgres/Redis 基础镜像固定摘要；Judge 和 TeX 镜像由仓库中固定版本的 Dockerfile 构建。应用镜像含 Linux Prisma Client、生产前端和运行所需 TypeScript 加载器，服务以 Node 运行，不启用 watch/Vite 开发服务器。镜像有源码及构建依赖，尚未做体积裁剪。正式保存发布镜像时记录 `docker image inspect problemforge-app:p5 --format '{{.Id}}'`；恢复要求与备份清单中的实际镜像 ID 相同。
 
 局域网/域名使用独立 HTTPS 反向代理连接本机 API，并把 `APP_ORIGIN` 改成准确的 HTTPS origin。非回环 HTTP origin 在生产模式拒绝启动，cookie 为 Secure。代理需允许 SSE 持久连接、关闭事件响应缓冲（服务也返回 `X-Accel-Buffering: no`）。本次只实测回环私网入口，未配置域名/TLS 或公网发布。
+
+仓库提供 [Nginx 单代理示例](../infra/nginx.problemforge.conf.example)，包括 HTTPS、40 MiB 请求上限（覆盖现有文件的 base64 JSON 开销）和 SSE 配置。替换域名、证书及实际回环端口后，必须在目标主机运行 `nginx -t` 并实际测试；本机没有安装或启动 Nginx。该示例假设 Nginx 直接接收用户连接，前面有 CDN/负载均衡时需要按实际链路另行配置。
+
+为避免所有用户共用反代 IP 的登录限流桶，生产配置支持 `API_TRUSTED_PROXIES`，仅填写 API 实际看到的受信任代理 IP 或 CIDR，用逗号分隔；留空保持不信任转发头。拒绝 `true`、通配符、`/0` 和非 IP 配置。Docker 回环映射可能让 API 看到桥接网关，不能猜测为 127.0.0.1；从受控代理请求及 API 日志核对实际对端，再填写其精确地址，网络重建后重新检查。Nginx 示例覆盖客户端自带的 X-Forwarded-For/Host/Proto，不能在入口直接沿用不可信转发头。启用这项配置前先完成 CLOUD_READINESS 中 Fastify 的安全更新；当前库版本还命中上游转发头安全公告。云端最终用两个真实客户端验证独立限流，保留原 Origin/CSRF 和 Secure Cookie。
 
 首次部署没有已发布模板。可在 toolbox 中运行 `scripts/init-demo.ts` 生成六套草稿，再由管理员在模板中心真实验证、预览和发布。模板发布版本不可变，作者代码及管理员模板都只能经沙箱执行。
 

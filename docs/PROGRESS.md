@@ -748,3 +748,17 @@ Hydro config.yaml 改用常规缩进 YAML，工具编译说明同步 `lang: auto
 **原 5180 浏览器实查：**在「双色通行证」仅创建本地未保存草稿，检查新建默认展开、角色提示、数组/排列模板选择、初始源码填入与建议名称。通过页面「下载本地草稿」弹窗的完整 JSON 核对取消替换、切换角色时源码逐字保留；确认替换后源码与 Checker 预览逐字一致，原非空名称保留，仍是未保存草稿。桌面布局目视通过，截图 program-guide.png、检查记录 browser-result.json。未点击保存程序或编译；原 7 道题完整快照、比赛编排及模板指纹前后一致，活动 Build/TestRun 为 0（before/after.json）。
 
 **环境与验证边界：**本轮仅前端功能，Vite 热更新已在原 5180 生效，无需重启。再次核对主目录原根进程 81412、Vite 14248、API 30868、Worker 58620 / 82312，原首页 200、代理健康 ok；原端口/数据库/Redis/模板/存储和沙箱不变，无依赖、迁移或新增实例，见 services-verified.json。浏览器最后切换已有程序以丢弃验证草稿时，原生确认框导致控制接口超时，未能确认退出登录/关闭验证标签；先前的模板替换弹窗及草稿核对均已完成。未单独实测剪贴板、窄屏及已有程序收起状态，未通过 API 持久保存模板程序或运行完整题目验收；没有 TeX、全量/E2E、外部 OJ、部署或公网发布。USER_GUIDE、JUDGE 与 PLAN 已同步，差异检查后本地提交，不 push；功能无阻塞，P7.2/P8 继续暂缓。
+
+## 上云准备评估与反代配置（2026-10-05）
+
+**用户意图与核对：**用户询问还需完成什么并准备上云，本轮转入 P7.2 部署准备，尚未提供云主机/域名/访问范围，没有连接远程主机或推断公网发布许可。先读取原计划/交接、生产 Compose、发布/恢复/维护脚本和认证实现；核实仍在主目录原 5180/3100，根进程 81412、Vite 14248、API 30868、Worker 58620 / 82312。本轮没有重启、改端口/数据库、创建新服务实例或写业务数据。
+
+**实际检查：**`pnpm build:web` 的类型与生产打包通过，保留 Monaco 按需块体积提示。从干净 `7517acd` 的 Git archive 成功构建 Linux amd64 基线 `problemforge-app:cloud-prep-20261005-7517acd`，镜像 ID `sha256:4d2ab7982423440c139c2a18a0a681747242bc932d522f221b6f0a2513478a3b`，清单 `.local/releases/cloud-prep-20261005-7517acd.json`。该镜像仅验证此前业务代码可构建，早于本轮代理补丁，且保留以下待修依赖，不作为最终上线版本；未启动该镜像的新实例。
+
+原库只读盘点为 7 题 / 1 比赛 / 7 模板、15 版本 / 34 程序 / 117 组测试 / 1 用户；私有目录实际是 `.local/p3-storage`，2623 个登记对象共 585256226 字节，无未完成预留和活动任务。ASSOCIATION_APP_KEY 未配置。记录 `.local/cloud-readiness/local-state.json`，不输出凭据。现有 ops backup 只适用于生产 Compose 的应用进程与私有卷，不能直接为宿主机 pnpm dev 和本地文件夹产生一致备份；跨环境迁移、停写窗口和空目标恢复需另行执行。
+
+**已补代码与定向验证：**现有 Fastify 默认不识别代理后的客户端 IP，会把 Nginx 后的用户放入同一个登录限流桶。新增可选 `API_TRUSTED_PROXIES`，仅允许显式 IP/CIDR、默认关闭，拒绝布尔/通配/全网 `/0`；API、生产 Compose、配置示例和 ops init 占位接入。新增单层 Nginx HTTPS 示例，覆盖用户传入的转发头、40 MiB 请求限额、SSE 不缓冲与超时。`node --import tsx --test apps/api/src/trusted-proxies.test.ts` 3 项通过（配置校验、IP/链路防伪造、实际限流桶隔离）；`pnpm check api`、Compose config --quiet 通过，无监听测试端口，无 DB/Redis 写入。原开发 `.env` 未配置该项，运行中的 API 也未重启加载；Nginx 只保存示例，未安装、nginx -t 或实际 TLS 联调。
+
+**待处理的上线阻塞：**官方 npm 生产依赖审计命中 10 high / 9 moderate / 1 low。原 registry.npm.taobao.org 缺少 audit 端点，改为本次命令显式 `--registry=https://registry.npmjs.org` 成功取回结果，未改用户 registry。报告 `.local/cloud-readiness/dependency-audit.json`；涉及 Fastify、Swagger UI 间接 static、Judge 的 ws、Prisma 工具链 effect/deepmerge-ts、YAML/ZIP 解析。查阅 Fastify 维护者的校验绕过和受限代理转发头公告，不能仅凭 IP 定向测试认为框架问题已解决；代理功能在框架安全更新前保持未启用。此轮是准备评估，尚未升级依赖或逐项验证实际可达性，审计命中不等同于已证实的平台可利用漏洞。系统与容器镜像漏洞扫描也未执行。
+
+**交接与下一步：**新增 CLOUD_READINESS 清单并关联 DEPLOYMENT/PLAN，明确依赖修复 → 协会联调/目标配置 → 原数据迁移 → 新版本镜像 → 云端验收和备份。硬件 4 vCPU/8 GB/80 GB 的建议仅为小团队低并发初始估算，未作容量承诺。云端 DNS/TLS、真实反代/不同客户端、Judge/TeX、迁移/恢复/重启、小规模试用均未验证；本轮未运行作者程序、TeX、全量/E2E、上传数据、访问其他项目或公网发布。维护原环境，完成差异检查后本地提交，不 push。

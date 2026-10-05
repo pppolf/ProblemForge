@@ -81,6 +81,7 @@ services:
     environment:
       <<: *app-env
       ASSOCIATION_APP_KEY: ${ASSOCIATION_APP_KEY:-}
+      API_TRUSTED_PROXIES: ${API_TRUSTED_PROXIES:-}
     networks: [backend, ingress]
     ports: ["127.0.0.1:${PF_HTTP_PORT:-5181}:3100"]
     depends_on:
