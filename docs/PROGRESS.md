@@ -762,3 +762,13 @@ Hydro config.yaml 改用常规缩进 YAML，工具编译说明同步 `lang: auto
 **待处理的上线阻塞：**官方 npm 生产依赖审计命中 10 high / 9 moderate / 1 low。原 registry.npm.taobao.org 缺少 audit 端点，改为本次命令显式 `--registry=https://registry.npmjs.org` 成功取回结果，未改用户 registry。报告 `.local/cloud-readiness/dependency-audit.json`；涉及 Fastify、Swagger UI 间接 static、Judge 的 ws、Prisma 工具链 effect/deepmerge-ts、YAML/ZIP 解析。查阅 Fastify 维护者的校验绕过和受限代理转发头公告，不能仅凭 IP 定向测试认为框架问题已解决；代理功能在框架安全更新前保持未启用。此轮是准备评估，尚未升级依赖或逐项验证实际可达性，审计命中不等同于已证实的平台可利用漏洞。系统与容器镜像漏洞扫描也未执行。
 
 **交接与下一步：**新增 CLOUD_READINESS 清单并关联 DEPLOYMENT/PLAN，明确依赖修复 → 协会联调/目标配置 → 原数据迁移 → 新版本镜像 → 云端验收和备份。硬件 4 vCPU/8 GB/80 GB 的建议仅为小团队低并发初始估算，未作容量承诺。云端 DNS/TLS、真实反代/不同客户端、Judge/TeX、迁移/恢复/重启、小规模试用均未验证；本轮未运行作者程序、TeX、全量/E2E、上传数据、访问其他项目或公网发布。维护原环境，完成差异检查后本地提交，不 push。
+
+## 协会 APPKEY 配置与生产域名确定（2026-10-05）
+
+**用户要求与实现：**用户提供协会 APPKEY，要求配置并测试，确定域名为 `problems.cwnupaa.com`；随后明确真实账号登录由本人在页面测试。密钥仅填入 Git 忽略的原根目录 `.env`，不记入源码、文档或验证输出。Nginx 示例两个 server_name 和 HTTP 重定向已改为确定域名，DEPLOYMENT 明确生产私有配置使用 `APP_ORIGIN=https://problems.cwnupaa.com`。原开发配置继续 `APP_ORIGIN=http://localhost:5180`，未生成或启用新的生产实例。
+
+**实际验证：**原 5180 登录页 HTTP 200、代理健康接口 ok，`/api/auth/config` 返回 association / configured=true / localAdmin=true。通过现有后端认证模块向固定协会接口发起一次随机不存在账号请求，得到 401 / `LOGIN_FAILED`，耗时 97 ms；检查使用随机凭据，未提供真实账号密码，没有调用身份同步或创建本地会话。该结果只确认接口可达和认证失败响应链路，不作为真实账号成功登录、APPKEY 完整权限或云端登录验收。证据 `.local/association-connection/auth-config.json`、association-probe.json，只保存非敏感状态。DNS A 查询为 `43.136.170.90`（dns.json），未访问目标域名 HTTP/HTTPS 或连接该主机。
+
+**原环境状态：**核对主目录原进程树并确认活动 Build/TestRun 均为 0 后，仅重启原 `pnpm dev` 加载密钥。当前根进程 30600，Vite 69040、API 65472、两个 Worker 80592 / 85032；原 5180/3100 的监听与两个 Worker 均在同一进程树，无额外 Worker。数据库、Redis、私有存储、模板和 Linux 沙箱不变；原 7 题完整快照、比赛编排与模板版本指纹前后一致，活动任务仍为 0。记录 `.local/association-connection/pre-restart.json`、after.json、services.json、services-verified.json、dev.out/err.log；后续重新核对 PID。API 已加载上一轮代理配置代码，但本机 `API_TRUSTED_PROXIES` 仍未启用。
+
+**未验证与下一步：**真实账号成功登录等待用户页面测试；云端私有配置、服务器规格/访问方式/开放范围、证书、`nginx -t` 和实际部署均未完成。依赖安全更新、原库一致迁移、新最终镜像及目标主机验收沿用 CLOUD_READINESS 待办，本轮未改依赖、运行 Judge/TeX、全量/E2E、重建镜像、改 DNS 或公网发布。ACCOUNTS、CLOUD_READINESS、DEPLOYMENT 和 PLAN 已同步。`git diff --check` 通过，`.env` 和验证目录被 Git 忽略，扫描全部 370 个已跟踪文件未发现该密钥；原开发 Origin 与未启用代理状态检查通过，见 private-config-check.json。收尾本地提交，不 push。

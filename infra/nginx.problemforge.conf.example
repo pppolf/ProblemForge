@@ -1,15 +1,15 @@
-# Install on the cloud host only after setting a real hostname and certificate.
+# Target hostname confirmed by the owner; install after provisioning its certificate.
 # API_TRUSTED_PROXIES must contain the actual proxy peer address seen by the API
 # container. Docker port forwarding may use a bridge gateway, not 127.0.0.1.
 server {
     listen 80;
-    server_name problemforge.example.org;
-    return 308 https://problemforge.example.org$request_uri;
+    server_name problems.cwnupaa.com;
+    return 308 https://problems.cwnupaa.com$request_uri;
 }
 
 server {
     listen 443 ssl;
-    server_name problemforge.example.org;
+    server_name problems.cwnupaa.com;
     ssl_certificate /etc/ssl/problemforge/fullchain.pem;
     ssl_certificate_key /etc/ssl/problemforge/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
