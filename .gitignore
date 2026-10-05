@@ -11,3 +11,5 @@ coverage/
 playwright-report/
 test-results/
 release.json
+/cloud-release.json
+/problemforge.secrets.json

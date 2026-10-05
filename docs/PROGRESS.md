@@ -802,3 +802,11 @@ Compose config JSON 检查确认四个基础服务、全部回环映射、intern
 Python 标准库独立读取最终 PAX/gzip 包，388 个文件全部核对路径、成员唯一性和内容哈希，其中 386 个已跟踪文件逐一与该提交 Git blob 完全一致；3 个中文资源名正确，deploy.sh 为 LF，未含 APPKEY、原 .env、题库数据、node_modules 或开发目录。独立解包后，再运行安装器的 verifyRelease，387 条清单全部通过；证据 `.local/caddy-pm2/package-verification.json`。部署包来源固定为 `837356ebfbf6044dd1bd07740e6e268bc1e57d8d`，后续收尾提交只补验证脚本和记录，不改变部署及应用代码。本轮无本地实现阻塞；云端完整安装/运行验收和原数据迁移仍未执行。
 
 **Worker 启动补充检查：**因 Worker 使用直接 `.ts` 入口，与 API 的 `.mjs` 包装入口不同，补充真实 PM2 fork 夹具核对。独立 Linux 构建现同时启动 2 个 cluster API 夹具、TeX/Judge 各 1 个 fork 夹具；直接 TypeScript 入口和 app.env 加载成功，两个 Worker 未加载 APPKEY，API reload 保留两个 Worker PID 不变。更新后的 runtime-check.json 全部通过，无 HTTP 监听、应用数据库或真实任务。此项只增强验证脚本，已交付包中的实际 PM2 配置与应用代码无需修改。
+
+## 用户授权上传 GitHub（2026-10-05）
+
+用户明确要求上传 GitHub 供云服务器拉取，随后选择 `pppolf/ProblemForge` **公开仓库**，本轮因此获得创建该仓库及推送本项目的授权；此前“不 push”的默认规则不阻止本次明确操作，不扩展到部署站点或其他项目。工作区初始干净、无远程仓库。本机未安装 gh，GitHub 连接器需要重新认证，但现有 Git Credential Manager 的 pppolf 认证经 GitHub API 检查有效，使用该正常认证通道，凭据不输出、不写文件。
+
+补充 GitHub clone → 从提交生成固定发布清单 → 执行发布目录 deploy.sh 的完整步骤，同一提交使用固定构建标识，支持失败后同包重试；源码仓库不提交生成的发布清单。根目录私有 JSON 和 cloud-release.json 加入忽略规则。此次只改部署指引和忽略规则，不改应用运行代码、依赖或原 5180 服务。
+
+上传前扫描 HEAD 全部可达历史：1,583 个 Git 对象、901 个 blob，未发现真实协会 APPKEY、GitHub token、私钥标记或已提交的 .env/.local/私有 JSON；不把当前文件忽略误当成历史没有密钥。报告 `.local/github-upload/history-scan.json`，仅保存结果，不保存凭据或敏感原文。待本地提交说明后，推送 master 并核对远端提交及公开读取状态；私有配置与原题库继续留在本机，不上传 GitHub。

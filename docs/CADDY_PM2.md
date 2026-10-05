@@ -32,6 +32,25 @@ sudo cat /opt/problemforge/shared/bootstrap-admin.txt
 
 管理员使用 `/login?mode=admin`，首次登录后可在账户设置改密。普通用户使用协会账号或邮箱登录。重复部署保留管理员身份、密码、APPKEY、数据库密钥和存储；不会重新随机生成或覆盖它们。
 
+## 从 GitHub 拉取部署
+
+也可以在服务器克隆公开仓库 [pppolf/ProblemForge](https://github.com/pppolf/ProblemForge)，读取源码无需 GitHub 登录。先按上文准备 Node、pnpm、PM2、Docker 和 Caddy，将单独交付的 `problemforge.secrets.json` 放在克隆目录旁，首次执行：
+
+```sh
+git clone https://github.com/pppolf/ProblemForge.git ProblemForge
+cd ProblemForge
+pf_build="git-$(git rev-parse HEAD)"
+pf_release="$PWD/.local/releases/cloud-$pf_build/problemforge"
+if [ ! -f "$pf_release/cloud-release.json" ]; then
+  node scripts/package-cloud.mjs "$pf_build"
+fi
+sudo bash "$pf_release/deploy.sh" --secrets-file "$PWD/../problemforge.secrets.json"
+```
+
+Git 仓库保存源码，`cloud-release.json` 和 `release.json` 在打包时生成。因此需要先生成上面的固定发布目录，再调用其中的 `deploy.sh`；直接在新克隆的仓库根目录运行安装会提示缺少清单。打包只用 Git、Node 和 tar，无需提前安装项目 node_modules；服务器部署过程会安装项目依赖。密钥不要提交到 GitHub，根目录同名私有 JSON 也已加入忽略规则。
+
+以后升级先在克隆目录执行 `git pull --ff-only`，再运行上面的 `pf_build` 至 `sudo bash` 部分。同一 Git 提交复用同一构建标识，失败时重试原命令；有未完成迁移时先完成当前版本，不先拉取其他版本。已有站点会继续使用服务器保存的私有配置，升级不要求再次上传密钥文件。保持克隆目录的源码干净，服务器修改放在 `/opt/problemforge/shared`，不要直接修改发布目录中的代码。
+
 ## 目录、进程和访问边界
 
 | 位置 / 端口 | 用途 |
