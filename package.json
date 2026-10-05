@@ -51,6 +51,7 @@
     "ops": "node scripts/ops.mjs",
     "check:affected": "node scripts/ci.mjs",
     "build:release": "node scripts/build-release.mjs",
+    "package:cloud": "node scripts/package-cloud.mjs",
     "verify:p7:upgrade": "tsx scripts/verify-p7-upgrade.ts",
     "maintenance": "node scripts/maintenance.mjs",
     "verify:p7:maintenance": "tsx scripts/verify-p7-maintenance.ts"

@@ -780,3 +780,17 @@ Hydro config.yaml 改用常规缩进 YAML，工具编译说明同步 `lang: auto
 升级检查发现 Swagger UI 的 uiHooks 不覆盖静态路由，因此将整个文档子树放入独立鉴权作用域，统一保护 HTML、JSON 与资源，新增两项依赖集成检查。独立 Linux 构建实际完成新锁文件安装、Prisma 6.19.3 客户端生成，database/domain/judge-adapter/judge-core/problem-format/api 六包类型检查，以及 24 项 Swagger 鉴权/严格 JSON/受信代理与限流/ZIP 路径/判定语义/Hydro Markdown/YAML 回归。镜像 `problemforge-dependency-check:20261005` 仅作构建验证，未启动服务或执行作者程序。
 
 “停止开发服务并安装依赖”的组合命令被自动审批以策略阻止拒绝；未重试停服，改用锁文件更新与独立 Docker 构建。原 5180/3100、根进程 30600、Vite 69040、API 65472、两个 Worker 和原数据库/存储继续使用原安装依赖，未安装本机新 node_modules、重启服务、创建新应用实例或监听端口。新依赖尚未完成原库登录/实际 Judge 通信或云端运行验收；这些不能由纯构建检查代替。差异检查通过，先本地提交本依赖块再继续一键部署实现，不 push。
+
+## Ubuntu Caddy / PM2 一键部署实现（2026-10-05）
+
+**实现范围：**依赖块已提交 `6a5f468` 后，按用户确认的 Ubuntu 22.04/24.04 x86_64 实现 `deploy.sh` 和 `scripts/cloud-*.mjs/ts`。默认域名 `problems.cwnupaa.com`、安装目录 `/opt/problemforge`，复用服务器现有 Node 22.12+/24、pnpm 10.11.1、PM2、Caddy 和 rootful Docker Compose。独立用户、PM2_HOME、Compose project 与私有配置；API cluster 默认 2 个、两个 Worker 各 1 个，数据库/Redis/沙箱只绑定云端回环端口。作者程序和 TeX 仍只由两类 Linux 沙箱执行。首次随机生成数据库/Redis/沙箱/管理员密码，APPKEY 只由 API 环境文件加载；创建管理员和六套待编译发布的模板草稿。
+
+源码包从干净提交生成，包含来源提交、迁移清单、逐文件 SHA-256；部署核对哈希，按锁文件安装、生成客户端并构建生产前端。复用已有私有配置和数据，不重新生成密钥。升级先检查任务空闲、关闭本站写入并再次确认，保存数据库/完整私有文件/状态哈希备份，才执行迁移。迁移后的失败不重启旧代码，保留待完成版本，只允许同包重试；本机及 HTTPS 健康响应必须匹配本站部署标识，未通过不会记录成功。Caddy 保留其他站点，验证、并发检查与备份后只替换本站标记块。新增独立 systemd 开机恢复、日志轮转、status / reload-api / backup 命令；备份为私有原始数据，未提供覆盖式自动回退。
+
+**PM2 适配：**新增原生 ESM API 入口、启动 ready 通知和关闭去重；修正首次 PM2 守护进程日志污染 jlist JSON、上传目录位于 /root 时专用用户工作目录不可读的问题。原 SSE 单进程计数改为 Redis 原子租约，跨 API 进程共享每用户 5 个名额，正常关闭释放，崩溃/Redis 断连以 30 秒 TTL 回收。新 `/api/health` 部署标识仅在云端配置时返回，原本机健康响应保持原内容。
+
+**实际检查：**Linux 独立 Docker 构建通过 bash / Node 语法、11 项配置/归档路径与哈希/重复执行/迁移失败顺序检查、API 类型和初始化脚本严格类型检查。Caddy 2.10.2 实际 adapt/validate、PM2 7.0.4 首次守护进程及两个 cluster 夹具实际启动、环境文件与 tsx/ESM 加载、reload 后两个 PID 替换并正常 SIGINT 退出均通过；夹具无 HTTP 监听、无应用数据库连接。证据 `.local/caddy-pm2/linux-evidence/runtime-check.json`。本轮此前已完成新依赖下的生产前端构建，最终脚本调整未改变前端，未重复扩大测试。
+
+Compose config JSON 检查确认四个基础服务、全部回环映射、internal 网络及仅沙箱 privileged，未执行 up；证据 compose-verification.json。显式 SSE 检查通过两个原 Redis 客户端的 12 次竞争仅获 5 席、释放/替换、续租/过期回收和断连拒绝，只使用随机验证键并清理，无业务 DB 写入。默认快查未扩展。README、DEPLOYMENT、CADDY_PM2、CLOUD_READINESS 与 PLAN 已同步。
+
+**边界与收尾：**尚未连接云主机、执行 Ubuntu 主机级完整安装、真实域名 TLS/成功协会登录、实际 Judge/TeX、重启或备份恢复验收。原 Windows 题库和 `.local/p3-storage` 不进入源码包；首次部署是新站，现有题库/比赛/发布模板的一致迁移仍需单独完成。本机保持原 5180/3100、数据库、Worker、存储与沙箱，没有新应用实例或端口、原库迁移或服务重启。本功能定向检查通过后本地提交，再生成并核验交付包；不 push、不公网发布。目标主机尚未提供访问方式，因此这里只交付可执行版本，不声称已经上云。

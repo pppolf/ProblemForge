@@ -90,3 +90,5 @@ pnpm build:web
 团队首次试用见 [详细使用说明](docs/USER_GUIDE.md)，固定使用主目录原有 `http://localhost:5180`、原开发数据库与模板，包含登录、从零 A+B、验收冻结、比赛资料、题包和故障排查；网页侧栏「使用指引」提供简版。2026-10-02 已按用户要求备份并清空所有题目、比赛及关联内容，删除其他用户和全部旧会话，只保留原系统管理员 `admin-f054@problemforge.local`、6 套模板 / 13 个发布版本和编译配置。该管理员现可通过独立入口使用原本地密码登录，无需绑定协会。部署/恢复演练容器已全部清理，不用演练环境替代用户开发版，不擅自新增端口。当前状态以 PROGRESS 最新交接为准。编辑冲突可查看、下载或复制本地草稿，再与服务端版本手动合并。显式定向验收：`pnpm verify:p6:editing`（隔离数据库并发写入和延迟保存合并，不启动 Judge/TeX）。
 
 版本镜像入口为 `pnpm build:release <构建标识>`；加密备份与只读容量维护见 [维护说明](docs/MAINTENANCE.md)。定向检查 `pnpm verify:p7:maintenance` 不加入默认快查。
+
+Ubuntu 22.04/24.04 的 Caddy + PM2 一键部署见 [部署说明](docs/CADDY_PM2.md)。`pnpm package:cloud <版本标识>` 生成不含密钥和题库数据的上传包；服务器解压后执行 `sudo bash deploy.sh --secrets-file ../problemforge.secrets.json`。默认域名 `problems.cwnupaa.com`，PM2 运行 2 个 API 进程，两个 Worker 与 Linux 执行沙箱独立管理。

@@ -8,6 +8,7 @@ import { admin, authenticate, type Api } from '../app.ts';
 import { buildAccess } from './builds.ts';
 import { runtimeVersion } from '../runtime-version.ts';
 import { storageMetrics } from '../storage-metrics.ts';
+import { acquireStreamLease } from '../stream-lease.ts';
 
 async function readiness(redis: Redis) {
   const checks: Record<string, string> = {};
@@ -20,7 +21,7 @@ async function readiness(redis: Redis) {
 }
 export async function operationsRoutes(app: Api, redis: Redis) {
   app.get('/api/live', async () => ({ status: 'ok', appName: config.appName }));
-  app.get('/api/health', async (_, reply) => { const result = await readiness(redis); return reply.code(result.status === 'ok' ? 200 : 503).send({ status: result.status, appName: config.appName }); });
+  app.get('/api/health', async (_, reply) => { const result = await readiness(redis); return reply.code(result.status === 'ok' ? 200 : 503).send({ status: result.status, appName: config.appName, ...(process.env.PF_DEPLOYMENT_ID ? { deploymentId: process.env.PF_DEPLOYMENT_ID } : {}) }); });
   app.get('/api/admin/operations', { preHandler: admin }, async () => {
     const health = await readiness(redis);
     return { ...health, version: await runtimeVersion(), storage: await storageMetrics(), tasks: { builds: await db.build.count({ where: { state: { in: ['QUEUED', 'RUNNING'] } } }), judge: await db.testRun.count({ where: { state: { in: ['QUEUED', 'RUNNING'] } } }) }, quotas: { buildsPerUser: config.buildQuota, judgePerUser: config.judgeQuota, attempts: config.maxAttempts, leaseSeconds: config.leaseMs / 1000 } };
@@ -37,8 +38,8 @@ export async function operationsRoutes(app: Api, redis: Redis) {
       await audit(req.user?.id ?? null, reply.statusCode >= 400 ? 'HTTP_REJECTED' : 'HTTP_MUTATION', undefined, { method: req.method, route, status: reply.statusCode }).catch(e => app.log.error(e, 'Audit persistence failed'));
     }
   });
-  const streams = new Map<string, number>(), closers = new Set<() => void>();
-  app.addHook('preClose', async () => { for (const close of closers) close(); });
+  const closers = new Set<() => Promise<void>>();
+  app.addHook('preClose', async () => { await Promise.all([...closers].map(close => close())); });
   const watchedIds = Type.Optional(Type.String({ maxLength: 6000, pattern: '^[A-Za-z0-9_-]+(,[A-Za-z0-9_-]+)*$' }));
   app.get('/api/events', { preHandler: authenticate, schema: { querystring: Type.Object({ problemId: Type.Optional(Type.String()), contestId: Type.Optional(Type.String()), buildIds: watchedIds, runIds: watchedIds }, { additionalProperties: false }) } }, async (req, reply) => {
     const { problemId, contestId } = req.query;
@@ -47,15 +48,23 @@ export async function operationsRoutes(app: Api, redis: Redis) {
     if (problemId && contestId) throw new HttpError(400, '一次只能订阅一个题目或比赛');
     const authorize = async () => { await authenticate(req); if (problemId) await problemAccess(req.user, problemId).catch(async e => { if (e instanceof HttpError && e.statusCode === 403) { const { problemPermission } = await import('@problemforge/domain'); await problemPermission(req.user, problemId); } else throw e; }); if (contestId) await contestAccess(req.user, contestId); };
     await authorize();
-    if ((streams.get(req.user.id) ?? 0) >= 5) throw new HttpError(429, '实时连接过多，请关闭多余窗口');
-    streams.set(req.user.id, (streams.get(req.user.id) ?? 0) + 1);
+    const lease = await acquireStreamLease(redis, req.user.id);
+    if (!lease) throw new HttpError(429, '实时连接过多，请关闭多余窗口');
     reply.hijack(); reply.raw.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no', Connection: 'keep-alive', 'X-Content-Type-Options': 'nosniff' });
     reply.raw.write('retry: 3000\n\n');
     let previous = String(req.headers['last-event-id'] ?? ''), busy = false, closed = false, ticks = 0;
-    const close = () => { if (closed) return; closed = true; clearInterval(timer); closers.delete(close); streams.set(req.user.id, Math.max(0, (streams.get(req.user.id) ?? 1) - 1)); reply.raw.end(); };
+    let closing: Promise<void> | undefined;
+    const close = () => {
+      if (closing) return closing;
+      closed = true; clearInterval(timer); closers.delete(close);
+      closing = lease.release().catch(() => { /* Redis TTL recovers a slot if Redis is temporarily unavailable. */ });
+      reply.raw.end();
+      return closing;
+    };
     const tick = async () => {
       if (busy || closed) return; busy = true;
       try {
+        if (!await lease.renew()) { await close(); return; }
         await authorize();
         const builds = await db.build.findMany({ where: contestId ? { contestId } : problemId ? { problemId } : { requestedById: req.user.id }, orderBy: { createdAt: 'desc' }, take: 50 });
         const runs = contestId ? [] : await db.testRun.findMany({ where: problemId ? { problemId } : { requestedById: req.user.id }, orderBy: { createdAt: 'desc' }, take: 50 });

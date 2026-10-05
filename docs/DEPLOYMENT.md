@@ -1,5 +1,7 @@
 # Linux 部署与恢复
 
+用户当前选择 Ubuntu + **Caddy 反代 / PM2 cluster**，一键入口、服务器前置工具、升级备份和验证边界见 [CADDY_PM2](CADDY_PM2.md)。下文保留原全 Compose 方案；其 ops 命令只管理该方案的应用容器，不用于停止或备份 PM2 进程。
+
 P5 提供单机 Linux Compose 部署。API 同时提供 Vite 的实际生产静态文件，两个独立 Worker 通过各自的 Linux go-judge 执行。数据库和私有文件是恢复依据；Redis 仅承担调度。开发环境的 `.env` 与生产配置、数据库、卷完全分开。
 
 当前上云评估、依赖安全更新、原 Windows 数据迁移及云端验收清单见 [CLOUD_READINESS](CLOUD_READINESS.md)。生产域名已确定为 `https://problems.cwnupaa.com`；原开发入口仍为 `http://localhost:5180`，不要为准备域名而改动本机原 `.env` 的 `APP_ORIGIN`。下文 P5/P7 镜像和演练端口是历史记录，不能直接当作最新版本上线。

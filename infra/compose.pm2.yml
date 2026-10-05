@@ -1,0 +1,62 @@
+name: problemforge-cloud
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 20m, max-file: '3'}
+services:
+  postgres:
+    image: postgres:16-alpine@sha256:20edbde7749f822887a1a022ad526fde0a47d6b2be9a8364433605cf65099416
+    environment:
+      POSTGRES_USER: problemforge
+      POSTGRES_DB: problemforge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?configure POSTGRES_PASSWORD}
+    ports: ['127.0.0.1:${PF_PG_PORT:?configure PF_PG_PORT}:5432']
+    volumes: [database:/var/lib/postgresql/data]
+    networks: [backend]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U problemforge -d problemforge']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    logging: *logging
+  redis:
+    image: redis:7-alpine@sha256:8b81dd37ff027bec4e516d41acfbe9fe2460070dc6d4a4570a2ac5b9d59df065
+    environment: {REDIS_PASSWORD: '${REDIS_PASSWORD:?configure REDIS_PASSWORD}'}
+    command: [sh, -c, 'exec redis-server --appendonly yes --maxmemory-policy noeviction --requirepass "$$REDIS_PASSWORD"']
+    ports: ['127.0.0.1:${PF_REDIS_PORT:?configure PF_REDIS_PORT}:6379']
+    volumes: [redis:/data]
+    networks: [backend]
+    healthcheck:
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    logging: *logging
+  tex-sandbox:
+    image: problemforge-tex:${PF_RELEASE_ID:?configure PF_RELEASE_ID}
+    build: {context: .., dockerfile: infra/tex-sandbox.Dockerfile}
+    environment: {ES_AUTH_TOKEN: '${TEX_SANDBOX_TOKEN:?configure TEX_SANDBOX_TOKEN}'}
+    privileged: true
+    shm_size: 256mb
+    networks: [backend]
+    ports: ['127.0.0.1:${PF_TEX_PORT:?configure PF_TEX_PORT}:5050']
+    command: [-http-addr, ':5050', -mount-conf, /opt/tex-mount.yaml, -parallelism, '1', -pre-fork, '1', -container-cred-start, '20000', -tmp-fs-param, 'size=128m,nr_inodes=4096', -output-limit, 32m, -copy-out-limit, 16m, -file-timeout, 10m]
+    restart: unless-stopped
+    logging: *logging
+  judge-sandbox:
+    image: problemforge-judge:${PF_RELEASE_ID:?configure PF_RELEASE_ID}
+    build: {context: .., dockerfile: infra/judge-sandbox.Dockerfile}
+    environment: {ES_AUTH_TOKEN: '${JUDGE_SANDBOX_TOKEN:?configure JUDGE_SANDBOX_TOKEN}'}
+    privileged: true
+    shm_size: 256mb
+    networks: [backend]
+    ports: ['127.0.0.1:${PF_JUDGE_PORT:?configure PF_JUDGE_PORT}:5050']
+    command: [-http-addr, ':5050', -mount-conf, /opt/judge-mount.yaml, -parallelism, '2', -pre-fork, '2', -container-cred-start, '21000', -tmp-fs-param, 'size=128m,nr_inodes=4096', -output-limit, 8m, -copy-out-limit, 8m, -file-timeout, 1h]
+    restart: unless-stopped
+    logging: *logging
+networks:
+  backend: {internal: true}
+volumes:
+  database:
+  redis:
