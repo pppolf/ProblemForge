@@ -1,7 +1,7 @@
 import{randomUUID}from'node:crypto';import{readFile}from'node:fs/promises';import{join}from'node:path';import{Type}from'@sinclair/typebox';
-import{ExportInput,ContestExportInput,TestDataExportInput,isCppLanguage,isJudgingData,type ProblemManifest}from'@problemforge/contracts';import{db,Prisma}from'@problemforge/database';
+import{ExportInput,ContestExportInput,TestDataExportInput,NovaJudgeExportInput,isCppLanguage,isJudgingData,type ProblemManifest}from'@problemforge/contracts';import{db,Prisma}from'@problemforge/database';
 import{problemAccess,contestAccess,hashObject,sha256,HttpError,audit,root}from'@problemforge/domain';
-import{PackageError,readArchive,writeArchive,safeExportPath,nativeExporter,polygonExporter,exportTestData,exportHydroProblem,importNative,importPolygon,blobs,validateManifest,type Issue,type ImportResult}from'@problemforge/problem-format';
+import{PackageError,readArchive,writeArchive,safeExportPath,nativeExporter,polygonExporter,exportTestData,exportHydroProblem,exportNovaJudgeProblem,importNative,importPolygon,blobs,validateManifest,type Issue,type ImportResult}from'@problemforge/problem-format';
 import{validateBody}from'@problemforge/template-engine';import{groupOrder,TESTLIB_HASH}from'@problemforge/judge-core';
 import{authenticate,storage,type Api}from'../app.ts';import{revisionAccess}from'./revisions.ts';import{contestRevision,type FrozenContest}from'./contests.ts';import{restoreManifest}from'./restore-manifest.ts';import{problemSnapshot,readProblemSnapshot}from'./revision-snapshot.ts';
 import { currentContestRevision } from './contest-snapshot.ts';
@@ -11,7 +11,7 @@ const ConfirmInput=Type.Object({reportHash:Type.String({pattern:'^[a-f0-9]{64}$'
 type ImportReport={issues:Issue[];manifest:ProblemManifest;reportHash:string;committedProblemId?:string};
 function receiptView(record:{id:string;format:string;createdAt:Date;report:unknown}){const r=record.report as ImportReport;return{id:record.id,format:record.format,createdAt:record.createdAt,reportHash:r.reportHash,issues:r.issues,title:r.manifest.meta.title,committedProblemId:r.committedProblemId??null,counts:{documents:r.manifest.documents.length,programs:r.manifest.programs.length,tests:r.manifest.tests.length},canImport:!r.issues.some(i=>i.status==='BLOCKED')};}
 function exportFileName(e:{format:string;purpose:string;report:unknown}){
- const name=e.format==='HYDRO_PROBLEM'&&Array.isArray(e.report)?e.report.find(r=>typeof r?.fileName==='string')?.fileName:undefined;
+ const name=['HYDRO_PROBLEM','NOVAJUDGE_PROBLEM'].includes(e.format)&&Array.isArray(e.report)?e.report.find(r=>typeof r?.fileName==='string')?.fileName:undefined;
  if(name&&!name.includes('/')&&name.endsWith('.zip'))return safeExportPath(name);
  return `${e.format}-${e.purpose}.zip`;
 }
@@ -48,8 +48,9 @@ async function prepareImport(format:'NATIVE'|'POLYGON',files:Map<string,Buffer>,
  return result;
 }
 export async function packageRoutes(app:Api){
- app.post('/api/problems/:id/test-data-exports',{preHandler:authenticate,schema:{params:Id,body:TestDataExportInput}},async req=>{
+ for(const novaProblem of [false,true])app.post(`/api/problems/:id/${novaProblem?'novajudge-exports':'test-data-exports'}`,{preHandler:authenticate,schema:{params:Id,body:novaProblem?NovaJudgeExportInput:TestDataExportInput}},async req=>{
   await problemAccess(req.user,req.params.id);
+  const target='target' in req.body?req.body.target:'NOVAJUDGE';
   let manifest:ProblemManifest,acceptanceRunId:string|null,revisionId:string,source:string;
   if(req.body.revisionId){
    const r=await revisionAccess(req.user,req.body.revisionId);
@@ -60,16 +61,16 @@ export async function packageRoutes(app:Api){
    const snapshot=await readProblemSnapshot(req.params.id);
    manifest=snapshot.manifest;acceptanceRunId=snapshot.acceptanceRunId;revisionId=`WORKING:${snapshot.hash}`;source=`当前已保存工作副本（${snapshot.hash}）`;
   }
-  const prepared=await exportManifest(manifest,'DATA',req.body.target,acceptanceRunId);
+  const prepared=await exportManifest(manifest,'DATA',target,acceptanceRunId);
   const testlib=await readFile(join(root,'vendor/testlib/testlib.h'));
   if(sha256(testlib)!==TESTLIB_HASH)throw new HttpError(503,'testlib 头文件校验失败，无法导出');
-  const hydro=req.body.target==='HYDRO',support={testlib,license:await readFile(join(root,'vendor/testlib/LICENSE'))};
-  const result=hydro?await exportHydroProblem(prepared.manifest,key=>storage.get(key),support,{language:req.body.language}):await exportTestData(prepared.manifest,req.body.target,key=>storage.get(key),support);
-  const report:Issue[]=[{area:hydro?'内容来源':'数据来源',status:'MAPPED',message:`${source}。导出时已固定内容，不要求冻结，也不会执行生成器或改写工作数据。`},...prepared.report,...result.report];
-  const bytes=await writeArchive(result.files,{unicodePaths:hydro}),key=`exports/${randomUUID()}`;
+  const hydro=target==='HYDRO',full=hydro||novaProblem,support={testlib,license:await readFile(join(root,'vendor/testlib/LICENSE'))};
+  const result=novaProblem?await exportNovaJudgeProblem(prepared.manifest,key=>storage.get(key),support,{language:req.body.language,comparison:'comparison' in req.body?req.body.comparison:undefined}):hydro?await exportHydroProblem(prepared.manifest,key=>storage.get(key),support,{language:req.body.language}):await exportTestData(prepared.manifest,target,key=>storage.get(key),support);
+  const report:Issue[]=[{area:full?'内容来源':'数据来源',status:'MAPPED',message:`${source}。导出时已固定内容，不要求冻结，也不会执行生成器或改写工作数据。`},...prepared.report,...result.report];
+  const bytes=await writeArchive(result.files,{unicodePaths:full,explicitDirectories:novaProblem}),key=`exports/${randomUUID()}`;
   await storage.put(key,bytes);
-  const row=await db.exportArtifact.create({data:{problemId:req.params.id,revisionId,requestedById:req.user.id,purpose:hydro?'FULL':'DATA',format:hydro?'HYDRO_PROBLEM':`${req.body.target}_DATA`,key,hash:sha256(bytes),bytes:bytes.length,report:report as unknown as Prisma.InputJsonValue}});
-  await audit(req.user.id,hydro?'EXPORT_HYDRO_PROBLEM':'EXPORT_TEST_DATA',row.id,{target:req.body.target,revisionId,language:req.body.language});return exportView(row);
+  const row=await db.exportArtifact.create({data:{problemId:req.params.id,revisionId,requestedById:req.user.id,purpose:full?'FULL':'DATA',format:full?`${target}_PROBLEM`:`${target}_DATA`,key,hash:sha256(bytes),bytes:bytes.length,report:report as unknown as Prisma.InputJsonValue}});
+  await audit(req.user.id,full?`EXPORT_${target}_PROBLEM`:'EXPORT_TEST_DATA',row.id,{target,revisionId,language:req.body.language,...('comparison' in req.body?{comparison:req.body.comparison}:{})});return exportView(row);
  });
  app.get('/api/imports',{preHandler:authenticate},async req=>(await db.exportArtifact.findMany({where:{requestedById:req.user.id,purpose:'QUARANTINE'},orderBy:{createdAt:'desc'},take:50})).map(receiptView));
  app.get('/api/imports/:id',{preHandler:authenticate,schema:{params:Id}},async req=>{const record=await db.exportArtifact.findUnique({where:{id:req.params.id}});if(!record||record.purpose!=='QUARANTINE'||record.requestedById!==req.user.id)throw new HttpError(404,'导入记录不存在');return receiptView(record);});

@@ -29,7 +29,7 @@ const environmentName = (node: Ast.Environment) => typeof node.env === 'string' 
 
 // Read structure only: no TeX compilation, template execution or external resources.
 export type MarkdownSample = { input: string; output: string };
-export function latexToMarkdown(body: string, options: { language?: string; samples?: MarkdownSample[]; statement?: boolean } = {}) {
+export function latexToMarkdown(body: string, options: { language?: string; samples?: MarkdownSample[]; statement?: boolean; structuredStatement?: boolean; assetUrl?: (path: string) => string } = {}) {
   if (body.length > 500_000 || body.includes('\0')) throw new PackageError('LaTeX 正文超出转换限制');
   let root: Ast.Root;
   try { root = parser.parse(body); } catch { throw new PackageError('LaTeX 正文无法解析，请先修正括号或环境配对'); }
@@ -43,7 +43,10 @@ export function latexToMarkdown(body: string, options: { language?: string; samp
   const warnings = new Set<string>(), assets = new Set<string>(), english = options.language?.startsWith('en');
   const label = (zh: string, en: string) => english ? en : zh;
   let sampleNumber = 0;
+  const statementSamples: MarkdownSample[] = [];
   const sample = ({ input, output }: MarkdownSample) => {
+    statementSamples.push({ input, output });
+    if (options.structuredStatement) return '';
     const number = ++sampleNumber;
     return `${fencedCode(input, `input${number}`)}\n\n${fencedCode(output, `output${number}`)}`;
   };
@@ -153,7 +156,7 @@ export function latexToMarkdown(body: string, options: { language?: string; samp
         if (name === 'includegraphics') {
           const path = printRaw(argument(node)).trim();
           if (!/^assets\/[a-z0-9]+\.(png|jpg)$/.test(path)) throw new PackageError(`图片引用无法打包：${path.slice(0, 160)}`);
-          assets.add(path); return block(`![${label('题目插图', 'Illustration')}](${path})`);
+          assets.add(path); return block(`![${label('题目插图', 'Illustration')}](${options.assetUrl?.(path) ?? path})`);
         }
         if (name === 'exmp') {
           const args = node.args?.filter(a => a.openMark === '{') ?? [];
@@ -175,9 +178,38 @@ export function latexToMarkdown(body: string, options: { language?: string; samp
   // Render in order so embedded and bound samples share one sequence of pair IDs.
   const note = root.content.findIndex(n => n.type === 'macro' && ['Note', 'Notes', 'Explanation', 'Explanations'].includes(n.content));
   const offset = note < 0 ? root.content.length : note;
+  const statementSections: { title: string; content: string }[] = [], hints: string[] = [];
+  if (options.structuredStatement) {
+    let title = 'Problem Description', hint = false, pending: Ast.Node[] = [];
+    const flush = () => {
+      const content = render(pending).trim(); pending = [];
+      if (content) { if (hint) hints.push(content); else statementSections.push({ title, content }); }
+    };
+    const titles: Record<string, string> = { Description: 'Problem Description', InputFile: 'Input', OutputFile: 'Output', Interaction: 'Interaction', interactor: 'Interaction' };
+    const namedTitles: Record<string, string> = { '题目描述': 'Problem Description', Description: 'Problem Description', '输入格式': 'Input', '输出格式': 'Output', '交互协议': 'Interaction', '交互格式': 'Interaction' };
+    const hintTitles = new Set(['说明', '提示', '样例解释', 'Note', 'Notes', 'Hint', 'Explanation', 'Explanations', 'Sample explanation']);
+    for (let i = 0; i <= root.content.length; i++) {
+      if (i === offset) { flush(); for (const value of options.samples ?? []) sample(value); }
+      const node = root.content[i]; if (!node) break;
+      if (node.type === 'macro') {
+        const name = node.content;
+        if (['Example', 'Examples'].includes(name)) continue;
+        if (['Note', 'Notes', 'Explanation', 'Explanations'].includes(name)) { flush(); hint = true; continue; }
+        // Preserve subheadings within the section; only top-level headings split it.
+        if ((sections[name] && !['InteractionStart', 'InteractionQuery', 'InteractionAnswer'].includes(name)) || name === 'section') {
+          flush();
+          const heading = name === 'section' ? plain(argument(node)).trim() : (titles[name] ?? sections[name][1]);
+          title = namedTitles[heading] ?? heading; hint = hintTitles.has(heading); continue;
+        }
+      }
+      pending.push(node);
+    }
+    flush();
+    return { markdown: '', sections: statementSections, samples: statementSamples, hint: hints.join('\n\n'), assets: [...assets], warnings: [...warnings] };
+  }
   let markdown = options.samples?.length
     ? render(root.content.slice(0, offset)).trim() + block(options.samples.map(sample).join('\n\n')) + render(root.content.slice(offset)).trim()
     : render(root.content).trim();
   if (options.statement && markdown.trim() && !/^#{1,6} /.test(markdown.trimStart())) markdown = `## ${label('题目描述', 'Description')}\n\n${markdown.trim()}`;
-  return { markdown: markdown.trim() + '\n', assets: [...assets], warnings: [...warnings] };
+  return { markdown: markdown.trim() + '\n', sections: statementSections, samples: statementSamples, hint: '', assets: [...assets], warnings: [...warnings] };
 }

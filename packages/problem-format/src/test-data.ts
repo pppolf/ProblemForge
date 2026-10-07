@@ -80,10 +80,12 @@ type Support = { testlib: Buffer; license: Buffer };
 export async function exportTestData(
   manifest: ProblemManifest, target: TestDataTargetValue,
   read: (key: string) => Promise<Buffer>, support: Support,
+  options: { novaJudgeNativeComparison?: boolean } = {},
 ): Promise<PackageResult> {
   const files = new Map<string, Buffer>(), report: Issue[] = [], settings = manifest.judgeSettings;
   const tests = manifest.tests.filter(t => isJudgingData(settings, t)).sort((a, b) => a.number - b.number);
   const interactive = settings.interactionMode === 'INTERACTIVE';
+  const nativeComparison = target === 'NOVAJUDGE' && options.novaJudgeNativeComparison && !interactive && ['EXACT', 'TOKENS'].includes(settings.checkerMode);
   const extension = target === 'HYDRO' ? 'cc' : 'cpp';
   const checkerName = `checker.${extension}`, interactorName = `interactor.${extension}`;
   if (!tests.length) throw new PackageError(interactive ? '交互样例仅用于题面展示；请先添加或收集启用的非样例测试数据' : '没有可导出的启用测试数据，请先生成并收集输入');
@@ -123,13 +125,14 @@ export async function exportTestData(
     report.push({ area: name, status: 'MAPPED', message: `已保留 ${p.name} 的固定源码（${p.profile.language}）。` });
     if (target === 'HYDRO') report.push({ area: '工具编译', status: 'WARNING', message: `${name} ${role === 'INTERACTOR' ? '使用 lang: auto，由 Hydro 按 .cc 扩展名选择编译配置' : '使用 Hydro 的 cc 编译配置'}；上传后请确认该配置支持 ${p.profile.language.replace('CPP', 'C++')}，自定义编译参数需在目标站设置。` });
   };
-  if (!interactive || settings.interaction?.verdictMode === 'CHECKER') {
+  if ((!interactive && !nativeComparison) || (interactive && settings.interaction?.verdictMode === 'CHECKER')) {
     if (settings.checkerMode === 'CUSTOM') tool('CHECKER', checkerName);
     else {
       put(checkerName, Buffer.from(comparisonChecker(settings)));
       report.push({ area: '答案比较', status: 'MAPPED', message: `已生成 ${settings.checkerMode} 比较器，保留当前空白、末尾内容及浮点误差规则。` });
     }
   }
+  if (nativeComparison) report.push({ area: '答案比较', status: 'WARNING', message: `按传统题格式使用 NovaJudge 默认比较：统一换行、忽略行末空格和全文首尾空白，与本地 ${settings.checkerMode} 规则不同。需要保持本地判定时，请选择“保留本地比较规则”，导出为带比较器的 SPJ。` });
   if (interactive) {
     tool('INTERACTOR', interactorName);
     if (settings.interaction?.verdictMode === 'CHECKER') report.push({ area: '交互判定', status: 'BLOCKED', message: '当前题目要求交互结束后再运行 Checker；这两个目标格式的交互流程不能自动映射此行为，需先合并判定逻辑到 Interactor。源码均已打包供调整。' });
@@ -146,7 +149,7 @@ export async function exportTestData(
         subtasks: [{ score: 100, id: 1, type: 'sum', cases: tests.map(t => ({ input: `${t.number}.in`, output: '/dev/null' })) }],
       } : { checker_type: 'testlib', checker: { file: checkerName, lang: 'cc' }, cases }),
     }
-    : { type: interactive ? 'interactive' : 'spj', ...(interactive ? { interactor: interactorName } : { checker: checkerName }), cases };
+    : { type: interactive ? 'interactive' : nativeComparison ? 'default' : 'spj', ...(interactive ? { interactor: interactorName } : nativeComparison ? {} : { checker: checkerName }), cases };
   if (settings.ioMode === 'FILES') report.push({ area: '文件输入输出', status: 'BLOCKED', message: `当前使用 ${settings.inputFile} / ${settings.outputFile}；此导出只自动配置标准输入输出，需先调整目标题目的文件 I/O 设置。` });
   if (settings.scoringMode === 'PARTIAL') report.push({ area: '分组评分', status: 'BLOCKED', message: '当前题目采用分组、权重或依赖评分，不能直接作为普通逐点测试上传；需在目标站配置对应评分规则。此包保留全部数据和工具。' });
   report.push({ area: '输出限制', status: 'WARNING', message: `原输出上限为 ${settings.outputLimitBytes.toLocaleString('zh-CN')} 字节，上传后请在目标判题环境核对。` });

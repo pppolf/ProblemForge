@@ -16,7 +16,7 @@
 
 DATA 及 Polygon FULL 可补入该冻结修订所绑定成功验收的输入/答案，包括固定的生成数据，报告记录来源任务 ID。不读取后来任务，也不覆盖正式数据。原生 FULL 保留工作副本的原答案状态（例如未收集答案仍为 null），便于真实往返；导入后重新执行验收。内部任务定位信息、权限、负责人账号和审核发布记录不迁移。撤回仅阻止新的平台下载，无法追回已下载副本。
 
-交互题的样例只用于展示：DATA、Polygon FULL 的判题测试集和 Hydro / NovaJudge 导出的判题数据排除 `isSample` 数据，从历史验收补入数据时也排除样例。原生 FULL 仍完整保留样例与历史版本，STATEMENT 和 Hydro 的 statement.md 保留题面绑定样例。普通批处理题继续包含启用样例。交互题分组只覆盖参与判题的数据；旧组引用交互样例时需显式更新后再导出或导入。
+交互题的样例只用于展示：DATA、Polygon FULL 的判题测试集和 Hydro / NovaJudge 导出的判题数据排除 `isSample` 数据，从历史验收补入数据时也排除样例。原生 FULL 仍完整保留样例与历史版本，STATEMENT、Hydro 的 statement.md 和 NovaJudge 的 problem.json.samples 保留题面绑定样例。普通批处理题继续包含启用样例。交互题分组只覆盖参与判题的数据；旧组引用交互样例时需显式更新后再导出或导入。
 
 ## ProblemForge 原生 v1
 
@@ -76,14 +76,14 @@ Hydro 的 statement.md 不额外添加一级题名；开头为无标题的描述
 
 LaTeX 转换复用固定 unified-latex 1.8.4 AST 解析器，转换标题、平台题面/交互小节、粗体/强调、嵌套列表、普通表格、代码、引用段落与图片。行内/独立数学保留 `$…$` / `$$…$$`，align/gather 转换为可嵌入的 aligned/gathered，平台 mat 展开为数学命令；正文中的代码及样例不按 LaTeX 转换。题面按绑定的**样例修订**和顺序写入输入/输出代码块，放在顶层 Note 前，保留空格与换行；交互样例同样可展示。引用图片核验哈希后放入 assets/ 并使用相对链接，不导出无引用图片。无法对应的命令/环境和合并单元格表格保留可见 LaTeX 代码并逐项警告，不静默删内容；不声称支持任意 TeX 宏和模板排版。转换全程不执行 TeX、作者代码或外部资源。
 
-Hydro 数据放在顶层目录内的 tests/，NovaJudge 保持 ZIP 根目录，均按原编号命名：普通题导出 `1.in` / `1.ans`，包含全部启用正式数据及样例；交互题只导出启用的非样例 `*.in`，即使已保存答案也不读取或打包 `.ans`，不补空答案。Hydro 交互用例明确设 `output: /dev/null`，NovaJudge 交互 cases 仅列 input；均不引用答案文件。判题数据不含停用数据和样例历史；包中不含参考解、生成器或 Validator。逐个导出文件核验原字节、大小和 SHA-256。普通题缺答案、编号冲突、缺少/同时启用多个所需工具时拒绝生成；只有展示样例而无隐藏测试时直接提示补充数据。NovaJudge 仍不包含题面、题解或图片。
+Hydro 数据放在顶层目录内的 tests/，NovaJudge 测试数据 ZIP 保持根目录，均按原编号命名：普通题导出 `1.in` / `1.ans`，包含全部启用正式数据及样例；交互题只导出启用的非样例 `*.in`，即使已保存答案也不读取或打包 `.ans`，不补空答案。Hydro 交互用例明确设 `output: /dev/null`，NovaJudge 测试数据 ZIP 的交互 cases 仅列 input；均不引用答案文件。判题数据不含停用数据和样例历史；包中不含参考解、生成器或 Validator。逐个导出文件核验原字节、大小和 SHA-256。普通题缺答案、编号冲突、缺少/同时启用多个所需工具时拒绝生成；只有展示样例而无隐藏测试时直接提示补充数据。NovaJudge 测试数据 ZIP 不含题面、题解或图片；完整题目包见下一节。
 
 | 目标 | 配置与上传 |
 | --- | --- |
 | Hydro | `tests/config.yaml`，所有引用相对 tests/，time、memory 取题目限制。普通题 `checker_type: testlib`、`checker.cc` / `lang: cc`；交互题 `type: interactive`、`interactor.cc` / `lang: auto`，用例置于 `subtasks` 的 `score: 100`、`id: 1`、`type: sum` 组，每项显式 `output: /dev/null`。解压完整包后分别使用 Markdown，在目标题目的数据管理中上传 tests/ 内的文件或仅将其内容另打成 ZIP；本自定义完整目录不冒充 Hydro 原生一键导入协议。用户自定义工具需核对目标站 C++ 标准 |
 | NovaJudge | 根目录 `problem.yml`，明确 cases、`type: spj` / `interactive` 及 `checker.cpp` / `interactor.cpp` 工具文件名。上传入口为目标题目的测试数据管理；上传数据不会更新题目时空限制，报告给出需填写的毫秒和 MiB |
 
-Hydro 使用常规缩进 YAML，复用仓库固定的 yaml 2.8.1 序列化；NovaJudge 保留 YAML 兼容的 JSON 写法。Hydro 交互用例按实际编号升序放入上述单组，不写顶层 cases、不写入 `/dev/null` 占位文件；这不自动转换本地部分分组，原分组评分兼容阻塞仍保留。EXACT / TOKENS / FLOAT 自动生成 C++11 可编译、testlib 返回协议兼容的 Checker，按目标命名为 `.cc` 或 `.cpp`，维持原始字节、六种 ASCII 空白、尾随 token、有限数值与误差规则；因此 NovaJudge 中普通比较也使用 SPJ。自定义 Checker / Interactor 保留当前版本源码，随包附固定 `testlib.h` 与原 MIT 许可证；两站可能使用自带 testlib，目标编译配置及头文件版本仍需核对。
+Hydro 使用常规缩进 YAML，复用仓库固定的 yaml 序列化；NovaJudge 测试数据 ZIP 保留 YAML 兼容的 JSON 写法。Hydro 交互用例按实际编号升序放入上述单组，不写顶层 cases、不写入 `/dev/null` 占位文件；这不自动转换本地部分分组，原分组评分兼容阻塞仍保留。EXACT / TOKENS / FLOAT 自动生成 C++11 可编译、testlib 返回协议兼容的 Checker，按目标命名为 `.cc` 或 `.cpp`，维持原始字节、六种 ASCII 空白、尾随 token、有限数值与误差规则；因此旧 NovaJudge 数据导出中的普通比较也使用 SPJ。自定义 Checker / Interactor 保留当前版本源码，随包附固定 `testlib.h` 与原 MIT 许可证；两站可能使用自带 testlib，目标编译配置及头文件版本仍需核对。
 
 分组权重/依赖评分、文件 I/O、交互结束后再 Checker 的流程尚不自动转换，报告标记 `BLOCKED`，包可下载用于人工调整；不声称可以直接投入判题。NovaJudge 当前只向 Interactor 传 input/output 两个路径，不传参考答案，读取 `ans` / `argv[3]` 的交互器需修改。独立交互限制和输出限制无法完全随配置还原，报告明确提示；NovaJudge 对非法 UTF-8 数据的转换标记阻塞，ZIP 本身保留原始字节。
 
@@ -91,9 +91,43 @@ Hydro 使用常规缩进 YAML，复用仓库固定的 yaml 2.8.1 序列化；Nov
 
 定向检查：`node --import tsx --test scripts/hydro-package.test.ts scripts/test-data-export.test.ts`；真实 API / 原库必定回滚：`node --import tsx scripts/verify-test-data-export.ts --rollback`，另显式添加 `--sandbox` 才做原 Linux 沙箱比较器对照。默认轻量快查不变。
 
+## NovaJudge 完整题目包
+
+题目「题包与发布」顶部新增 **NovaJudge 题目包**，对应 `POST /api/problems/:id/novajudge-exports`。请求可指定 `revisionId`、`language` 和 `comparison: NATIVE | PRESERVE`；默认当前已保存内容、优先中文和 NATIVE。复用上述快照、私有存储、权限、审计及验收答案补入流程，保存为 `NOVAJUDGE_PROBLEM` / FULL；无需先冻结，不执行作者代码、不发布公开链接。原 NovaJudge 测试数据 ZIP 入口、接口和历史产物保持原格式。
+
+按用户提供的三份 NovaJudge 导出 ZIP 与官方导入实现核对，每包一题：
+
+```text
+problem_1_题目名称/
+  problem.json
+  data/
+    1.in
+    1.ans              # 仅批处理题
+    problem.yml
+    checker.cpp        # SPJ
+    interactor.cpp     # 交互题
+    testlib.h          # 使用作者工具时附带
+    testlib.LICENSE
+  assets/              # 仅包含题面引用图片
+```
+
+ZIP 显式写入目录成员，使官方导入器能够发现题目根目录。包名与顶层目录相同，中文标题经过有界路径清理。`problem.json` 包含 `id/title/type/defaultTimeLimit/defaultMemoryLimit/sections/samples/hint/judgeConfig`；`id: 1` 只是单包内的资源引用号，NovaJudge 导入时新建题目并分配题号。图片路径为 `/api/problems/1/assets/文件名`，由其导入器同时重写 sections 和 hint 内的题号；不携带本地地址、会话或私有存储路径。
+
+题面按 LaTeX AST 转换，Description / InputFile / OutputFile / Interaction 对应 Problem Description / Input / Output / Interaction，顶层 section 形成分节，子标题留在内容中；Note / Notes / Explanation / Explanations 进入 hint。手写 exmp 与固定绑定样例进入 samples，不重复嵌入正文；保留原始空白、空输出、顺序和绑定版本，代码块里的标题不会被当成结构。公式与引用图片保留，未支持结构沿用 Markdown 转换报告。题解、参考解、生成器、Validator 和私有备注不进入该包。
+
+| 平台判题配置 | NovaJudge 类型与文件 |
+| --- | --- |
+| 批处理 EXACT / TOKENS，NATIVE | `default`；只有输入、答案和 cases，不附 Checker。采用 NovaJudge 的换行归一、行末空格及全文首尾空白忽略规则；与本地判定不同，界面及报告明确提示 |
+| 自定义 Checker 或 FLOAT；EXACT / TOKENS 选择 PRESERVE | `spj`；保留固定 Checker，或生成保留本地比较语义的 checker.cpp；judgeConfig 引用该文件 |
+| 交互 | `interactive`；只导出启用隐藏输入及固定 interactor.cpp，每项显式 `output: /dev/null`；不读取隐藏答案，不创建空答案文件，展示样例仍在 samples |
+
+`judgeConfig` 与 `data/problem.yml` 使用同一份对象，YAML 为常规缩进，仅含 cases 和适用的 checker/interactor；题型在 problem.json。时空限制直接写入 problem.json，单位 ms / MiB。文件 I/O、部分分、交互后置 Checker、非法 UTF-8 的既有阻塞和工具编译/交互协议/输出上限提示继续保留，不能忽略报告直接当作判题等价保证。
+
+在 NovaJudge **管理后台 → 导入题目** 上传整个 ZIP。依据：[官方导出](https://github.com/CWNU-Open-Source-Community/NovaJudge/blob/95a461f1774a951538c080d37bd5a61a74206c93/app/api/problems/export/route.ts)、[官方导入](https://github.com/CWNU-Open-Source-Community/NovaJudge/blob/95a461f1774a951538c080d37bd5a61a74206c93/app/api/problems/import/route.ts)。定向检查：`node --import tsx --test scripts/novajudge-package.test.ts`；上述 `verify-test-data-export.ts --rollback` 同时检查完整题包的三种题型、语言、固定修订、历史下载和权限。实际外部站点上传及判题仍需用户验收；未访问或操作现有 OJ。
+
 ## 安全与大小限制
 
-ZIP 压缩内容最多 24MB，解压总计 64MB、单项 8MB、成员 1500、压缩比最多 2000。逐流读取且检查实际解压字节，拒绝加密、链接、设备节点、重复路径/大小写别名、绝对路径、盘符、父目录、Windows 保留名。原生/Polygon 导入继续拒绝非 ASCII 路径；仅 Hydro 中文导出和其验证显式启用 Unicode 路径，仍拒绝控制/双向字符、非 NFC 名称和不安全文件名。解析不将归档路径解压到宿主机目录。
+ZIP 压缩内容最多 24MB，解压总计 64MB、单项 8MB、成员 1500、压缩比最多 2000。逐流读取且检查实际解压字节，拒绝加密、链接、设备节点、重复路径/大小写别名、绝对路径、盘符、父目录、Windows 保留名。原生/Polygon 导入继续拒绝非 ASCII 路径；仅 Hydro / NovaJudge 中文题包导出和其验证显式启用 Unicode 路径，仍拒绝控制/双向字符、非 NFC 名称和不安全文件名。NovaJudge 显式目录也计入成员限制并拒绝路径冲突。解析不将归档路径解压到宿主机目录。
 
 XML 用固定版本 saxes 6.0.0 解析，最多 1MB / 10000 节点 / 24 层 / 每节点 30 属性；拒绝 DTD、实体声明、处理指令和非 UTF-8，不解析网络或文件实体。未消费的节点和属性有明确报告，未知判题语义默认阻塞。图片仍受平台 PNG/JPEG 尺寸/类型限制。所有作者程序与 TeX 后续执行仍只进入独立 Linux 沙箱。
 

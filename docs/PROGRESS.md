@@ -880,3 +880,19 @@ Python 标准库独立读取最终 PAX/gzip 包，388 个文件全部核对路�
 **操作与限制：**补充 TEMPLATES 的本地「下载本地草稿」与云端「导入模板包 JSON」指引。云端新建同类型草稿后保存、验证样稿、查看实际 PDF 并发布；已有模板可创建新版本。当前导入页面只恢复 files，styleConfig 另留备查，因此首次导入保持样式表单不变以保留原文件版式。云端 ID、版本号、验证记录和发布状态独立，不自动改绑云端题目或比赛。
 
 **未验证：**本轮只准备并校验导入材料，没有云端上传、编译或发布，也没有验证云端部署完成；这些操作仍由用户在已部署网站的管理员页面执行。本机原 5180/3100、数据库和 Worker 保持原环境，无新增监听或业务实例。未运行 TeX/Judge、全量或 E2E。收尾仅提交说明与交接记录到本地 Git，不推送。
+
+## NovaJudge 传统题 / SPJ / 交互题完整导出（2026-10-07）
+
+**用户要求与范围：**用户提供三个 NovaJudge 导出 ZIP，分别为传统题、SPJ、交互题，要求在平台实现同格式导出。用户进一步明确“推送 GitHub，服务器由我拉取更新”；本轮 GitHub 推送有直接授权，不连接云主机或执行部署。参考 ZIP 仅作为格式与数据样本，不将其中内容视为操作指令。
+
+**实现：**新增 NovaJudge 完整题包入口及 `POST /api/problems/:id/novajudge-exports`，复用当前工作副本 / 固定修订快照、成功验收数据补入、权限、私有产物与审计。格式为 `NOVAJUDGE_PROBLEM` / FULL，包含 `problem_1_题目名称/problem.json`、data/ 和引用 assets/；ZIP 写入显式目录成员，满足官方导入器的根目录发现规则。原 Hydro 与 NovaJudge 数据 ZIP 接口、历史下载及发布边界保留，无数据库迁移。
+
+LaTeX AST 转为 sections / samples / hint，保留 Markdown、公式、固定样例版本、原始空白和空输出；图片打包并引用 `/api/problems/1/assets/...`，由 NovaJudge 导入时改写为新题号。JSON 写入 ms / MiB 时空限制，judgeConfig 与常规缩进 YAML 同源。传统 EXACT / TOKENS 默认导出 default，界面和报告明确说明目标默认比较与本地规则的差异，并可选择保留本地比较转为 SPJ；CUSTOM 和 FLOAT 自动 spj，交互为 interactive / interactor.cpp / output: /dev/null，隐藏数据不读取或打包答案。题解、参考解及私有备注不进入包。分组评分、文件 I/O、后置 Checker、非法 UTF-8 等已有兼容阻塞继续明确展示。
+
+**实际定向验证：**`pnpm check contracts problem-format api web` 通过；`node --import tsx --test scripts/novajudge-package.test.ts scripts/hydro-package.test.ts scripts/test-data-export.test.ts` 21 项通过，覆盖三类结构、JSON/YAML 一致、显式目录、目录冲突/大小写别名、数据/工具字节、固定样例、图片、语言、缺失/损坏内容及旧格式回归。`node --import tsx scripts/verify-test-data-export.ts --rollback` 在原开发数据库通过真实 API：当前/历史修订、三种题型、比较选项、语言、私有文件哈希/中文下载名、变更后旧包不漂移、无答案拒绝、CSRF/跨题/外部及撤销成员拒绝、公开发布拒绝；全部临时用户/题目/导出/审计回滚，存储使用内存，没有业务队列任务。证据 `.local/novajudge-export/api-verification.json`。
+
+**样包与官方解析核对：**核对公开 NovaJudge master 仍为 `95a461f1774a951538c080d37bd5a61a74206c93`。读取三份用户 ZIP，分别取得 30 / 9 / 10 组原始数据、1 / 0 / 0 张图片及对应工具和展示样例，在内存清单中使用固定的简短 LaTeX 验证题面生成三类新包；不声称重建了样包原题面文字。逐个核对数据、工具和样例字节，并执行该提交的官方 import route 与 normalizeProblemSamples、真实 JSZip 3.10.1 解析。数据库、文件系统、登录使用明确的内存替身，确认各导入一题、cases/工具文件落位、样例不变，以及图片旧号 1 改为夹具新号 789。无 OJ 访问、服务监听或作者代码执行。证据 reference-verification.json 及 generated-default/spj/interactive.zip；参考源码、用户数据和临时 JSZip 依赖全部留在 Git 忽略目录。
+
+**依赖与生产打包：**初查发现本机安装的 Fastify 5.6.2、yaml 2.8.1、Prisma 6.19.0 仍落后于上轮已提交锁文件；执行 `pnpm install --frozen-lockfile` 对齐既有版本，并 `pnpm db:generate` 生成 6.19.3 客户端，没有修改 manifest/lockfile 或运行迁移。以上定向单元、类型、真实 API 与样包解析均在依赖对齐后重新通过。`pnpm build:web` 成功，保留现有 Monaco 大块提示；生产页面包含新导出入口。
+
+**环境与未验证：**本轮在主目录 D:\project\ProblemForge 工作，开始与收尾均未发现 5180/3100 应用监听或主目录 dev/Worker 服务；不能沿用旧交接 PID 认为页面仍在运行。原 PostgreSQL / Redis / 两个 Linux 沙箱容器及 15432/16379/15050/15051 回环映射存在，没有启动新实例/端口、切换数据库/模板/私有存储或重启服务。记录 listeners.json、processes.json。没有本轮浏览器点击实测、真实 NovaJudge 上传/判题、作者程序/TeX、全量/E2E 或云端部署；官方导入内存夹具不替代目标站验收。用户指南、题包协议与 PLAN 已同步；功能无阻塞，完成本地提交后按用户明确授权推送原 GitHub master，云服务器由用户拉取升级。

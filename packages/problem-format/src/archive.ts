@@ -12,7 +12,7 @@ export function safeExportPath(path:string){
   if(!path||path.length>200||Buffer.byteLength(path)>600||path!==path.normalize('NFC')||/[\p{Cc}\p{Cf}\p{Cs}\\:"<>|?*]/u.test(path)||path.startsWith('/')||path.split('/').some(p=>!p||p==='.'||p==='..'||/[. ]$/.test(p)||/^(con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\.|$)/i.test(p)))throw new PackageError(`不安全的导出路径：${path.slice(0,200)}`);
   return path;
 }
-type ArchiveOptions={unicodePaths?:boolean};
+type ArchiveOptions={unicodePaths?:boolean;explicitDirectories?:boolean};
 export async function readArchive(bytes:Buffer,options:ArchiveOptions={}):Promise<Map<string,Buffer>>{
   if(bytes.length>limits.compressed)throw new PackageError('压缩包超过 24MB');
   const zip=await new Promise<ZipFile>((resolve,reject)=>fromBuffer(bytes,{lazyEntries:true,validateEntrySizes:true,strictFileNames:true},(e,z)=>e?reject(new PackageError(e.message)):resolve(z!)));
@@ -33,7 +33,13 @@ export async function readArchive(bytes:Buffer,options:ArchiveOptions={}):Promis
 }
 export async function writeArchive(files:Map<string,Buffer>,options:ArchiveOptions={}){
   if(files.size>limits.count)throw new PackageError('导出成员过多');let total=0;const names=new Set<string>();for(const [path,bytes]of files){(options.unicodePaths?safeExportPath:safePath)(path);if(names.has(path.toLowerCase()))throw new PackageError('导出路径重复（包括大小写别名）');names.add(path.toLowerCase());total+=bytes.length;if(bytes.length>limits.entry||total>limits.expanded)throw new PackageError('导出内容超出包大小限制');}
+  // NovaJudge discovers problems from directory entries, not just path prefixes.
+  const directories=new Set<string>();
+  if(options.explicitDirectories)for(const path of files.keys()){const parts=path.split('/');for(let i=1;i<parts.length;i++)directories.add(parts.slice(0,i).join('/'));}
+  const directoryNames=new Set<string>();for(const path of directories){const name=path.toLowerCase();if(names.has(name)||directoryNames.has(name))throw new PackageError('导出目录路径冲突（包括大小写别名）');directoryNames.add(name);}
+  if(files.size+directories.size>limits.count)throw new PackageError('导出成员过多');
   const zip=new Writer(),chunks:Buffer[]=[];let compressed=0;
   const output=new Promise<Buffer>((resolve,reject)=>{zip.outputStream.on('data',(chunk:Buffer)=>{compressed+=chunk.length;if(compressed>limits.compressed){(zip.outputStream as Readable).destroy(new PackageError('导出压缩包超过 24MB'));return;}chunks.push(chunk);});zip.outputStream.on('error',reject);zip.on('error',reject);zip.outputStream.on('end',()=>resolve(Buffer.concat(chunks)));});
+  for(const path of directories)zip.addEmptyDirectory(path+'/',{mtime:new Date('2000-01-01T00:00:00Z'),mode:0o40755});
   for(const [path,bytes]of files)zip.addBuffer(bytes,path,{mtime:new Date('2000-01-01T00:00:00Z'),mode:0o100644});zip.end();return output;
 }
