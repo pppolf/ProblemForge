@@ -14,7 +14,7 @@ const revisionOptions = computed(() => [...(props.scope === 'contests' ? [{ labe
 const dataOptions = computed(() => [{ label: '当前已保存的内容', value: 'WORKING' }, ...revisionOptions.value]);
 const blocked = computed(() => selected.value?.report.some((r: any) => r.status === 'BLOCKED'));
 const isDataExport = (e: any) => ['HYDRO_DATA', 'NOVAJUDGE_DATA'].includes(e?.format);
-const isHydroProblem = (e: any) => e?.format === 'HYDRO_PROBLEM';
+const isHydroProblem = (e: any) => ['HYDRO_PROBLEM', 'HYDRO_CONTEST'].includes(e?.format);
 const isNovaProblem = (e: any) => e?.format === 'NOVAJUDGE_PROBLEM';
 function exportLabel(e: any) { return isNovaProblem(e) ? 'NovaJudge · 题目包' : isHydroProblem(e) ? 'Hydro · 题目包' : isDataExport(e) ? `${e.format === 'HYDRO_DATA' ? 'Hydro' : 'NovaJudge'} · 测试数据 ZIP` : `${e.format} · ${purposes.find(p => p.value === e.purpose)?.label}`; }
 async function act(fn: () => Promise<void>) { busy.value = true; try { await fn(); } catch (e) { message.error((e as Error).message); } finally { busy.value = false; } }
@@ -27,7 +27,7 @@ async function load() {
 }
 onMounted(() => act(load));
 async function generate() { await act(async () => {
-  selected.value = await api(`/${props.scope}/${props.id}/exports`, { method: 'POST', body: JSON.stringify({ ...(props.scope === 'contests' && revisionId.value === 'LATEST' ? { expectedVersion: contestVersion.value } : { revisionId: revisionId.value }), purpose: purpose.value, format: format.value }) });
+  selected.value = await api(`/${props.scope}/${props.id}/exports`, { method: 'POST', body: JSON.stringify({ ...(props.scope === 'contests' && revisionId.value === 'LATEST' ? { expectedVersion: contestVersion.value } : { revisionId: revisionId.value }), purpose: format.value === 'HYDRO' ? 'FULL' : purpose.value, format: format.value }) });
   await load(); message.success('题包已生成，查看兼容报告后下载');
 }); }
 async function generateData() { await act(async () => {
@@ -41,7 +41,7 @@ async function revoke(id: string) { await act(async () => { await api(`/releases
 <template>
   <div class="p4-editor">
     <section v-if="scope === 'problems'" class="test-data-export">
-      <div><h3>{{ targets.find(t => t.value === dataTarget)?.label }}</h3><p v-if="dataTarget === 'HYDRO'">以「题目名称_导出时间」打包：statement.md、题解.md 和 tests/。将 {{ language || '默认语言' }} 的题面与文档题解转为 Markdown，保留数学公式；测试数据、.cc 工具和配置放在 tests/，引用图片随包附上。</p><p v-else-if="dataTarget === 'NOVAJUDGE_PROBLEM'">导出 {{ language || '默认语言' }} 的题面、展示样例、图片、时空限制与判题数据，包含 problem.json、data/ 和引用的 assets/。根据判题配置生成传统题、SPJ 或交互题，可在 NovaJudge「导入题目」直接上传整个 ZIP。</p><p v-else>普通题导出 *.in、*.ans；交互题仅导出 *.in。随包附所需 Checker / Interactor。</p></div>
+      <div><h3>{{ targets.find(t => t.value === dataTarget)?.label }}</h3><p v-if="dataTarget === 'HYDRO'">以「题目名称_导出时间」打包：problem.yaml、problem.md、solution/ 和 testdata/。将 {{ language || '默认语言' }} 的题面与文档题解转为 Markdown，保留数学公式；测试数据、.cc 工具和配置放在 testdata/，引用图片随包附上。在 Hydro 题库「从 Hydro 导入」上传整个 ZIP；文档题解会导入为题目题解。</p><p v-else-if="dataTarget === 'NOVAJUDGE_PROBLEM'">导出 {{ language || '默认语言' }} 的题面、展示样例、图片、时空限制与判题数据，包含 problem.json、data/ 和引用的 assets/。根据判题配置生成传统题、SPJ 或交互题，可在 NovaJudge「导入题目」直接上传整个 ZIP。</p><p v-else>普通题导出 *.in、*.ans；交互题仅导出 *.in。随包附所需 Checker / Interactor。</p></div>
       <div class="p4-toolbar">
         <NSelect v-model:value="dataTarget" :options="targets" aria-label="导出目标平台" :disabled="busy" />
         <NSelect v-model:value="dataSource" :options="dataOptions" aria-label="导出内容来源" :disabled="busy" />
@@ -52,17 +52,18 @@ async function revoke(id: string) { await act(async () => { await api(`/releases
         <small>传统格式使用 NovaJudge 的逐行比较，会忽略行末空格及全文首尾空白。自定义 Checker、浮点比较自动导出为 SPJ；交互题使用 Interactor。导出不包含题解或参考解。</small>
       </template>
       <NAlert v-if="hasUnsaved && dataSource === 'WORKING'" type="warning">请先保存编辑，再导出当前内容。</NAlert>
-      <small v-else>可直接导出已保存的内容，无需先冻结。{{ dataTarget === 'HYDRO' ? '交互题 tests/ 仅含输入，不导出答案；题面中的交互样例仍保留。' : dataTarget === 'NOVAJUDGE_PROBLEM' ? '交互题 data/ 仅含隐藏输入；展示样例保留在 problem.json。' : '交互题数据 ZIP 仅含非样例输入，不导出答案。' }}</small>
+      <small v-else>可直接导出已保存的内容，无需先冻结。{{ dataTarget === 'HYDRO' ? '交互题 testdata/ 仅含输入，不导出答案；题面中的交互样例仍保留。' : dataTarget === 'NOVAJUDGE_PROBLEM' ? '交互题 data/ 仅含隐藏输入；展示样例保留在 problem.json。' : '交互题数据 ZIP 仅含非样例输入，不导出答案。' }}</small>
     </section>
     <h3>题目包</h3>
     <p>{{scope === 'contests' ? '默认导出题目最新保存的内容，也可选择历史冻结版本。' : '按用途选择固定修订。'}}原生完整包用于工作副本往返；Polygon 为离线子集，兼容报告逐项列出需处理内容。</p>
     <div class="p4-toolbar">
       <NSelect v-model:value="revisionId" :options="revisionOptions" placeholder="先保存修订 / 冻结比赛" />
-      <NSelect v-model:value="purpose" :options="purposes" />
-      <NSelect v-model:value="format" :options="[{ label: 'ProblemForge 原生 v1', value: 'NATIVE' }, { label: 'Polygon 离线子集', value: 'POLYGON' }]" />
+      <NSelect :value="format === 'HYDRO' ? 'FULL' : purpose" :options="purposes" :disabled="format === 'HYDRO'" @update:value="purpose = $event" />
+      <NSelect v-model:value="format" :options="[{ label: 'ProblemForge 原生 v1', value: 'NATIVE' }, { label: 'Polygon 离线子集', value: 'POLYGON' }, ...(scope === 'contests' ? [{ label: 'Hydro 题包', value: 'HYDRO' }] : [])]" />
       <NButton type="primary" :loading="busy" :disabled="!revisionId || busy || (scope === 'contests' && revisionId === 'LATEST' && (hasUnsaved || !contestWritable))" @click="generate">生成题包</NButton>
       <NButton :disabled="busy" @click="act(load)">刷新</NButton>
     </div>
+    <NAlert v-if="scope === 'contests' && format === 'HYDRO'" type="info">导出完整 Hydro 多题包。在 Hydro 题库「从 Hydro 导入」上传整个 ZIP，一次导入全部题目；文档题解随题导入，不创建比赛。保留当前成功验收与冻结版本检查。</NAlert>
     <NAlert v-if="scope === 'problems'" type="info">正式发布题目包需要当前工作副本对应的已冻结修订。私有导出不要求冻结。</NAlert>
     <div class="p4-split">
       <aside class="p4-list"><NButton v-for="e in exports" :key="e.id" :type="selected?.id === e.id ? 'primary' : 'default'" @click="selected = e">{{ exportLabel(e) }}<br />{{ new Date(e.createdAt).toLocaleString('zh-CN') }}</NButton></aside>

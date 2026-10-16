@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createRequire } from 'node:module';
-import { blankManifest, digest, exportHydroProblem, fencedCode, hydroDirectory, latexToMarkdown, readArchive, safeExportPath, writeArchive } from '@problemforge/problem-format';
+import { blankManifest, digest, exportHydroProblem, exportHydroContest, fencedCode, hydroDirectory, latexToMarkdown, readArchive, safeExportPath, writeArchive } from '@problemforge/problem-format';
 import { defaultInteractionSettings, type ManifestDocument, type ManifestProgram } from '@problemforge/contracts';
 
 const { parse: parseYaml } = createRequire(new URL('../packages/problem-format/package.json', import.meta.url))('yaml');
@@ -100,18 +100,20 @@ test('Hydro package has the requested UTF-8 tree, current documents and pinned s
   const before = structuredClone(m), result = await exportHydroProblem(m, read, support, { exportedAt });
   const zip = await writeArchive(result.files, { unicodePaths: true });
   const files = await readArchive(zip, { unicodePaths: true });
-  assert.deepEqual([...files.keys()], ['statement.md', '题解.md', 'assets/pic.png', 'tests/1.in', 'tests/1.ans', 'tests/3.in', 'tests/3.ans', 'tests/checker.cc', 'tests/config.yaml'].map(p => `${directory}/${p}`));
+  assert.deepEqual([...files.keys()], ['problem.yaml', 'problem.md', 'solution/题解.md', `additional_file/asset-${digest('assets/pic.png').slice(0, 24)}.png`, 'testdata/1.in', 'testdata/1.ans', 'testdata/3.in', 'testdata/3.ans', 'testdata/checker.cc', 'testdata/config.yaml'].map(p => `${directory}/${p}`));
   assert.equal(result.report.find(r => r.fileName)?.fileName, `${directory}.zip`);
-  const statement = files.get(`${directory}/statement.md`)!.toString();
+  const statement = files.get(`${directory}/problem.md`)!.toString();
   assert.match(statement, /^## 题目描述/); assert.match(statement, /```input1\n1  2\r\n```\n\n```output1\n3\r\n```/);
   assert(statement.indexOf('```output1') < statement.indexOf('## 样例解释'));
   assert(!/^# |^## 样例$|^### 样例(?:输入|输出)|^```text/m.test(statement));
   assert(!statement.includes('NEW SAMPLE')); assert(!statement.includes('PRIVATE'));
-  assert.match(files.get(`${directory}/题解.md`)!.toString(), /## 做法\n\n\*\*相加\*\*即可/);
-  assert.deepEqual(files.get(`${directory}/tests/3.in`), Buffer.from([0, 255, 13, 10]));
-  assert.equal(files.get(`${directory}/tests/1.in`)!.toString(), 'NEW SAMPLE\n');
-  assert.deepEqual(parseYaml(files.get(`${directory}/tests/config.yaml`)!.toString()).cases, [{ input: '1.in', output: '1.ans' }, { input: '3.in', output: '3.ans' }]);
+  assert.match(files.get(`${directory}/solution/题解.md`)!.toString(), /## 做法\n\n\*\*相加\*\*即可/);
+  assert.deepEqual(files.get(`${directory}/testdata/3.in`), Buffer.from([0, 255, 13, 10]));
+  assert.equal(files.get(`${directory}/testdata/1.in`)!.toString(), 'NEW SAMPLE\n');
+  assert.deepEqual(parseYaml(files.get(`${directory}/testdata/config.yaml`)!.toString()).cases, [{ input: '1.in', output: '1.ans' }, { input: '3.in', output: '3.ans' }]);
   assert(!result.report.some(r => /ZIP 根目录|不含.*题面/.test(r.message)));
+  assert.deepEqual(parseYaml(files.get(`${directory}/problem.yaml`)!.toString()), { title: m.meta.title, tag: m.meta.tags });
+  assert.match(statement, /!\[题目插图\]\(file:\/\/asset-[a-f0-9]{24}\.png\)/);
   assert.deepEqual(m, before);
   await assert.rejects(readArchive(zip), /不安全/); // The untrusted import policy is not broadened.
 });
@@ -121,11 +123,11 @@ test('interactive hidden tests stay input-only while bound sample output is in M
   const unreadableAnswer = m.tests[1].answer!.key;
   const result = await exportHydroProblem(m, key => { assert.notEqual(key, unreadableAnswer); return read(key); }, support, { exportedAt });
   const paths = [...result.files.keys()];
-  assert(!paths.some(p => p.endsWith('.ans') || p.endsWith('tests/1.in') || p.endsWith('checker.cc')));
-  assert.equal(result.files.get(`${directory}/tests/interactor.cc`)!.toString(), m.programs[0].source);
-  assert.deepEqual(result.files.get(`${directory}/tests/testlib.h`), support.testlib);
-  assert.match(result.files.get(`${directory}/statement.md`)!.toString(), /```output1\n3\r\n```/);
-  const config = parseYaml(result.files.get(`${directory}/tests/config.yaml`)!.toString());
+  assert(!paths.some(p => p.endsWith('.ans') || p.endsWith('testdata/1.in') || p.endsWith('checker.cc')));
+  assert.equal(result.files.get(`${directory}/testdata/interactor.cc`)!.toString(), m.programs[0].source);
+  assert.deepEqual(result.files.get(`${directory}/testdata/testlib.h`), support.testlib);
+  assert.match(result.files.get(`${directory}/problem.md`)!.toString(), /```output1\n3\r\n```/);
+  const config = parseYaml(result.files.get(`${directory}/testdata/config.yaml`)!.toString());
   assert.deepEqual(config.interactor, { file: 'interactor.cc', lang: 'auto' });
   assert.deepEqual(config.subtasks, [{ score: 100, id: 1, type: 'sum', cases: [{ input: '3.in', output: '/dev/null' }] }]);
 });
@@ -134,12 +136,12 @@ test('language, disabled documents and missing editorial are explicit', async ()
   const { m, read } = fixture();
   m.documents.push(document('STATEMENT', String.raw`\InputFile English input.`, 'en'));
   const en = await exportHydroProblem(m, read, support, { exportedAt, language: 'en' });
-  assert.match(en.files.get(`${directory}/statement.md`)!.toString(), /## Input/);
-  assert.match(en.files.get(`${directory}/题解.md`)!.toString(), /No enabled document editorial/);
-  assert(en.report.some(r => r.area === '题解.md' && r.status === 'WARNING'));
+  assert.match(en.files.get(`${directory}/problem.md`)!.toString(), /## Input/);
+  assert(!en.files.has(`${directory}/solution/题解.md`));
+  assert(en.report.some(r => r.area === '题解' && r.status === 'WARNING'));
   m.documents[1].enabled = false; m.documents[1].body = 'SECRET DISABLED EDITORIAL';
   const zh = await exportHydroProblem(m, read, support, { exportedAt });
-  assert(!zh.files.get(`${directory}/题解.md`)!.includes('SECRET'));
+  assert(!zh.files.has(`${directory}/solution/题解.md`));
   await assert.rejects(exportHydroProblem(m, read, support, { language: 'fr' }), /缺少已启用/);
   m.documents[0].enabled = false;
   await assert.rejects(exportHydroProblem(m, read, support, { language: 'zh-CN' }), /缺少已启用/);
@@ -164,4 +166,24 @@ test('Chinese export filenames are bounded and cannot escape the destination', a
   assert(hydroDirectory('😀'.repeat(160), exportedAt).length < 110);
   for (const path of ['../题解.md', '/题解.md', 'dir/../题解.md', 'dir\\题解.md', 'CON/file', 'a/题\u202e解.md', 'a/题解.md.']) assert.throws(() => safeExportPath(path), /不安全/);
   await assert.rejects(writeArchive(new Map([['题/a.md', Buffer.from('a')], ['题/A.md', Buffer.from('b')]]), { unicodePaths: true }), /重复/);
+});
+
+
+test('contest Hydro bundle exposes sibling problems, even with identical titles', async () => {
+  const { m, read } = fixture(), before = structuredClone(m);
+  const result = await exportHydroContest('测试比赛', [{ code: 'B', manifest: m }, { code: 'A', manifest: m }], read, support, { exportedAt, language: 'zh-CN' });
+  const files = await readArchive(await writeArchive(result.files, { unicodePaths: true }), { unicodePaths: true });
+  assert.deepEqual([...new Set([...files.keys()].map(p => p.split('/')[0]))], [`B_${directory}`, `A_${directory}`]);
+  for (const code of ['A', 'B']) {
+    assert(files.has(`${code}_${directory}/problem.yaml`));
+    assert(files.has(`${code}_${directory}/problem.md`));
+    assert(files.has(`${code}_${directory}/testdata/config.yaml`));
+  }
+  assert(![...files.keys()].some(p => p.endsWith('.zip') || p === 'contest.json'));
+  assert.equal(result.report.filter(r => r.fileName).length, 1);
+  assert.deepEqual(m, before);
+  await assert.rejects(exportHydroContest('比赛', [], read, support), /至少选择/);
+  await assert.rejects(exportHydroContest('比赛', [{ code: '../A', manifest: m }], read, support), /题号/);
+  await assert.rejects(exportHydroContest('比赛', [{ code: 'A', manifest: m }, { code: 'A', manifest: m }], read, support), /重复/);
+  await assert.rejects(exportHydroContest('比赛', [{ code: 'A', manifest: m }], read, support, { language: 'fr' }), /A：.*缺少/);
 });

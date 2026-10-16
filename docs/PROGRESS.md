@@ -1011,3 +1011,18 @@ Linux 完整入口夹具实际运行 Bash update、自动加载 env.sh、Git 打
 显式 `verify-generator-output.ts --sandbox` 在原 Linux 沙箱中运行有界 Python 夹具，通过实际 Executor 请求/输出收集：8,000,001 字节生成及复跑 AC、64,000,000 字节 AC 且 SHA-256 一致、64,000,001 字节 OLE；4096 字节解法限制及 65536 字节 stderr 限制仍触发 OLE；Checker 同时读取三份各 64 MB 文件 AC。Invocation/Storage 为替身，不创建真实任务或业务文件，临时缓存已清理。`verify-large-test-data.ts --rollback` 通过真实 Fastify 路由、原数据库必定回滚事务，验证 64 MB 输入/答案创建更新、超一字节拒绝、三份最大自测文件创建更新、8 MB + 1 字节 ZIP 导入和 64 MB 生成数据收集；存储只记录哈希/长度，事务后确认夹具题目/用户/审计均不存在。证据均在 `.local/generator-limit/`：types/unit/judge-core/cloud 日志、sandbox-result.json、api-result.json、judge-build.log。
 
 **原环境与边界：**改动监听前只读确认原服务树、原 Judge Compose 归属、127.0.0.1:15051 的 Docker 监听及零活动任务，仅更新原 problemforge-judge-sandbox-1（当前 480e5e60bd29，原端口），其余容器未操作。随后只重启主目录原 pnpm dev，收尾根 83944、Vite 67544、API 4728、两个 Worker 98448/26908；5180 首页 200、API 健康 ok、stderr 为空，无额外 Worker。题目、文稿/当前修订和模板指纹前后相同，Build/TestRun 活动数仍为 0，见 before/after、sandbox-before/after、services-verified。无新实例、端口、数据库、依赖或迁移。未运行真实业务队列、浏览器操作、TeX、全量/E2E、生产构建或最大并发压力测试；未登录云主机、推送或部署公网，云端更新及该用户原题生成结果待用户验收。JUDGE/PACKAGES/部署指南/PLAN 已同步，差异检查后本地提交，不 push；本轮无阻塞。
+
+
+## Hydro 单题与比赛多题导入题库适配（2026-10-16）
+
+**范围与实现：**用户指定只适配单题 Hydro，并在比赛增加 Hydro 多题包，明确禁止修改 NovaJudge 和其余业务逻辑。只读核对用户提供的 `/Users/jiangys/Jiangys/Program/Hydro-master/packages/hydrooj/src/model/problem.ts` 的 `ProblemModel.import`、`findOverrideContent` 以及导入入口：单题现导出 `problem.yaml`（题名、标签）、`problem.md`、`testdata/`、`additional_file/` 与可选 `solution/题解.md`。原始测试字节、绑定样例版本、Markdown/数学转换、工具与配置复用原实现。图片以源路径哈希生成扁平名称，使用 Hydro 的 `file://` 引用；题解会由 Hydro 自动导入为题目题解，界面及报告明确提示，缺失/停用时不生成占位题解。省略源题号、owner 和私有备注，由目标题库分配新题号与归属。
+
+比赛「题包与发布」格式新增「Hydro 题包」，请求 `format: HYDRO`、`purpose: FULL`，产物为私有 `HYDRO_CONTEST`。ZIP 根目录直接放 `A_题目名称_导出时间/` 等各题目录，保持编排顺序、同名题用题号隔离，不嵌套单题 ZIP 或添加比赛外层目录。在 Hydro 题库「从 Hydro 导入」上传整个 ZIP，一次导入全部题目，不创建比赛。沿用原当前编排冻结/成功验收检查及历史冻结来源，不改变题目、比赛或发布业务逻辑。保留原分组、文件 I/O、交互结束再 Checker 等不支持配置的阻塞报告。NovaJudge 导出函数、测试数据共用导出器、原生/Polygon 原有分支均无逻辑改动；共用界面仅添加 Hydro 条件分支。PACKAGES/PLAN 和原 Hydro 回滚验证脚本同步新路径。
+
+**实际验证：**本机 Node 24.14.1 / pnpm 10.11.1，按锁文件安装依赖且未改清单或锁文件；生成本地 Prisma Client（没有迁移、连接或创建数据库）。contracts/problem-format 类型检查通过；API 首次检查时本机缺少生成的 Prisma Client，生成后 API/Web 定向类型检查均通过。显式执行 hydro-package、test-data-export、novajudge-package 三个指定文件共 22 项通过，覆盖中文目录、固定样例、原始字节、图片/题解、缺失/损坏内容拒绝、交互输入与多题同名/顺序/重复题号等，并验证现有 NovaJudge 行为。
+
+新增 `hydro-exports-api.test.ts` 通过，实际加载本项目完整导出路由和 Fastify 契约，替换持久化、快照和权限服务且不监听，验证单题当前内容、比赛当前/历史内容、UTF-8 下载名和哈希、多题平铺、非法用途拒绝、下载重新调用访问检查及原生比赛包分支。此检查不代替真实数据库权限/冻结验收。
+
+显式运行 `verify-hydro-import.ts --hydro-root=/Users/jiangys/Jiangys/Program/Hydro-master` 通过：只读提取该版本原始导入方法与题面发现函数，仅转译 TS 并替换持久化边界；导出 ZIP 实际写出/解析，再放到 ProblemForge 专用临时目录，以 Hydro 原始目录导入分支分别识别 1 道单题和 3 道同名多题（普通比较、自定义 SPJ、交互）。核对题名/标签、题面/样例、图片附件、文档题解、二进制输入、答案和 testdata 配置均保留；全部导入报告成功，源清单不变，临时目录已清理。所读 Hydro model 源码 SHA-256：`d0a052df3f934f22847cd9b3849e113f2c2d87bab701da05457b657b80f2374e`。未加载 Hydro 服务或作者程序、未连接其数据库；Hydro 自身 ZIP 解压入口和真实站点上传未实测。
+
+**环境、未验证与收尾：**当前工作区实际为 Mac 主目录 `/Users/jiangys/Jiangys/Program/ProblemForge`；历史记录的 Windows `D:\project\ProblemForge` 服务信息不适用于本机。本轮开始及收尾只读检查 5180/3100 均无监听，相关开发进程不存在，且本仓库无 `.env`。没有启动新服务、端口、数据库、Worker 或切换原数据库/模板，没有业务数据改写。本轮未运行浏览器实点、真实原库回滚脚本、线上 Hydro 上传/判题、真实 TeX/Judge、全量/E2E 或部署；这些限制不记为已验收。代码与离线定向验证完成，无实现阻塞；差异检查后本地提交，不 push、不修改 Hydro 仓库或发布公网。

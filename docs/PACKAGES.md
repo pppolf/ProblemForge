@@ -16,7 +16,7 @@
 
 DATA 及 Polygon FULL 可补入该冻结修订所绑定成功验收的输入/答案，包括固定的生成数据，报告记录来源任务 ID。不读取后来任务，也不覆盖正式数据。原生 FULL 保留工作副本的原答案状态（例如未收集答案仍为 null），便于真实往返；导入后重新执行验收。内部任务定位信息、权限、负责人账号和审核发布记录不迁移。撤回仅阻止新的平台下载，无法追回已下载副本。
 
-交互题的样例只用于展示：DATA、Polygon FULL 的判题测试集和 Hydro / NovaJudge 导出的判题数据排除 `isSample` 数据，从历史验收补入数据时也排除样例。原生 FULL 仍完整保留样例与历史版本，STATEMENT、Hydro 的 statement.md 和 NovaJudge 的 problem.json.samples 保留题面绑定样例。普通批处理题继续包含启用样例。交互题分组只覆盖参与判题的数据；旧组引用交互样例时需显式更新后再导出或导入。
+交互题的样例只用于展示：DATA、Polygon FULL 的判题测试集和 Hydro / NovaJudge 导出的判题数据排除 `isSample` 数据，从历史验收补入数据时也排除样例。原生 FULL 仍完整保留样例与历史版本，STATEMENT、Hydro 的 problem.md 和 NovaJudge 的 problem.json.samples 保留题面绑定样例。普通批处理题继续包含启用样例。交互题分组只覆盖参与判题的数据；旧组引用交互样例时需显式更新后再导出或导入。
 
 ## ProblemForge 原生 v1
 
@@ -53,13 +53,15 @@ DATA 及 Polygon FULL 可补入该冻结修订所绑定成功验收的输入/答
 
 题目「题包与发布」顶部提供 Hydro 题目包和 NovaJudge 数据导出。`POST /api/problems/:id/test-data-exports` 接收 `target: HYDRO | NOVAJUDGE`，可选 `revisionId`、`language`；省略修订时以 RepeatableRead 固定当前已保存工作副本，报告记录快照哈希。无需冻结或验收，已有匹配成功验收时可补入其固定生成输入/答案；导出不执行作者程序，不修改题目或自动保存修订。未保存的页面编辑应先保存，固定修订则始终导出该版本。下载继续逐次检查当前题目权限，这两种专用导出不能通过公开发布接口发布。
 
-Hydro 按用户指定的目录生成私有 `HYDRO_PROBLEM` 包，ZIP 与顶层目录使用「题目名称_YYYY-MM-DD_HH-mm-ss」（北京时间）。保留中文，文件系统禁用字符替换为下划线，标题最多保留 80 个 Unicode 字符；下载头使用 UTF-8 文件名。名称随产物固定，后续改题名或下载时不会重新命名。历史 `HYDRO_DATA` 下载仍保留旧结构，需重新生成才能获得新包。
+Hydro 按用户指定的目录生成私有 `HYDRO_PROBLEM` 包，ZIP 与顶层目录使用「题目名称_YYYY-MM-DD_HH-mm-ss」（北京时间）。保留中文，文件系统禁用字符替换为下划线，标题最多保留 80 个 Unicode 字符；下载头使用 UTF-8 文件名。名称随产物固定，后续改题名或下载时不会重新命名。`problem.yaml` 只写题名与标签，省略源题 ID、owner 及私有备注，题号和归属由 Hydro 导入流程确定。历史 `HYDRO_DATA` 下载仍保留旧结构，需重新生成才能获得新包。
 
 ```text
 题目名称_导出时间/
-  statement.md
-  题解.md
-  tests/
+  problem.yaml       # 题名与标签，由 Hydro 分配新题号
+  problem.md
+  solution/
+    题解.md          # 仅有启用的当前语言文档题解时
+  testdata/
     编号.in
     编号.ans          # 普通题
     checker.cc       # 需要 Checker 时
@@ -67,20 +69,22 @@ Hydro 按用户指定的目录生成私有 `HYDRO_PROBLEM` 包，ZIP 与顶层�
     config.yaml
     testlib.h        # 自定义工具依赖
     testlib.LICENSE
-  assets/            # 仅存在图片引用时
+  additional_file/   # 引用图片，扁平文件名，Markdown 使用 file:// 链接
 ```
 
-题面和**文档题解**按工作区当前语言导出；API 省略语言时优先启用的 zh-CN 题面，否则取首个启用题面的语言。不混入 Beamer。缺少/停用题面时拒绝导出；缺少/停用该语言的文档题解时，仍提供 `题解.md`，明确注明缺失并在报告提示，不用其他语言或 Beamer 代替。
+题面和**文档题解**按工作区当前语言导出；API 省略语言时优先启用的 zh-CN 题面，否则取首个启用题面的语言。不混入 Beamer。缺少/停用题面时拒绝导出；缺少/停用该语言的文档题解时，不生成占位题解，仅在报告提示，不用其他语言或 Beamer 代替。启用的文档题解写入 `solution/题解.md`，Hydro 会自动将其导入为题目题解，界面和报告提示核对目标题库的题解可见性。
 
-Hydro 的 statement.md 不额外添加一级题名；开头为无标题的描述正文时补 `## 题目描述`（英文为 Description），已有小节标题保留。样例直接使用带语言标记的 `input1` / `output1` 代码块，多组依次为 input2/output2 等；不添加“样例”“样例输入”“样例输出”标题。手写 exmp 与绑定样例按最终展示顺序统一编号，绑定样例置于首个顶层 Note/Notes/Explanation/Explanations 前；存在样例时 Note/Notes 映射为 `## 样例解释`。通用代码块仍保留原类型，题解的标题格式不变。
+比赛「题包与发布」的格式选择新增 **Hydro 题包**。`POST /api/contests/:id/exports` 接收 `format: HYDRO`、固定 `purpose: FULL`，沿用 `expectedVersion`（当前编排）或 `revisionId`（历史冻结清单），以及原有成功验收、冻结和权限检查。生成私有 `HYDRO_CONTEST` 产物，下载名为「比赛名称_导出时间.zip」。ZIP 根目录直接放各题目录 `A_题目名称_导出时间/`、`B_题目名称_导出时间/` 等，每题内部结构同上；题号前缀避免同名题覆盖，不套比赛外层目录、不嵌套题目 ZIP、不写 contest.json。在 Hydro 题库同一「从 Hydro 导入」入口上传整个 ZIP，一次导入全部题目，不创建 Hydro 比赛，也不覆盖目标题号。题解随题导入；整个包受现有成员数和大小限制。此选项不改变原生/Polygon 导出或 NovaJudge 单题/测试数据导出逻辑。
 
-LaTeX 转换复用固定 unified-latex 1.8.4 AST 解析器，转换标题、平台题面/交互小节、粗体/强调、嵌套列表、普通表格、代码、引用段落与图片。行内/独立数学保留 `$…$` / `$$…$$`，align/gather 转换为可嵌入的 aligned/gathered，平台 mat 展开为数学命令；正文中的代码及样例不按 LaTeX 转换。题面按绑定的**样例修订**和顺序写入输入/输出代码块，放在顶层 Note 前，保留空格与换行；交互样例同样可展示。引用图片核验哈希后放入 assets/ 并使用相对链接，不导出无引用图片。无法对应的命令/环境和合并单元格表格保留可见 LaTeX 代码并逐项警告，不静默删内容；不声称支持任意 TeX 宏和模板排版。转换全程不执行 TeX、作者代码或外部资源。
+Hydro 的 problem.md 不额外添加一级题名；开头为无标题的描述正文时补 `## 题目描述`（英文为 Description），已有小节标题保留。样例直接使用带语言标记的 `input1` / `output1` 代码块，多组依次为 input2/output2 等；不添加“样例”“样例输入”“样例输出”标题。手写 exmp 与绑定样例按最终展示顺序统一编号，绑定样例置于首个顶层 Note/Notes/Explanation/Explanations 前；存在样例时 Note/Notes 映射为 `## 样例解释`。通用代码块仍保留原类型，题解的标题格式不变。
 
-Hydro 数据放在顶层目录内的 tests/，NovaJudge 测试数据 ZIP 保持根目录，均按原编号命名：普通题导出 `1.in` / `1.ans`，包含全部启用正式数据及样例；交互题只导出启用的非样例 `*.in`，即使已保存答案也不读取或打包 `.ans`，不补空答案。Hydro 交互用例明确设 `output: /dev/null`，NovaJudge 测试数据 ZIP 的交互 cases 仅列 input；均不引用答案文件。判题数据不含停用数据和样例历史；包中不含参考解、生成器或 Validator。逐个导出文件核验原字节、大小和 SHA-256。普通题缺答案、编号冲突、缺少/同时启用多个所需工具时拒绝生成；只有展示样例而无隐藏测试时直接提示补充数据。NovaJudge 测试数据 ZIP 不含题面、题解或图片；完整题目包见下一节。
+LaTeX 转换复用固定 unified-latex 1.8.4 AST 解析器，转换标题、平台题面/交互小节、粗体/强调、嵌套列表、普通表格、代码、引用段落与图片。行内/独立数学保留 `$…$` / `$$…$$`，align/gather 转换为可嵌入的 aligned/gathered，平台 mat 展开为数学命令；正文中的代码及样例不按 LaTeX 转换。题面按绑定的**样例修订**和顺序写入输入/输出代码块，放在顶层 Note 前，保留空格与换行；交互样例同样可展示。Hydro 引用图片核验哈希后放入 `additional_file/`，以源路径哈希生成扁平文件名，使用 `file://文件名` 链接，不导出无引用图片。无法对应的命令/环境和合并单元格表格保留可见 LaTeX 代码并逐项警告，不静默删内容；不声称支持任意 TeX 宏和模板排版。转换全程不执行 TeX、作者代码或外部资源。
+
+Hydro 数据放在顶层目录内的 testdata/，NovaJudge 测试数据 ZIP 保持根目录，均按原编号命名：普通题导出 `1.in` / `1.ans`，包含全部启用正式数据及样例；交互题只导出启用的非样例 `*.in`，即使已保存答案也不读取或打包 `.ans`，不补空答案。Hydro 交互用例明确设 `output: /dev/null`，NovaJudge 测试数据 ZIP 的交互 cases 仅列 input；均不引用答案文件。判题数据不含停用数据和样例历史；包中不含参考解、生成器或 Validator。逐个导出文件核验原字节、大小和 SHA-256。普通题缺答案、编号冲突、缺少/同时启用多个所需工具时拒绝生成；只有展示样例而无隐藏测试时直接提示补充数据。NovaJudge 测试数据 ZIP 不含题面、题解或图片；完整题目包见下一节。
 
 | 目标 | 配置与上传 |
 | --- | --- |
-| Hydro | `tests/config.yaml`，所有引用相对 tests/，time、memory 取题目限制。普通题 `checker_type: testlib`、`checker.cc` / `lang: cc`；交互题 `type: interactive`、`interactor.cc` / `lang: auto`，用例置于 `subtasks` 的 `score: 100`、`id: 1`、`type: sum` 组，每项显式 `output: /dev/null`。解压完整包后分别使用 Markdown，在目标题目的数据管理中上传 tests/ 内的文件或仅将其内容另打成 ZIP；本自定义完整目录不冒充 Hydro 原生一键导入协议。用户自定义工具需核对目标站 C++ 标准 |
+| Hydro | `testdata/config.yaml`，所有引用相对 testdata/，time、memory 取题目限制。普通题 `checker_type: testlib`、`checker.cc` / `lang: cc`；交互题 `type: interactive`、`interactor.cc` / `lang: auto`，用例置于 `subtasks` 的 `score: 100`、`id: 1`、`type: sum` 组，每项显式 `output: /dev/null`。在 Hydro 题库的「从 Hydro 导入」上传整个 ZIP，自动识别 problem.yaml、problem.md、testdata/、additional_file/ 和 solution/。用户自定义工具需核对目标站 C++ 标准 |
 | NovaJudge | 根目录 `problem.yml`，明确 cases、`type: spj` / `interactive` 及 `checker.cpp` / `interactor.cpp` 工具文件名。上传入口为目标题目的测试数据管理；上传数据不会更新题目时空限制，报告给出需填写的毫秒和 MiB |
 
 Hydro 使用常规缩进 YAML，复用仓库固定的 yaml 序列化；NovaJudge 测试数据 ZIP 保留 YAML 兼容的 JSON 写法。Hydro 交互用例按实际编号升序放入上述单组，不写顶层 cases、不写入 `/dev/null` 占位文件；这不自动转换本地部分分组，原分组评分兼容阻塞仍保留。EXACT / TOKENS / FLOAT 自动生成 C++11 可编译、testlib 返回协议兼容的 Checker，按目标命名为 `.cc` 或 `.cpp`，维持原始字节、六种 ASCII 空白、尾随 token、有限数值与误差规则；因此旧 NovaJudge 数据导出中的普通比较也使用 SPJ。自定义 Checker / Interactor 保留当前版本源码，随包附固定 `testlib.h` 与原 MIT 许可证；两站可能使用自带 testlib，目标编译配置及头文件版本仍需核对。
@@ -89,7 +93,7 @@ Hydro 使用常规缩进 YAML，复用仓库固定的 yaml 序列化；NovaJudge
 
 格式依据公开官方源码核对：Hydro [`ProblemConfig`](https://github.com/hydro-dev/Hydro/blob/b1e7989894677765fe0c6f01ca2b62ca1f3e5967/packages/common/types.ts) 与 [判题工具编译](https://github.com/hydro-dev/Hydro/blob/b1e7989894677765fe0c6f01ca2b62ca1f3e5967/packages/hydrojudge/src/task.ts)；NovaJudge [配置归一化](https://github.com/CWNU-Open-Source-Community/NovaJudge/blob/95a461f1774a951538c080d37bd5a61a74206c93/lib/problem-judge-config.ts)、[测试数据上传](https://github.com/CWNU-Open-Source-Community/NovaJudge/blob/95a461f1774a951538c080d37bd5a61a74206c93/app/admin/problems/%5Bid%5D/data/actions.ts) 与 [判题流程](https://github.com/CWNU-Open-Source-Community/NovaJudge/blob/95a461f1774a951538c080d37bd5a61a74206c93/lib/judge.ts)。没有访问、部署或上传到用户现有 OJ；格式检查与独立沙箱判定对照不等于外部站点上线验收。
 
-定向检查：`node --import tsx --test scripts/hydro-package.test.ts scripts/test-data-export.test.ts`；真实 API / 原库必定回滚：`node --import tsx scripts/verify-test-data-export.ts --rollback`，另显式添加 `--sandbox` 才做原 Linux 沙箱比较器对照。默认轻量快查不变。
+定向检查：`node --import tsx --test scripts/hydro-package.test.ts scripts/test-data-export.test.ts`；无监听的路由检查：`node --import tsx --test scripts/hydro-exports-api.test.ts`（真实 Fastify 路由与契约，持久化/快照/权限服务替身）；本机 Hydro 原始导入方法检查：`node --import tsx scripts/verify-hydro-import.ts --hydro-root=/path/to/Hydro`（只读读取导入方法，数据库写入替身，包解压到临时目录后清理）；真实 API / 原库必定回滚：`node --import tsx scripts/verify-test-data-export.ts --rollback`，另显式添加 `--sandbox` 才做原 Linux 沙箱比较器对照。默认轻量快查不变。
 
 ## NovaJudge 完整题目包
 

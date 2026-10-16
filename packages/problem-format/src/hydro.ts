@@ -1,3 +1,4 @@
+import { stringify as stringifyYaml } from 'yaml';
 import type { ManifestDocument, ProblemManifest, StoredBlob } from '@problemforge/contracts';
 import { limits, PackageError, safeExportPath } from './archive.ts';
 import { digest } from './native.ts';
@@ -50,38 +51,73 @@ export async function exportHydroProblem(
       return text;
     } catch { throw new PackageError('题面绑定样例不是可展示的 UTF-8 文本，请修正样例后导出'); }
   };
-  const samples: MarkdownSample[] = [], english = language?.startsWith('en');
+  const samples: MarkdownSample[] = [];
   for (const revisionId of statement.sampleRevisionIds) {
     const sample = manifest.samples.find(s => s.revisionId === revisionId);
     if (!sample || !sample.answer) throw new PackageError('题面绑定的样例版本或示例输出缺失，请重新绑定完整样例');
     samples.push({ input: await sampleText(sample.input), output: await sampleText(sample.answer) });
   }
+  // Hydro stores additional files in one flat directory and resolves file:// links.
+  const assetName = (path: string) => `asset-${digest(path).slice(0, 24)}.${path.split('.').at(-1)}`;
   const referencedAssets = new Set<string>();
   const document = (doc: ManifestDocument, filename: string, samples?: MarkdownSample[]) => {
-    const converted = latexToMarkdown(doc.body, { language, samples, statement: doc.kind === 'STATEMENT' });
+    const converted = latexToMarkdown(doc.body, { language, samples, statement: doc.kind === 'STATEMENT', assetUrl: path => `file://${assetName(path)}` });
     for (const path of converted.assets) referencedAssets.add(path);
     const heading = doc.kind === 'STATEMENT' ? '' : `# ${escapeMarkdown((doc.metadata.title || manifest.meta.title).replace(/[\r\n]+/g, ' '))}\n\n`;
     put(filename, Buffer.from(heading + converted.markdown));
     report.push({ area: filename, status: 'MAPPED', message: `${language} ${doc.kind === 'STATEMENT' ? '题面' : '文档题解'} v${doc.version} 已转成 Markdown，数学公式保留 $…$ / $$…$$。` });
     for (const warning of converted.warnings) report.push({ area: filename, status: 'WARNING', message: warning });
   };
-  document(statement, 'statement.md', samples);
-  if (editorial) document(editorial, '题解.md');
-  else {
-    put('题解.md', Buffer.from(`# ${escapeMarkdown(manifest.meta.title.replace(/[\r\n]+/g, ' '))}\n\n${english ? 'No enabled document editorial is available for this language.' : '当前语言尚无已启用的文档题解。'}\n`));
-    report.push({ area: '题解.md', status: 'WARNING', message: `${language} 文档题解缺失或已停用，文件中已注明；请保存并启用文档题解后重新导出。` });
+  // Omit source IDs and owners: Hydro assigns a new library ID and the importing user.
+  put('problem.yaml', Buffer.from(stringifyYaml({ title: manifest.meta.title, tag: manifest.meta.tags })));
+  document(statement, 'problem.md', samples);
+  if (editorial) {
+    document(editorial, 'solution/题解.md');
+    report.push({ area: '题解导入', status: 'WARNING', message: 'Hydro 会将 solution/题解.md 导入为题目题解；导入后请核对目标题库的题解可见性。' });
+  } else {
+    report.push({ area: '题解', status: 'WARNING', message: `${language} 文档题解缺失或已停用，不生成占位题解；请保存并启用文档题解后重新导出。` });
   }
   if (samples.length) report.push({ area: '题面样例', status: 'MAPPED', message: `${samples.length} 组绑定样例按固定版本写入 inputN / outputN 代码块，保留输入/输出的空格、换行和顺序。` });
   for (const path of referencedAssets) {
     const asset = manifest.assets.find(a => a.path === path);
     if (!asset) throw new PackageError(`题面或题解引用的图片不存在：${path}`);
-    put(path, await checked(asset.blob, '图片'));
+    put(`additional_file/${assetName(path)}`, await checked(asset.blob, '图片'));
   }
-  if (referencedAssets.size) report.push({ area: '图片', status: 'MAPPED', message: `${referencedAssets.size} 张引用图片已放入 assets/，Markdown 使用相对路径。` });
+  if (referencedAssets.size) report.push({ area: '图片', status: 'MAPPED', message: `${referencedAssets.size} 张引用图片已放入 additional_file/，Markdown 使用 Hydro 的 file:// 链接。` });
   const data = await exportTestData(manifest, 'HYDRO', read, support);
-  for (const [path, bytes] of data.files) put(`tests/${path}`, bytes);
-  report.push(...data.report.filter(r => r.area !== '上传位置').map(r => r.area === '测试数据' ? { ...r, message: r.message.replace('ZIP 根目录', 'tests/ 目录').replace('、题面、题解和参考解', '和参考解') } : r));
-  report.push({ area: '目录结构', status: 'MAPPED', message: 'statement.md 为题面，题解.md 为文档题解；tests/ 包含测试输入、普通题答案、所需 Checker / Interactor、config.yaml 和工具依赖。' });
-  report.push({ area: '使用说明', status: 'MAPPED', message: '按此目录解压，分别使用 Markdown 题面和题解；在 Hydro 的题目测试数据管理中上传 tests/ 内的文件（或仅将其内容另打成 ZIP）。' });
+  for (const [path, bytes] of data.files) put(`testdata/${path}`, bytes);
+  report.push(...data.report.filter(r => r.area !== '上传位置').map(r => r.area === '测试数据' ? { ...r, message: r.message.replace('ZIP 根目录', 'testdata/ 目录').replace('、题面、题解和参考解', '和参考解') } : r));
+  report.push({ area: '目录结构', status: 'MAPPED', message: 'problem.yaml 保存题名和标签，problem.md 为题面，solution/ 为已启用文档题解，additional_file/ 为引用图片；testdata/ 包含原始测试数据、所需工具和 config.yaml。' });
+  report.push({ area: '使用说明', status: 'MAPPED', message: '在 Hydro 题库的「从 Hydro 导入」入口上传整个 ZIP，导入为一道新题；无需解压或单独上传测试数据。目标站分配题号，不创建比赛。' });
+  return { files, report };
+}
+
+/** Flat sibling problem directories, as consumed by Hydro's library importer. */
+export async function exportHydroContest(
+  title: string, items: { code: string; manifest: ProblemManifest }[],
+  read: (key: string) => Promise<Buffer>, support: { testlib: Buffer; license: Buffer },
+  options: { language?: string; exportedAt?: Date } = {},
+): Promise<PackageResult> {
+  if (!items.length) throw new PackageError('至少选择一道题目');
+  const exportedAt = options.exportedAt ?? new Date(), name = hydroDirectory(title, exportedAt);
+  const files = new Map<string, Buffer>(), codes = new Set<string>();
+  const report: Issue[] = [{ area: '导出文件', status: 'MAPPED', message: `${name}.zip；各题目录直接位于 ZIP 根目录。`, fileName: `${name}.zip` }];
+  let total = 0;
+  for (const item of items) {
+    if (!/^[A-Z][A-Z0-9]{0,7}$/.test(item.code) || codes.has(item.code)) throw new PackageError('比赛题号无效或重复');
+    codes.add(item.code);
+    let result: PackageResult;
+    try { result = await exportHydroProblem(item.manifest, read, support, { ...options, exportedAt }); }
+    catch (error) { if (error instanceof PackageError) throw new PackageError(`${item.code}：${error.message}`); throw error; }
+    for (const [path, bytes] of result.files) {
+      // Prefix the problem directory with its contest code, keeping equal titles distinct.
+      const destination = safeExportPath(`${item.code}_${path}`);
+      total += bytes.length;
+      if (files.size >= limits.count || total > limits.expanded) throw new PackageError('导出内容超出包大小限制');
+      files.set(destination, bytes);
+    }
+    report.push(...result.report.filter(r => !r.fileName).map(r => ({ ...r, area: `${item.code}/${r.area}` })));
+  }
+  report.push({ area: '使用说明', status: 'MAPPED', message: `在 Hydro 题库的「从 Hydro 导入」入口上传整个 ZIP，一次导入 ${items.length} 道题。题号由目标站分配；包内比赛题号仅用于区分目录，不创建 Hydro 比赛。` });
   return { files, report };
 }
