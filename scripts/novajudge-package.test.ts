@@ -28,6 +28,7 @@ test('contest packages contain ordered standalone folders for all three types an
   for (const [i, f] of fixtures.entries()) {
     f.m.documents[0].body += String.raw`\includegraphics{assets/pic.png}`;
     f.m.assets = [{ id: 'pic', name: 'same image name', path: 'assets/pic.png', mediaType: 'image/png', blob: f.blob(`image-${i}`) }];
+    f.m.meta.tags = ['math'];
   }
   const before = fixtures.map(f => structuredClone(f.m)), store = new Map(fixtures.flatMap(f => [...f.store]));
   const result = await exportNovaJudgeContest('测试比赛', fixtures.map((f, i) => ({ code: codes[i], manifest: f.m })), async key => store.get(key)!, support, { language: 'zh-CN' });
@@ -51,6 +52,9 @@ test('contest packages contain ordered standalone folders for all three types an
   assert.equal(result.report.filter(r => r.fileName).length, 1);
   assert.equal(result.report.find(r => r.fileName)?.fileName, 'contest_测试比赛_NovaJudge.zip');
   assert(result.report.some(r => r.area === 'C/答案比较' && r.status === 'WARNING'));
+  assert.equal(result.report.filter(r => r.area.endsWith('/图片') && r.status === 'MAPPED').length, 3);
+  assert.equal(result.report.filter(r => r.area.endsWith('/标签') && r.status === 'WARNING').length, 3);
+  assert.match(result.report.find(r => r.area === '导入位置')!.message, /不会自动创建比赛/);
   const directories = await new Promise<string[]>((resolve, reject) => fromBuffer(zip, { lazyEntries: true }, (error: Error, archive: any) => {
     if (error) return reject(error); const entries: string[] = [];
     archive.on('error', reject); archive.on('entry', (entry: any) => { if (entry.fileName.endsWith('/')) entries.push(entry.fileName); archive.readEntry(); });

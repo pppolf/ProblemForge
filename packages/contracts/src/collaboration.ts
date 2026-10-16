@@ -22,7 +22,10 @@ export const ContestFreezeInput = Type.Object({expectedVersion:Type.Integer({min
 export const ContestBuildInput = Type.Object({revisionId:Type.Optional(id),expectedVersion:Type.Optional(Type.Integer({minimum:1})),kinds:Type.Array(kind,{minItems:1,maxItems:3,uniqueItems:true}),subset:Type.Optional(Type.Array(id,{minItems:1,maxItems:100,uniqueItems:true})),requestKey:Type.Optional(Type.String({minLength:8,maxLength:100}))},strict);
 export const PackagePurpose = Type.Union((['STATEMENT','EDITORIAL_DOCUMENT','EDITORIAL_BEAMER','DATA','REFERENCE','FULL'] as const).map(v=>Type.Literal(v)));
 export const ExportInput = Type.Object({revisionId:id,purpose:PackagePurpose,format:Type.Union([Type.Literal('NATIVE'),Type.Literal('POLYGON')])},strict);
-export const ContestExportInput = Type.Object({...ExportInput.properties,revisionId:Type.Optional(id),expectedVersion:Type.Optional(Type.Integer({minimum:1}))},strict);
+export const ContestExportInput = Type.Union([
+  Type.Object({...ExportInput.properties,revisionId:Type.Optional(id),expectedVersion:Type.Optional(Type.Integer({minimum:1}))},strict),
+  Type.Object({revisionId:Type.Optional(id),expectedVersion:Type.Optional(Type.Integer({minimum:1})),purpose:Type.Literal('FULL'),format:Type.Literal('HYDRO')},strict),
+]);
 export const TestDataTarget = Type.Union([Type.Literal('HYDRO'),Type.Literal('NOVAJUDGE')]);
 export type TestDataTargetValue = Static<typeof TestDataTarget>;
 export const TestDataExportInput = Type.Object({target:TestDataTarget,revisionId:Type.Optional(id),language:Type.Optional(language)},strict);

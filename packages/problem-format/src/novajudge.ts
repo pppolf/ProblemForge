@@ -66,6 +66,8 @@ export async function exportNovaJudgeProblem(
     if (!asset) throw new PackageError(`题面引用的图片不存在：${path}`);
     put(path, await checked(asset.blob, '图片'));
   }
+  if (converted.assets.length) report.push({ area: '图片', status: 'MAPPED', message: `${converted.assets.length} 张引用图片已放入本题 assets/，导入时随包内题号重写正文和提示中的图片链接。` });
+  if (manifest.meta.tags.length) report.push({ area: '标签', status: 'WARNING', message: `NovaJudge 当前题包导入协议不读取标签；本地 ${manifest.meta.tags.length} 个标签未包含在此包中。` });
   const data = await exportTestData(manifest, 'NOVAJUDGE', read, support, { novaJudgeNativeComparison: options.comparison !== 'PRESERVE' });
   const config = JSON.parse(data.files.get('problem.yml')!.toString()) as { type: 'default' | 'spj' | 'interactive'; cases: { input: string; output?: string }[]; checker?: string; interactor?: string };
   const { type, ...judgeConfig } = config;
@@ -108,6 +110,6 @@ export async function exportNovaJudgeContest(
       throw error;
     }
   }
-  report.push({ area: '导入位置', status: 'MAPPED', message: '在 NovaJudge 管理后台的“导入题目”上传整个 ZIP，可批量导入全部题目。包内编号用于排序和图片引用，目标站分配新题号；题解、参考解和私有备注不导出。' });
+  report.push({ area: '导入位置', status: 'MAPPED', message: '在 NovaJudge 管理后台的“导入题目”上传整个 ZIP，可批量导入全部题目。包内编号用于排序和图片引用，目标站分配新题号；不会自动创建比赛或设置比赛权限。题解、参考解和私有备注不导出。' });
   return { files, report };
 }

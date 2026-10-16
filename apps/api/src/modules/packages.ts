@@ -1,7 +1,7 @@
 import{randomUUID}from'node:crypto';import{readFile}from'node:fs/promises';import{join}from'node:path';import{Type}from'@sinclair/typebox';
 import{ExportInput,ContestExportInput,TestDataExportInput,NovaJudgeExportInput,ContestNovaJudgeExportInput,isCppLanguage,isJudgingData,MAX_ARCHIVE_BASE64_LENGTH,type ProblemManifest}from'@problemforge/contracts';import{db,Prisma}from'@problemforge/database';
 import{problemAccess,contestAccess,hashObject,sha256,HttpError,audit,root}from'@problemforge/domain';
-import{PackageError,readArchive,writeArchive,safeExportPath,nativeExporter,polygonExporter,exportTestData,exportHydroProblem,exportNovaJudgeProblem,exportNovaJudgeContest,importNative,importPolygon,blobs,validateManifest,type Issue,type ImportResult}from'@problemforge/problem-format';
+import{PackageError,readArchive,writeArchive,safeExportPath,nativeExporter,polygonExporter,exportTestData,exportHydroProblem,exportHydroContest,exportNovaJudgeProblem,exportNovaJudgeContest,importNative,importPolygon,blobs,validateManifest,type Issue,type ImportResult}from'@problemforge/problem-format';
 import{validateBody}from'@problemforge/template-engine';import{groupOrder,TESTLIB_HASH}from'@problemforge/judge-core';
 import{authenticate,storage,type Api}from'../app.ts';import{revisionAccess}from'./revisions.ts';import{contestRevision,type FrozenContest}from'./contests.ts';import{restoreManifest}from'./restore-manifest.ts';import{problemSnapshot,readProblemSnapshot}from'./revision-snapshot.ts';
 import { currentContestRevision, readCurrentContestExport } from './contest-snapshot.ts';
@@ -11,7 +11,7 @@ const ConfirmInput=Type.Object({reportHash:Type.String({pattern:'^[a-f0-9]{64}$'
 type ImportReport={issues:Issue[];manifest:ProblemManifest;reportHash:string;committedProblemId?:string};
 function receiptView(record:{id:string;format:string;createdAt:Date;report:unknown}){const r=record.report as ImportReport;return{id:record.id,format:record.format,createdAt:record.createdAt,reportHash:r.reportHash,issues:r.issues,title:r.manifest.meta.title,committedProblemId:r.committedProblemId??null,counts:{documents:r.manifest.documents.length,programs:r.manifest.programs.length,tests:r.manifest.tests.length},canImport:!r.issues.some(i=>i.status==='BLOCKED')};}
 function exportFileName(e:{format:string;purpose:string;report:unknown}){
- const name=['HYDRO_PROBLEM','NOVAJUDGE_PROBLEM','NOVAJUDGE_CONTEST'].includes(e.format)&&Array.isArray(e.report)?e.report.find(r=>typeof r?.fileName==='string')?.fileName:undefined;
+ const name=['HYDRO_PROBLEM','HYDRO_CONTEST','NOVAJUDGE_PROBLEM','NOVAJUDGE_CONTEST'].includes(e.format)&&Array.isArray(e.report)?e.report.find(r=>typeof r?.fileName==='string')?.fileName:undefined;
  if(name&&!name.includes('/')&&name.endsWith('.zip'))return safeExportPath(name);
  return `${e.format}-${e.purpose}.zip`;
 }
@@ -106,10 +106,19 @@ export async function packageRoutes(app:Api){
   app.post(`/api/${scope}/:id/exports`,{preHandler:authenticate,schema:{params:Id,body:contest?ContestExportInput:ExportInput}},async req=>{
    const exporter=req.body.format==='NATIVE'?nativeExporter:polygonExporter;let files:Map<string,Buffer>,report:Issue[]=[],revisionId=req.body.revisionId;
    if(contest){const {revision:r,snapshot:frozen}=req.body.revisionId?await contestRevision(req.user,req.params.id,req.body.revisionId):await currentContestRevision(req.user,req.params.id,'expectedVersion' in req.body?req.body.expectedVersion:undefined);revisionId=r.id;files=new Map();
+    if(req.body.format==='HYDRO'){
+     const testlib=await readFile(join(root,'vendor/testlib/testlib.h'));
+     if(sha256(testlib)!==TESTLIB_HASH)throw new HttpError(503,'testlib 头文件校验失败，无法导出');
+     const items=[];
+     for(const item of frozen.selection.items){const p=frozen.problems.find(p=>p.problemId===item.problemId)!;const prepared=await exportManifest(p.manifest,'DATA','HYDRO',p.acceptanceRunId);items.push({code:item.code,manifest:prepared.manifest});report.push(...prepared.report.map(v=>({...v,area:item.code+'/'+v.area})));}
+     const result=await exportHydroContest(frozen.selection.title,items,key=>storage.get(key),{testlib,license:await readFile(join(root,'vendor/testlib/LICENSE'))},{language:frozen.selection.language});files=result.files;report.push(...result.report);
+    }else{
     for(const item of frozen.selection.items){const p=frozen.problems.find(p=>p.problemId===item.problemId)!;const prepared=await exportManifest(p.manifest,req.body.purpose,req.body.format,p.acceptanceRunId);const result=await exporter.export(prepared.manifest,req.body.purpose,key=>storage.get(key));report.push(...[...prepared.report,...result.report].map(v=>({...v,area:item.code+'/'+v.area})));files.set(`problems/${item.code}.zip`,await writeArchive(result.files));}
     files.set('contest.json',Buffer.from(JSON.stringify({format:'problemforge-contest-bundle',version:1,purpose:req.body.purpose,selection:frozen.selection,revision:{id:r.id,number:r.number,hash:r.hash},items:frozen.selection.items.map(i=>({code:i.code,path:`problems/${i.code}.zip`,revisionId:i.revisionId}))},null,2)));
+    }
    }else{if(!req.body.revisionId)throw new HttpError(400,'请选择题目固定修订');const r=await revisionAccess(req.user,req.body.revisionId);if(r.problemId!==req.params.id)throw new HttpError(404,'本题修订不存在');if(hashObject(r.manifest)!==r.hash)throw new HttpError(409,'修订清单校验失败');const prepared=await exportManifest(r.manifest as unknown as ProblemManifest,req.body.purpose,req.body.format,r.acceptanceRunId);const result=await exporter.export(prepared.manifest,req.body.purpose,key=>storage.get(key));files=result.files;report=[...prepared.report,...result.report];}
-   const bytes=await writeArchive(files),key=`exports/${randomUUID()}`;await storage.put(key,bytes);const row=await db.exportArtifact.create({data:{...(contest?{contestId:req.params.id}:{problemId:req.params.id}),revisionId:revisionId!,requestedById:req.user.id,purpose:req.body.purpose,format:req.body.format,key,hash:sha256(bytes),bytes:bytes.length,report:report as unknown as Prisma.InputJsonValue}});await audit(req.user.id,'EXPORT_PACKAGE',row.id,{purpose:row.purpose,format:row.format});return exportView(row);
+   const hydro=contest&&req.body.format==='HYDRO';
+   const bytes=await writeArchive(files,{unicodePaths:hydro}),key=`exports/${randomUUID()}`;await storage.put(key,bytes);const row=await db.exportArtifact.create({data:{...(contest?{contestId:req.params.id}:{problemId:req.params.id}),revisionId:revisionId!,requestedById:req.user.id,purpose:req.body.purpose,format:hydro?'HYDRO_CONTEST':req.body.format,key,hash:sha256(bytes),bytes:bytes.length,report:report as unknown as Prisma.InputJsonValue}});await audit(req.user.id,'EXPORT_PACKAGE',row.id,{purpose:row.purpose,format:row.format});return exportView(row);
   });
  }
  app.get('/api/exports/:id/file',{preHandler:authenticate,schema:{params:Id}},async(req,reply)=>{const e=await db.exportArtifact.findUnique({where:{id:req.params.id}});if(!e)throw new HttpError(404,'题包不存在');if(e.contestId)await contestAccess(req.user,e.contestId);else if(e.problemId)await problemAccess(req.user,e.problemId);else if(e.requestedById!==req.user.id)throw new HttpError(404,'导入隔离包不存在');const name=encodeURIComponent(exportFileName(e)).replace(/['()*]/g,c=>`%${c.charCodeAt(0).toString(16).toUpperCase()}`);return reply.type('application/zip').header('Content-Disposition',`attachment; filename="${e.format}-${e.purpose}.zip"; filename*=UTF-8''${name}`).send(await storage.get(e.key));});

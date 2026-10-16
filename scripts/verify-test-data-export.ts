@@ -77,11 +77,11 @@ try {
         assert.match(artifact.fileName, /^回滚题包测试_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.zip$/);
         assert.equal(decodeURIComponent(String(download.headers['content-disposition']).split("filename*=UTF-8''")[1]), artifact.fileName);
         const root = artifact.fileName.slice(0, -4) + '/';
-        assert(all.has(root + 'statement.md')); assert(all.has(root + '题解.md'));
+        assert(all.has(root + 'problem.yaml')); assert(all.has(root + 'problem.md'));
         assert([...all.keys()].every(path => path.startsWith(root)));
-        return new Map([...all].filter(([path]) => path.startsWith(root + 'tests/')).map(([path, bytes]) => [path.slice(root.length + 6), bytes]));
+        return new Map([...all].filter(([path]) => path.startsWith(root + 'testdata/')).map(([path, bytes]) => [path.slice(root.length + 9), bytes]));
       };
-      const markdown = async (artifact: any, name = 'statement.md') => (await readArchive((await call('GET', `/exports/${artifact.id}/file`)).rawPayload, { unicodePaths: true })).get(artifact.fileName.slice(0, -4) + '/' + name)!.toString();
+      const markdown = async (artifact: any, name = 'problem.md') => (await readArchive((await call('GET', `/exports/${artifact.id}/file`)).rawPayload, { unicodePaths: true })).get(artifact.fileName.slice(0, -4) + '/' + name)!.toString();
       const novaMetadata = async (artifact: any) => JSON.parse(await markdown(artifact, 'problem.json'));
       const snapshot = await problemSnapshot(tx, problemId), before = structuredClone(snapshot.manifest);
       const artifactIds: string[] = [];
@@ -93,7 +93,7 @@ try {
         assert.match(String(download.headers['content-disposition']), /attachment/);
         assert.equal(sha256(download.rawPayload), artifact.hash);
         const files = await unpack(artifact);
-        if (target === 'HYDRO') { const statement = await markdown(artifact); assert.match(statement, /## 输入格式/); assert.match(statement, /```input1\n1 2\r\n```\n\n```output1\n3\r\n```\n\n## 样例解释/); assert(!/^# |^## 样例$|^### 样例(?:输入|输出)/m.test(statement)); assert.match(await markdown(artifact, '题解.md'), /## 旧题解/); }
+        if (target === 'HYDRO') { const statement = await markdown(artifact); assert.match(statement, /## 输入格式/); assert.match(statement, /```input1\n1 2\r\n```\n\n```output1\n3\r\n```\n\n## 样例解释/); assert(!/^# |^## 样例$|^### 样例(?:输入|输出)/m.test(statement)); assert.match(await markdown(artifact, 'solution/题解.md'), /## 旧题解/); }
         assert.deepEqual(files.get('7.in'), Buffer.from('1 2\r\n')); assert.deepEqual(files.get('7.ans'), Buffer.from('3\r\n'));
         const configName = target === 'HYDRO' ? 'config.yaml' : 'problem.yml', checkerName = target === 'HYDRO' ? 'checker.cc' : 'checker.cpp';
         const config = parseYaml(files.get(configName)!.toString());
@@ -119,13 +119,13 @@ try {
       await call('PUT', `/documents/${statement.id}`, { ...documentBody, expectedVersion: 2, body: String.raw`\Description 新题面。\InputFile 新输入。` });
       await call('PUT', `/documents/${editorial.id}`, { ...documentBody, expectedVersion: 2, body: String.raw`\section{新题解}新的做法。`, sampleRevisionIds: [] });
       const current = (await call('POST', url, { target: 'HYDRO', language: 'zh-CN' })).json();
-      assert.match(await markdown(current), /新题面/); assert.match(await markdown(current, '题解.md'), /## 新题解/);
+      assert.match(await markdown(current), /新题面/); assert.match(await markdown(current, 'solution/题解.md'), /## 新题解/);
       const novaCurrent = (await generate('NOVAJUDGE_PROBLEM', { language: 'zh-CN' })).json();
       assert.match(JSON.stringify((await novaMetadata(novaCurrent)).sections), /新题面/);
       const english = await tx.document.create({ data: { problemId, language: 'en', kind: 'STATEMENT' } });
       await call('PUT', `/documents/${english.id}`, { ...documentBody, expectedVersion: 1, body: String.raw`\InputFile English input.`, sampleRevisionIds: [] });
       const en = (await call('POST', url, { target: 'HYDRO', language: 'en' })).json();
-      assert.match(await markdown(en), /## Input/); assert.match(await markdown(en, '题解.md'), /No enabled document editorial/);
+      assert.match(await markdown(en), /## Input/); assert(en.report.some((r: any) => r.area === '题解' && r.status === 'WARNING'));
       assert.match(JSON.stringify((await novaMetadata((await generate('NOVAJUDGE_PROBLEM', { language: 'en' })).json())).sections), /English input/);
       await call('PUT', `/tests/${testcase.id}`, { ...body, expectedVersion: 1, answerBase64: null });
       await call('POST', url, { target: 'HYDRO' }, 422);
@@ -133,14 +133,14 @@ try {
       const fixed = (await call('POST', url, { target: 'HYDRO', revisionId: revision.id })).json();
       assert.equal(fixed.revisionId, revision.id);
       assert.deepEqual((await unpack(fixed)).get('7.ans'), Buffer.from('3\r\n'));
-      assert.match(await markdown(fixed, '题解.md'), /## 旧题解/); assert(!((await markdown(fixed)).includes('新题面')));
+      assert.match(await markdown(fixed, 'solution/题解.md'), /## 旧题解/); assert(!((await markdown(fixed)).includes('新题面')));
       const novaFixed = (await generate('NOVAJUDGE_PROBLEM', { revisionId: revision.id })).json();
       assert.equal(novaFixed.revisionId, revision.id); assert.deepEqual((await unpack(novaFixed)).get('7.ans'), Buffer.from('3\r\n'));
       assert.equal((await novaMetadata(novaFixed)).sections[0].title, 'Input');
       const novaHistorical = (await call('GET', `/problems/${problemId}/exports`)).json().find((e: any) => e.id === artifactIds[2]);
       assert.deepEqual(await novaMetadata(novaHistorical), await novaMetadata(novaFixed));
       const historical = (await call('GET', `/problems/${problemId}/exports`)).json().find((e: any) => e.id === artifactIds[0]);
-      assert.deepEqual((await unpack(historical)).get('7.ans'), Buffer.from('3\r\n')); assert.match(await markdown(historical, '题解.md'), /## 旧题解/);
+      assert.deepEqual((await unpack(historical)).get('7.ans'), Buffer.from('3\r\n')); assert.match(await markdown(historical, 'solution/题解.md'), /## 旧题解/);
       const other = await tx.problem.create({ data: { title: 'Other rollback problem', members: { create: { userId, role: 'OWNER' } } } });
       await call('POST', `/problems/${other.id}/test-data-exports`, { target: 'HYDRO', revisionId: revision.id }, 404);
       await call('POST', `/problems/${other.id}/novajudge-exports`, { revisionId: revision.id }, 404);
