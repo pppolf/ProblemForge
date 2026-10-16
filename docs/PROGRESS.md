@@ -1049,3 +1049,11 @@ Linux 完整入口夹具实际运行 Bash update、自动加载 env.sh、Git 打
 `pnpm check contracts problem-format api web` 四范围通过；显式 hydro-package、test-data-export、novajudge-package、hydro-exports-api 共 26 项通过。顺序运行 `verify-test-data-export.ts --rollback` 与 `verify-contest-novajudge.ts --rollback`，验证合并后实际单题/比赛 Fastify 路由、权限、下载、固定来源与失败路径；均用原库回滚事务及内存存储，无持久夹具或任务。日志与原始导入结果在 `.local/novajudge-hydro-review/` 的 types.log、unit.log、single-api.log、contest-api.log、import-result.json。
 
 **原环境与边界：**先只读确认原 5180/3100 服务属于主目录及零活动任务，仅重启原 pnpm dev 进程树加载合并代码；停止后待原端口释放并再次核对无残留 API/Worker，再启动同一目录和端口。收尾根 86300、Vite 77064、API 98520、Worker 54476/45976，原首页 200、API 健康 ok、stderr 为空，无额外 Worker。题目、比赛及冻结记录、文稿与模板指纹前后相同，活动 Build/TestRun 均为 0，见 before/after、final-state、services-verified。未改 Docker 容器、数据库配置、模板、依赖或迁移；本轮未做浏览器实点、真实 Hydro 导入器复跑、外部 OJ 上传/判题、作者代码/TeX、全量/E2E、生产构建或云端部署。此前 G 题交互后置 Checker 的兼容阻塞保留；不将格式夹具当作目标站判题验收。差异检查后完成本地合并提交，不 push；本轮无实现阻塞。
+
+## 用户授权推送与既有云端更新交接（2026-10-16）
+
+**授权与交付内容：**用户明确要求推送并更新已有云端部署，本轮允许将本地主目录 master 正常推送至 origin/master。交付包含 NovaJudge 比赛导出 fe00264，以及保留远端 Hydro 功能的合并与兼容复核 bbfcfbc。本轮 fetch 后远端仍为 e5ff430，是本地 HEAD 的祖先，工作区干净，本地领先 2 个提交；没有分叉或需要强制推送的情况。本记录随交付提交，推送后核对远端 master 与本地 HEAD 一致。
+
+**验证与云端操作：**业务代码未再修改，沿用上一节已通过的 26 项定向测试、四范围类型检查、原库回滚 API 和官方 NovaJudge 导入器检查，不重复执行全量或真实沙箱任务。云端保持原 Ubuntu、PM2、Caddyfile 与域名，用户在原服务器 root 终端执行 `cd /root/ProblemForge && git pull --ff-only origin master && bash deploy.sh update`。已核对现有 update 入口会载入原工具环境、先检查配置和端口/托管资源归属、自动备份并切换发布版本，最后检查本机与 HTTPS；若提示先收尾旧 pending，再执行同一 update 命令获取最新提交。
+
+**未验证与边界：**本轮没有远程连接或执行服务器更新，实际部署成功须以服务器的“部署完成”输出和线上页面检查为准。本地服务、数据库与模板保持现状，未增加端口或触及其他项目；推送准备无阻塞，云端更新待用户执行。
