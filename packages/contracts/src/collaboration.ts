@@ -27,4 +27,5 @@ export const TestDataTarget = Type.Union([Type.Literal('HYDRO'),Type.Literal('NO
 export type TestDataTargetValue = Static<typeof TestDataTarget>;
 export const TestDataExportInput = Type.Object({target:TestDataTarget,revisionId:Type.Optional(id),language:Type.Optional(language)},strict);
 export const NovaJudgeExportInput = Type.Object({revisionId:Type.Optional(id),language:Type.Optional(language),comparison:Type.Optional(Type.Union([Type.Literal('NATIVE'),Type.Literal('PRESERVE')]))},strict);
+export const ContestNovaJudgeExportInput = Type.Object({revisionId:Type.Optional(id),expectedVersion:Type.Optional(Type.Integer({minimum:1})),comparison:NovaJudgeExportInput.properties.comparison},strict);
 export const ReleaseInput = Type.Object({buildId:Type.Optional(id),exportId:Type.Optional(id)},strict);

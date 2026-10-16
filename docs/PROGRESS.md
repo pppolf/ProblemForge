@@ -1011,3 +1011,15 @@ Linux 完整入口夹具实际运行 Bash update、自动加载 env.sh、Git 打
 显式 `verify-generator-output.ts --sandbox` 在原 Linux 沙箱中运行有界 Python 夹具，通过实际 Executor 请求/输出收集：8,000,001 字节生成及复跑 AC、64,000,000 字节 AC 且 SHA-256 一致、64,000,001 字节 OLE；4096 字节解法限制及 65536 字节 stderr 限制仍触发 OLE；Checker 同时读取三份各 64 MB 文件 AC。Invocation/Storage 为替身，不创建真实任务或业务文件，临时缓存已清理。`verify-large-test-data.ts --rollback` 通过真实 Fastify 路由、原数据库必定回滚事务，验证 64 MB 输入/答案创建更新、超一字节拒绝、三份最大自测文件创建更新、8 MB + 1 字节 ZIP 导入和 64 MB 生成数据收集；存储只记录哈希/长度，事务后确认夹具题目/用户/审计均不存在。证据均在 `.local/generator-limit/`：types/unit/judge-core/cloud 日志、sandbox-result.json、api-result.json、judge-build.log。
 
 **原环境与边界：**改动监听前只读确认原服务树、原 Judge Compose 归属、127.0.0.1:15051 的 Docker 监听及零活动任务，仅更新原 problemforge-judge-sandbox-1（当前 480e5e60bd29，原端口），其余容器未操作。随后只重启主目录原 pnpm dev，收尾根 83944、Vite 67544、API 4728、两个 Worker 98448/26908；5180 首页 200、API 健康 ok、stderr 为空，无额外 Worker。题目、文稿/当前修订和模板指纹前后相同，Build/TestRun 活动数仍为 0，见 before/after、sandbox-before/after、services-verified。无新实例、端口、数据库、依赖或迁移。未运行真实业务队列、浏览器操作、TeX、全量/E2E、生产构建或最大并发压力测试；未登录云主机、推送或部署公网，云端更新及该用户原题生成结果待用户验收。JUDGE/PACKAGES/部署指南/PLAN 已同步，差异检查后本地提交，不 push；本轮无阻塞。
+
+## 比赛界面导出 NovaJudge 整包（2026-10-16）
+
+**实现：**按用户要求在比赛「题包与发布」新增 NovaJudge 比赛题包入口，将全部题目合并为一个 ZIP，每题独立放在 `001_A_题目名称/` 等目录，直接包含 problem.json、data/ 和引用 assets/。复用现有单题导出器的传统题、SPJ、交互题及比较选项，保持单题接口默认格式；包内 ID 逐题递增、图片地址对应各题，数值前缀保留比赛编排顺序和同名题隔离。错误及转换报告带题号，整包共用既有容量和成员限制，不保存缺少必需数据的残缺产物。
+
+**接口和来源：**新增 `POST /api/contests/:id/novajudge-exports`，当前内容需负责人/编辑权限和 expectedVersion，通过一致读事务取得已保存编排与题目内容，无需先冻结、PDF 模板或执行新验收；支持补入快照匹配的成功验收答案。历史冻结版本沿用关联、哈希及读取权限校验，保留当时语言、顺序和题目内容。界面阻止未保存编排的当前导出，历史选项独立可用；导出历史标识 NOVAJUDGE_CONTEST，提供中文文件名下载，后续编辑不改变旧文件，不加入公开发布。
+
+**定向验证：**`pnpm check contracts problem-format api web` 四个范围通过；`node --import tsx --test scripts/novajudge-package.test.ts` 共 8 项通过，覆盖混合三题型、同名题与同名图片、12 题排序、比较选项、原字节样例/数据、JSON/YAML 一致及必需内容缺失。显式 `verify-contest-novajudge.ts --rollback` 在原数据库必定回滚事务中经过实际 Fastify 路由，检查当前/历史内容、源题更新与语言/顺序变化、版本冲突、CSRF、编辑/只读/非成员权限、跨比赛修订、撤权下载、禁止公开发布和失败无残缺文件；存储只用内存替身，无监听或作者代码执行，回滚后夹具用户/题目/比赛/导出/审计均不存在。证据 `.local/contest-novajudge/types.log`、unit.log、api.log、api-result.json；默认快查没有扩展。
+
+**实际页面和文件：**在原 `http://localhost:5180` 登录原管理员，进入 CWNU算协挑战赛的题包页，实际导出当前 7 道题并下载 `contest_CWNU算协挑战赛_NovaJudge.zip`（18,640,867 字节、209 个文件），按 A—G 分为 7 个目录，含 2 道传统题、4 道 SPJ 和 1 道交互题。下载 SHA-256 与页面一致。运行已核对的 NovaJudge 官方固定提交 95a461f 的导入处理代码，数据库/文件系统均为内存替身，验证全部 7 题顺序、字段、样例及所有数据/工具/资源字节一致；没有上传或连接现有 OJ，没有执行包内程序。原 G 题仍要求交互后置 Checker，报告正确标记该题兼容阻塞；这不影响整包生成，但不能据此宣称目标站判题等价。证据 browser-export.png、browser-download-result.json；控制台无 warn/error，验证标签页已退出登录并关闭。实际私有导出记录 cmvaxqg8p0003ktuw6bbvfvkf 和下载文件保留，可从比赛历史再次下载。
+
+**原环境与收尾：**开始时主目录原开发进程与四个既有 Compose 容器均停止。只读确认 5180/3100/15432/16379/15050/15051 无冲突及原容器项目、路径、端口归属，启动原四个容器，再于主目录启动原 pnpm dev；没有创建容器、数据库或额外端口。收尾根 85932、Vite 88380、API 76280、两个 Worker 33740/88012，监听仍为 5180/3100，首页 200、API 健康 ok、stderr 为空。题目、比赛及冻结记录、文稿/当前修订、模板指纹前后一致，活动 Build/TestRun 均为 0，见 before/after、final-state、services-verified。无新增依赖、迁移、作者代码或 TeX 执行；未做全量/E2E、生产构建、大包并发压力或外部站点实际导入判题，未登录云端、push 或部署公网。PACKAGES/USER_GUIDE/PLAN 已同步，差异检查后本地提交；实现无阻塞，G 题既有兼容项留待题目维护者处理。

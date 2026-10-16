@@ -25,6 +25,26 @@ export async function contestSources(tx: Prisma.TransactionClient, data: Contest
   return sources;
 }
 
+// Private OJ exports need saved statements/data, without PDF templates or a new freeze.
+export async function readCurrentContestExport(user: { id: string; role: string }, contestId: string, expectedVersion: number | undefined) {
+  await contestAccess(user, contestId, true);
+  if (expectedVersion === undefined) throw new HttpError(400, '导出当前内容时必须提供比赛编排版本');
+  return db.$transaction(async tx => {
+    const contest = await tx.contest.findUniqueOrThrow({ where: { id: contestId } });
+    if (contest.archived) throw new HttpError(409, '比赛已归档');
+    if (contest.version !== expectedVersion) throw new HttpError(409, '比赛编排已改变，请重载合并', 'VERSION_CONFLICT');
+    const selection = liveContestData(contest.data as ContestDataValue);
+    if (!selection.items.length) throw new HttpError(422, '至少选择一道题目');
+    const sources = await contestSources(tx, selection);
+    const problems = selection.items.map(item => {
+      const source = sources.get(item.problemId);
+      if (!source) throw new HttpError(409, `题号 ${item.code} 的源题已不存在，请调整比赛编排`);
+      return { problemId: item.problemId, hash: source.hash, manifest: source.manifest, acceptanceRunId: source.acceptanceRunId };
+    });
+    return { selection, problems };
+  }, { isolationLevel: 'RepeatableRead', timeout: 30000 });
+}
+
 export function contestRevisionCurrent(revision: { data: unknown; hash: string }, data: ContestDataValue, sources: Map<string, SourceSnapshot>) {
   const frozen = revision.data as FrozenContest;
   return hashObject(frozen) === revision.hash

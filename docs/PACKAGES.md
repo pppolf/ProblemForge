@@ -125,6 +125,29 @@ ZIP 显式写入目录成员，使官方导入器能够发现题目根目录。�
 
 在 NovaJudge **管理后台 → 导入题目** 上传整个 ZIP。依据：[官方导出](https://github.com/CWNU-Open-Source-Community/NovaJudge/blob/95a461f1774a951538c080d37bd5a61a74206c93/app/api/problems/export/route.ts)、[官方导入](https://github.com/CWNU-Open-Source-Community/NovaJudge/blob/95a461f1774a951538c080d37bd5a61a74206c93/app/api/problems/import/route.ts)。定向检查：`node --import tsx --test scripts/novajudge-package.test.ts`；上述 `verify-test-data-export.ts --rollback` 同时检查完整题包的三种题型、语言、固定修订、历史下载和权限。实际外部站点上传及判题仍需用户验收；未访问或操作现有 OJ。
 
+## NovaJudge 比赛题包
+
+比赛「题包与发布」顶部提供 **NovaJudge 比赛题包**，一次下载整场比赛的一个 ZIP。每题复用上面的单题格式，文件直接放入独立目录，不嵌套单题 ZIP：
+
+```text
+contest_比赛名称_NovaJudge.zip
+  001_A_题目名称/
+    problem.json
+    data/
+    assets/             # 有引用图片时
+  002_B_另一道题目/
+    problem.json
+    data/
+```
+
+按比赛题册的编排顺序导出，不按 Beamer 讲解顺序或题号字母排序。目录包含三位序号、原题号和清理后的题名；同名题各自独立。包内 `id` 从 1 递增，图片引用使用各题对应 ID，目标导入器分配新 ID 后重写。数值前缀兼容官方批量导入排序，超过 9 题仍保持编排次序。三类题型、比较选项、原字节数据、展示样例、引用图片与单题导出相同；每条转换报告带题号。
+
+接口 `POST /api/contests/:id/novajudge-exports` 接受 `revisionId?`、`expectedVersion?` 和 `comparison?: NATIVE | PRESERVE`，使用所选比赛版本的语言。当前内容需负责人或编辑权限和最新 `expectedVersion`，以一致事务读取已保存编排与题目快照；无需模板、提前冻结或新建验收任务，不创建比赛冻结记录。缺少答案时可复用该题快照匹配的成功验收答案；不能补齐时整包失败并指出题号。未保存编排、版本冲突或已归档比赛不能导出当前内容。历史 `revisionId` 必须属于当前比赛且哈希有效，有读取权限的成员可导出当时的编排和题目内容。
+
+产物保存为 `NOVAJUDGE_CONTEST` / FULL，沿用私有导出历史和下载权限；文件名为 `contest_比赛名称_NovaJudge.zip`。生成后内容固定，后续编辑不会改写旧下载；不支持公开发布。整场比赛共用下述归档大小与成员限制，任一题缺失必需内容时不会保存残缺题包。判题语义无法映射时仍保留逐题兼容报告，例如交互结束后再运行 Checker 的行为需要人工调整。
+
+在 NovaJudge **管理后台 → 导入题目** 上传整个 ZIP；这是批量导入题目，不会替目标站创建比赛或设置其比赛权限。定向检查仍为 `node --import tsx --test scripts/novajudge-package.test.ts`；比赛 API 的原库必定回滚检查为 `node --import tsx scripts/verify-contest-novajudge.ts --rollback`，不监听端口、不执行作者代码，存储只用内存替身，未加入默认快查。
+
 ## 安全与大小限制
 
 ZIP 压缩内容最多 128 MB，解压总计 256 MB、单项 64 MB、成员 1500、压缩比最多 2000。逐流读取且检查实际解压字节，拒绝加密、链接、设备节点、重复路径/大小写别名、绝对路径、盘符、父目录、Windows 保留名。原生/Polygon 导入继续拒绝非 ASCII 路径；仅 Hydro / NovaJudge 中文题包导出和其验证显式启用 Unicode 路径，仍拒绝控制/双向字符、非 NFC 名称和不安全文件名。NovaJudge 显式目录也计入成员限制并拒绝路径冲突。解析不将归档路径解压到宿主机目录。

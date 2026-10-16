@@ -9,17 +9,18 @@ const revisionId = ref<string | null>(props.scope === 'contests' ? 'LATEST' : nu
 const contestVersion = ref<number>(), contestWritable = ref(false);
 const dataTarget = ref('HYDRO'), dataSource = ref('WORKING'), novaComparison = ref('NATIVE');
 const targets = [{ label: 'Hydro 题目包', value: 'HYDRO' }, { label: 'NovaJudge 题目包', value: 'NOVAJUDGE_PROBLEM' }, { label: 'NovaJudge 测试数据 ZIP', value: 'NOVAJUDGE' }];
+const novaComparisons = [{ label: '普通题使用 NovaJudge 传统格式', value: 'NATIVE' }, { label: '保留本地比较规则（普通题转为 SPJ）', value: 'PRESERVE' }];
 const purposes = [{ label: '题面（含引用样例与图片）', value: 'STATEMENT' }, { label: '文档题解', value: 'EDITORIAL_DOCUMENT' }, { label: 'Beamer 题解', value: 'EDITORIAL_BEAMER' }, { label: '正式数据与判题工具', value: 'DATA' }, { label: '参考解源码', value: 'REFERENCE' }, { label: '完整题目包', value: 'FULL' }];
 const revisionOptions = computed(() => [...(props.scope === 'contests' ? [{ label: '最新题目内容（自动同步）', value: 'LATEST' }] : []), ...revisions.value.map(r => ({ label: `#${r.number} ${r.label ?? ''}${r.current ? ' · 当前' : ' · 历史'}`, value: r.id }))]);
-const dataOptions = computed(() => [{ label: '当前已保存的内容', value: 'WORKING' }, ...revisionOptions.value]);
+const dataOptions = computed(() => [{ label: props.scope === 'contests' ? '当前编排与最新已保存题目' : '当前已保存的内容', value: 'WORKING' }, ...revisionOptions.value.filter(r => r.value !== 'LATEST')]);
 const blocked = computed(() => selected.value?.report.some((r: any) => r.status === 'BLOCKED'));
 const isDataExport = (e: any) => ['HYDRO_DATA', 'NOVAJUDGE_DATA'].includes(e?.format);
 const isHydroProblem = (e: any) => e?.format === 'HYDRO_PROBLEM';
-const isNovaProblem = (e: any) => e?.format === 'NOVAJUDGE_PROBLEM';
-function exportLabel(e: any) { return isNovaProblem(e) ? 'NovaJudge · 题目包' : isHydroProblem(e) ? 'Hydro · 题目包' : isDataExport(e) ? `${e.format === 'HYDRO_DATA' ? 'Hydro' : 'NovaJudge'} · 测试数据 ZIP` : `${e.format} · ${purposes.find(p => p.value === e.purpose)?.label}`; }
+const isNovaProblem = (e: any) => ['NOVAJUDGE_PROBLEM', 'NOVAJUDGE_CONTEST'].includes(e?.format);
+function exportLabel(e: any) { return e?.format === 'NOVAJUDGE_CONTEST' ? 'NovaJudge · 比赛题包' : isNovaProblem(e) ? 'NovaJudge · 题目包' : isHydroProblem(e) ? 'Hydro · 题目包' : isDataExport(e) ? `${e.format === 'HYDRO_DATA' ? 'Hydro' : 'NovaJudge'} · 测试数据 ZIP` : `${e.format} · ${purposes.find(p => p.value === e.purpose)?.label}`; }
 async function act(fn: () => Promise<void>) { busy.value = true; try { await fn(); } catch (e) { message.error((e as Error).message); } finally { busy.value = false; } }
 async function load() {
-  if (props.scope === 'contests') { const contest = await api(`/contests/${props.id}`); revisions.value = contest.revisions; contestVersion.value = contest.version; contestWritable.value = ['OWNER', 'EDITOR'].includes(contest.role); }
+  if (props.scope === 'contests') { const contest = await api(`/contests/${props.id}`); revisions.value = contest.revisions; contestVersion.value = contest.version; contestWritable.value = !contest.archived && ['OWNER', 'EDITOR'].includes(contest.role); }
   else revisions.value = await api(`/problems/${props.id}/revisions`);
   exports.value = await api(`/${props.scope}/${props.id}/exports`);
   releases.value = await api(`/${props.scope}/${props.id}/releases`);
@@ -31,6 +32,10 @@ async function generate() { await act(async () => {
   await load(); message.success('题包已生成，查看兼容报告后下载');
 }); }
 async function generateData() { await act(async () => {
+  if (props.scope === 'contests') {
+    selected.value = await api(`/contests/${props.id}/novajudge-exports`, { method: 'POST', body: JSON.stringify({ comparison: novaComparison.value, ...(dataSource.value === 'WORKING' ? { expectedVersion: contestVersion.value } : { revisionId: dataSource.value }) }) });
+    await load(); message.success('整场比赛题包已生成，查看转换报告后下载'); return;
+  }
   const nova = dataTarget.value === 'NOVAJUDGE_PROBLEM';
   selected.value = await api(`/problems/${props.id}/${nova ? 'novajudge-exports' : 'test-data-exports'}`, { method: 'POST', body: JSON.stringify({ ...(nova ? { comparison: novaComparison.value } : { target: dataTarget.value }), ...(nova || dataTarget.value === 'HYDRO' ? { language: props.language } : {}), ...(dataSource.value === 'WORKING' ? {} : { revisionId: dataSource.value }) }) });
   await load(); message.success(nova ? 'NovaJudge 题目包已生成，查看转换报告后下载' : dataTarget.value === 'HYDRO' ? 'Hydro 题目包已生成，查看转换报告后下载' : '测试数据 ZIP 已生成，查看上传说明后下载');
@@ -48,11 +53,21 @@ async function revoke(id: string) { await act(async () => { await api(`/releases
         <NButton type="primary" :loading="busy" :disabled="busy || (dataSource === 'WORKING' && hasUnsaved)" @click="generateData">{{ dataTarget === 'NOVAJUDGE_PROBLEM' ? '导出 NovaJudge 题目包' : dataTarget === 'HYDRO' ? '导出 Hydro 题目包' : '导出测试数据 ZIP' }}</NButton>
       </div>
       <template v-if="dataTarget === 'NOVAJUDGE_PROBLEM'">
-        <NSelect v-model:value="novaComparison" :options="[{ label: '普通题使用 NovaJudge 传统格式', value: 'NATIVE' }, { label: '保留本地比较规则（普通题转为 SPJ）', value: 'PRESERVE' }]" aria-label="NovaJudge 普通题比较规则" :disabled="busy" />
+        <NSelect v-model:value="novaComparison" :options="novaComparisons" aria-label="NovaJudge 普通题比较规则" :disabled="busy" />
         <small>传统格式使用 NovaJudge 的逐行比较，会忽略行末空格及全文首尾空白。自定义 Checker、浮点比较自动导出为 SPJ；交互题使用 Interactor。导出不包含题解或参考解。</small>
       </template>
       <NAlert v-if="hasUnsaved && dataSource === 'WORKING'" type="warning">请先保存编辑，再导出当前内容。</NAlert>
       <small v-else>可直接导出已保存的内容，无需先冻结。{{ dataTarget === 'HYDRO' ? '交互题 tests/ 仅含输入，不导出答案；题面中的交互样例仍保留。' : dataTarget === 'NOVAJUDGE_PROBLEM' ? '交互题 data/ 仅含隐藏输入；展示样例保留在 problem.json。' : '交互题数据 ZIP 仅含非样例输入，不导出答案。' }}</small>
+    </section>
+    <section v-else class="test-data-export">
+      <div><h3>NovaJudge 比赛题包</h3><p>将比赛全部题目打包为一个 ZIP，按编排顺序建立「序号_题号_题目名称」文件夹。每题包含题面、样例、图片、时空限制、测试数据及所需判题工具，可在 NovaJudge 批量导入。</p></div>
+      <div class="p4-toolbar">
+        <NSelect v-model:value="dataSource" :options="dataOptions" aria-label="比赛题包内容来源" :disabled="busy" />
+        <NSelect v-model:value="novaComparison" :options="novaComparisons" aria-label="NovaJudge 普通题比较规则" :disabled="busy" />
+        <NButton type="primary" :loading="busy" :disabled="busy || (dataSource === 'WORKING' && (hasUnsaved || !contestWritable))" @click="generateData">导出 NovaJudge 比赛题包</NButton>
+      </div>
+      <NAlert v-if="hasUnsaved && dataSource === 'WORKING'" type="warning">请先保存比赛编排，再导出当前内容。</NAlert>
+      <small>使用所选比赛版本的语言。当前内容可直接导出，无需先冻结；历史版本保留当时的编排和题目内容。普通题的传统格式采用 NovaJudge 的逐行比较，自定义 Checker / 浮点比较为 SPJ，交互题附 Interactor；包内不含题解和参考解。</small>
     </section>
     <h3>题目包</h3>
     <p>{{scope === 'contests' ? '默认导出题目最新保存的内容，也可选择历史冻结版本。' : '按用途选择固定修订。'}}原生完整包用于工作副本往返；Polygon 为离线子集，兼容报告逐项列出需处理内容。</p>
@@ -67,7 +82,7 @@ async function revoke(id: string) { await act(async () => { await api(`/releases
     <div class="p4-split">
       <aside class="p4-list"><NButton v-for="e in exports" :key="e.id" :type="selected?.id === e.id ? 'primary' : 'default'" @click="selected = e">{{ exportLabel(e) }}<br />{{ new Date(e.createdAt).toLocaleString('zh-CN') }}</NButton></aside>
       <section v-if="selected" class="p4-detail">
-        <div class="p4-toolbar"><h3>{{ exportLabel(selected) }}</h3><a class="download-link" :href="`/api/exports/${selected.id}/file`">{{ isNovaProblem(selected) ? '下载 NovaJudge 题目包' : isHydroProblem(selected) ? '下载 Hydro 题目包' : isDataExport(selected) ? '下载测试数据 ZIP' : '下载私有题包' }}</a></div>
+        <div class="p4-toolbar"><h3>{{ exportLabel(selected) }}</h3><a class="download-link" :href="`/api/exports/${selected.id}/file`">{{ selected.format === 'NOVAJUDGE_CONTEST' ? '下载 NovaJudge 比赛题包' : isNovaProblem(selected) ? '下载 NovaJudge 题目包' : isHydroProblem(selected) ? '下载 Hydro 题目包' : isDataExport(selected) ? '下载测试数据 ZIP' : '下载私有题包' }}</a></div>
         <NAlert v-if="blocked" type="warning">此包有待处理的判题设置，请按下方报告调整后再上传使用。</NAlert>
         <p v-if="selected.fileName" class="export-hash">{{ selected.fileName }}</p><p>{{ selected.bytes.toLocaleString() }} 字节 · SHA-256<br /><code class="export-hash">{{ selected.hash }}</code></p>
         <div v-for="(r, i) in selected.report" :key="i" class="p4-comment"><NTag :type="r.status === 'BLOCKED' ? 'error' : r.status === 'WARNING' ? 'warning' : 'success'">{{ r.status === 'BLOCKED' ? '待处理' : r.status === 'WARNING' ? '注意' : '已映射' }}</NTag> {{ r.area }}<p>{{ r.message }}</p></div>

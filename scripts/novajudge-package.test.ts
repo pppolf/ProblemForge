@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createRequire } from 'node:module';
-import { blankManifest, digest, exportNovaJudgeProblem, latexToMarkdown, novaJudgeDirectory, readArchive, writeArchive } from '@problemforge/problem-format';
+import { blankManifest, digest, exportNovaJudgeProblem, exportNovaJudgeContest, latexToMarkdown, novaJudgeDirectory, readArchive, writeArchive } from '@problemforge/problem-format';
 import { defaultInteractionSettings, type ManifestDocument, type ManifestProgram } from '@problemforge/contracts';
 
 const require = createRequire(new URL('../packages/problem-format/package.json', import.meta.url));
@@ -15,11 +15,70 @@ function fixture() {
   m.tests = [3, 1].map(number => ({ id: `t${number}`, revisionId: `r${number}`, version: 1, number, enabled: true, isSample: number === 1, groupName: 'main', notes: 'PRIVATE NOTES', provenance: null, input: blob(`${number}  2\r\n`), answer: blob(`${number + 2}\r\n`) }));
   m.samples = [structuredClone(m.tests[1])]; m.documents[0].sampleRevisionIds = ['r1'];
   const read = async (key: string) => { assert(store.has(key), `missing blob ${key}`); return store.get(key)!; };
-  return { m, blob, read };
+  return { m, blob, read, store };
 }
 const tool = (role: ManifestProgram['role']): ManifestProgram => ({ id: role, revisionId: role + 'r', version: 1, name: role, role, enabled: true, notes: '', expectedVerdicts: ['AC'], source: '#include "testlib.h"\r\n// Fixed source\r\n', sourceHash: digest('#include "testlib.h"\r\n// Fixed source\r\n'), profile: { id: 'cpp', name: 'C++17', language: 'CPP17', version: 1, hash: '0'.repeat(64), config: { optimization: 'O2', warnings: true, compileTimeMs: 1000, compileMemoryMb: 256 } } });
 const metadata = (files: Map<string, Buffer>) => JSON.parse([...files].find(([path]) => path.endsWith('/problem.json'))![1].toString());
 const config = (files: Map<string, Buffer>) => parseYaml([...files].find(([path]) => path.endsWith('/data/problem.yml'))![1].toString());
+
+test('contest packages contain ordered standalone folders for all three types and isolate same-named assets', async () => {
+  const fixtures = [fixture(), fixture(), fixture()], codes = ['C', 'A', 'B'];
+  fixtures[1].m.judgeSettings.checkerMode = 'CUSTOM'; fixtures[1].m.programs = [tool('CHECKER')];
+  fixtures[2].m.judgeSettings.interactionMode = 'INTERACTIVE'; fixtures[2].m.programs = [tool('INTERACTOR')];
+  for (const [i, f] of fixtures.entries()) {
+    f.m.documents[0].body += String.raw`\includegraphics{assets/pic.png}`;
+    f.m.assets = [{ id: 'pic', name: 'same image name', path: 'assets/pic.png', mediaType: 'image/png', blob: f.blob(`image-${i}`) }];
+  }
+  const before = fixtures.map(f => structuredClone(f.m)), store = new Map(fixtures.flatMap(f => [...f.store]));
+  const result = await exportNovaJudgeContest('测试比赛', fixtures.map((f, i) => ({ code: codes[i], manifest: f.m })), async key => store.get(key)!, support, { language: 'zh-CN' });
+  const zip = await writeArchive(result.files, { unicodePaths: true, explicitDirectories: true }), files = await readArchive(zip, { unicodePaths: true });
+  const roots = fixtures.map((_, i) => `${String(i + 1).padStart(3, '0')}_${codes[i]}_测试题`);
+  assert.deepEqual([...new Set([...files.keys()].map(path => path.split('/')[0]))], roots);
+  assert([...files.keys()].every(path => !path.endsWith('.zip')));
+  for (const [i, root] of roots.entries()) {
+    const json = JSON.parse(files.get(`${root}/problem.json`)!.toString());
+    assert.equal(json.id, i + 1); assert.equal(json.type, ['default', 'spj', 'interactive'][i]);
+    assert.equal(json.title, '测试题');
+    assert.match(json.hint, new RegExp(`/api/problems/${i + 1}/assets/pic.png`));
+    assert.equal(files.get(`${root}/assets/pic.png`)!.toString(), `image-${i}`);
+    assert.deepEqual(parseYaml(files.get(`${root}/data/problem.yml`)!.toString()), json.judgeConfig);
+    assert.equal(files.get(`${root}/data/3.in`)!.toString(), '3  2\r\n');
+    assert(!JSON.stringify(json).includes('PRIVATE'));
+  }
+  assert(files.has(`${roots[1]}/data/checker.cpp`)); assert(files.has(`${roots[2]}/data/interactor.cpp`));
+  assert(!files.has(`${roots[2]}/data/1.in`)); assert(!files.has(`${roots[2]}/data/3.ans`));
+  assert.deepEqual(fixtures.map(f => f.m), before);
+  assert.equal(result.report.filter(r => r.fileName).length, 1);
+  assert.equal(result.report.find(r => r.fileName)?.fileName, 'contest_测试比赛_NovaJudge.zip');
+  assert(result.report.some(r => r.area === 'C/答案比较' && r.status === 'WARNING'));
+  const directories = await new Promise<string[]>((resolve, reject) => fromBuffer(zip, { lazyEntries: true }, (error: Error, archive: any) => {
+    if (error) return reject(error); const entries: string[] = [];
+    archive.on('error', reject); archive.on('entry', (entry: any) => { if (entry.fileName.endsWith('/')) entries.push(entry.fileName); archive.readEntry(); });
+    archive.on('end', () => resolve(entries)); archive.readEntry();
+  }));
+  for (const root of roots) assert(directories.includes(`${root}/`));
+});
+
+test('contest order survives the target importer sort beyond nine problems', async () => {
+  const { m, read } = fixture(), codes = Array.from({ length: 12 }, (_, i) => String.fromCharCode(76 - i));
+  const result = await exportNovaJudgeContest('多题比赛', codes.map(code => ({ code, manifest: m })), read, support, { comparison: 'PRESERVE' });
+  const roots = [...new Set([...result.files.keys()].map(path => path.split('/')[0]))];
+  const sorted = [...roots].sort((a, b) => { const x = parseInt(a), y = parseInt(b); return !isNaN(x) && !isNaN(y) ? x - y : a.localeCompare(b); });
+  assert.deepEqual(sorted, roots); assert.deepEqual([...roots].sort(), roots);
+  assert.deepEqual(roots.map(r => r.split('_')[1]), codes);
+  assert.equal(JSON.parse(result.files.get(`${roots[11]}/problem.json`)!.toString()).id, 12);
+  assert.equal(JSON.parse(result.files.get(`${roots[0]}/problem.json`)!.toString()).type, 'spj');
+});
+
+test('invalid contest contents fail the whole export with the affected problem code', async () => {
+  const { m, read } = fixture();
+  await assert.rejects(exportNovaJudgeContest('x', [], read, support), /1～100/);
+  await assert.rejects(exportNovaJudgeContest('x', [{ code: 'A', manifest: m }, { code: 'A', manifest: m }], read, support), /题号不能重复/);
+  await assert.rejects(exportNovaJudgeContest('x', [{ code: '../A', manifest: m }], read, support), /比赛题号无效/);
+  const missing = structuredClone(m); missing.tests[0].answer = null;
+  await assert.rejects(exportNovaJudgeContest('x', [{ code: 'A', manifest: m }, { code: 'B', manifest: missing }], read, support), /题号 B：.*缺少答案/);
+  await assert.rejects(exportNovaJudgeContest('x', [{ code: 'A', manifest: m }], read, support, { language: 'fr' }), /题号 A：.*缺少已启用/);
+});
 
 test('traditional package matches the supplied JSON/YAML layout, samples, assets and explicit ZIP directories', async () => {
   const { m, blob, read } = fixture();

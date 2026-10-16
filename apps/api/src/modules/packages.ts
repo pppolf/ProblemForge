@@ -1,17 +1,17 @@
 import{randomUUID}from'node:crypto';import{readFile}from'node:fs/promises';import{join}from'node:path';import{Type}from'@sinclair/typebox';
-import{ExportInput,ContestExportInput,TestDataExportInput,NovaJudgeExportInput,isCppLanguage,isJudgingData,MAX_ARCHIVE_BASE64_LENGTH,type ProblemManifest}from'@problemforge/contracts';import{db,Prisma}from'@problemforge/database';
+import{ExportInput,ContestExportInput,TestDataExportInput,NovaJudgeExportInput,ContestNovaJudgeExportInput,isCppLanguage,isJudgingData,MAX_ARCHIVE_BASE64_LENGTH,type ProblemManifest}from'@problemforge/contracts';import{db,Prisma}from'@problemforge/database';
 import{problemAccess,contestAccess,hashObject,sha256,HttpError,audit,root}from'@problemforge/domain';
-import{PackageError,readArchive,writeArchive,safeExportPath,nativeExporter,polygonExporter,exportTestData,exportHydroProblem,exportNovaJudgeProblem,importNative,importPolygon,blobs,validateManifest,type Issue,type ImportResult}from'@problemforge/problem-format';
+import{PackageError,readArchive,writeArchive,safeExportPath,nativeExporter,polygonExporter,exportTestData,exportHydroProblem,exportNovaJudgeProblem,exportNovaJudgeContest,importNative,importPolygon,blobs,validateManifest,type Issue,type ImportResult}from'@problemforge/problem-format';
 import{validateBody}from'@problemforge/template-engine';import{groupOrder,TESTLIB_HASH}from'@problemforge/judge-core';
 import{authenticate,storage,type Api}from'../app.ts';import{revisionAccess}from'./revisions.ts';import{contestRevision,type FrozenContest}from'./contests.ts';import{restoreManifest}from'./restore-manifest.ts';import{problemSnapshot,readProblemSnapshot}from'./revision-snapshot.ts';
-import { currentContestRevision } from './contest-snapshot.ts';
+import { currentContestRevision, readCurrentContestExport } from './contest-snapshot.ts';
 const Id=Type.Object({id:Type.String()}),strict={additionalProperties:false};
 const ImportInput=Type.Object({format:Type.Union([Type.Literal('NATIVE'),Type.Literal('POLYGON')]),base64:Type.String({minLength:1,maxLength:MAX_ARCHIVE_BASE64_LENGTH,pattern:'^[A-Za-z0-9+/]+={0,2}$'}),profileMap:Type.Record(Type.String({maxLength:80}),Type.String({maxLength:80}),{maxProperties:50})},strict);
 const ConfirmInput=Type.Object({reportHash:Type.String({pattern:'^[a-f0-9]{64}$'}),title:Type.String({minLength:1,maxLength:160}),acceptWarnings:Type.Literal(true)},strict);
 type ImportReport={issues:Issue[];manifest:ProblemManifest;reportHash:string;committedProblemId?:string};
 function receiptView(record:{id:string;format:string;createdAt:Date;report:unknown}){const r=record.report as ImportReport;return{id:record.id,format:record.format,createdAt:record.createdAt,reportHash:r.reportHash,issues:r.issues,title:r.manifest.meta.title,committedProblemId:r.committedProblemId??null,counts:{documents:r.manifest.documents.length,programs:r.manifest.programs.length,tests:r.manifest.tests.length},canImport:!r.issues.some(i=>i.status==='BLOCKED')};}
 function exportFileName(e:{format:string;purpose:string;report:unknown}){
- const name=['HYDRO_PROBLEM','NOVAJUDGE_PROBLEM'].includes(e.format)&&Array.isArray(e.report)?e.report.find(r=>typeof r?.fileName==='string')?.fileName:undefined;
+ const name=['HYDRO_PROBLEM','NOVAJUDGE_PROBLEM','NOVAJUDGE_CONTEST'].includes(e.format)&&Array.isArray(e.report)?e.report.find(r=>typeof r?.fileName==='string')?.fileName:undefined;
  if(name&&!name.includes('/')&&name.endsWith('.zip'))return safeExportPath(name);
  return `${e.format}-${e.purpose}.zip`;
 }
@@ -48,6 +48,33 @@ async function prepareImport(format:'NATIVE'|'POLYGON',files:Map<string,Buffer>,
  return result;
 }
 export async function packageRoutes(app:Api){
+ app.post('/api/contests/:id/novajudge-exports',{preHandler:authenticate,schema:{params:Id,body:ContestNovaJudgeExportInput}},async req=>{
+  let snapshot:Awaited<ReturnType<typeof readCurrentContestExport>>,revisionId:string,source:string;
+  if(req.body.revisionId){
+   const fixed=await contestRevision(req.user,req.params.id,req.body.revisionId);
+   snapshot=fixed.snapshot;revisionId=fixed.revision.id;source=`比赛冻结版本 #${fixed.revision.number}（${fixed.revision.hash}）`;
+  }else{
+   snapshot=await readCurrentContestExport(req.user,req.params.id,req.body.expectedVersion);
+   const hash=hashObject(snapshot);revisionId=`WORKING:${hash}`;source=`当前已保存编排与题目内容（${hash}）`;
+  }
+  const report:Issue[]=[{area:'内容来源',status:'MAPPED',message:`${source}。语言：${snapshot.selection.language}；导出内容已固定，不执行生成器或改写题目。`}];
+  const items=[];
+  for(const item of snapshot.selection.items){
+   const problem=snapshot.problems.find(p=>p.problemId===item.problemId);
+   if(!problem)throw new HttpError(409,`题号 ${item.code} 的快照缺失`);
+   const prepared=await exportManifest(problem.manifest,'DATA','NOVAJUDGE',problem.acceptanceRunId);
+   items.push({code:item.code,manifest:prepared.manifest});report.push(...prepared.report.map(issue=>({...issue,area:`${item.code}/${issue.area}`})));
+  }
+  const testlib=await readFile(join(root,'vendor/testlib/testlib.h'));
+  if(sha256(testlib)!==TESTLIB_HASH)throw new HttpError(503,'testlib 头文件校验失败，无法导出');
+  const result=await exportNovaJudgeContest(snapshot.selection.title,items,key=>storage.get(key),{testlib,license:await readFile(join(root,'vendor/testlib/LICENSE'))},{language:snapshot.selection.language,comparison:req.body.comparison});
+  report.push(...result.report);
+  const bytes=await writeArchive(result.files,{unicodePaths:true,explicitDirectories:true}),key=`exports/${randomUUID()}`;
+  await storage.put(key,bytes);
+  const row=await db.exportArtifact.create({data:{contestId:req.params.id,revisionId,requestedById:req.user.id,purpose:'FULL',format:'NOVAJUDGE_CONTEST',key,hash:sha256(bytes),bytes:bytes.length,report:report as unknown as Prisma.InputJsonValue}});
+  await audit(req.user.id,'EXPORT_NOVAJUDGE_CONTEST',row.id,{revisionId,count:items.length,language:snapshot.selection.language,comparison:req.body.comparison??'NATIVE'});
+  return exportView(row);
+ });
  for(const novaProblem of [false,true])app.post(`/api/problems/:id/${novaProblem?'novajudge-exports':'test-data-exports'}`,{preHandler:authenticate,schema:{params:Id,body:novaProblem?NovaJudgeExportInput:TestDataExportInput}},async req=>{
   await problemAccess(req.user,req.params.id);
   const target='target' in req.body?req.body.target:'NOVAJUDGE';
