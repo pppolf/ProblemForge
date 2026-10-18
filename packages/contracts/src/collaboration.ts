@@ -13,8 +13,9 @@ export const CommentInput = Type.Object({body:Type.String({minLength:1,maxLength
 const kind = Type.Union((['STATEMENT','EDITORIAL_DOCUMENT','EDITORIAL_BEAMER'] as const).map(v=>Type.Literal(v)));
 export const ContestData = Type.Object({
   title:Type.String({minLength:1,maxLength:160}),author:text(),stage:text(),dateHeader:text(),dateCover:text(),language,
+  beamerIntroduction:Type.Optional(text(40000)),
   templates:Type.Object({STATEMENT:Type.Union([id,Type.Null()]),EDITORIAL_DOCUMENT:Type.Union([id,Type.Null()]),EDITORIAL_BEAMER:Type.Union([id,Type.Null()])},strict),
-  items:Type.Array(Type.Object({problemId:id,revisionId:Type.Optional(id),code:Type.String({pattern:'^[A-Z][A-Z0-9]{0,7}$'}),lectureOrder:Type.Integer({minimum:1,maximum:100})},strict),{maxItems:100}),
+  items:Type.Array(Type.Object({problemId:id,revisionId:Type.Optional(id),code:Type.String({pattern:'^[A-Z][A-Z0-9]{0,7}$'}),lectureOrder:Type.Integer({minimum:1,maximum:100}),expectedDifficulty:Type.Optional(text(40))},strict),{maxItems:100}),
 },strict);
 export type ContestDataValue = Static<typeof ContestData>;
 export const ContestInput = Type.Object({expectedVersion:Type.Integer({minimum:0}),data:ContestData},strict);

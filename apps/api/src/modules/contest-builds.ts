@@ -3,7 +3,7 @@ import { Type } from '@sinclair/typebox';
 import { ContestBuildInput, type StoredBlob, type DocumentKind } from '@problemforge/contracts';
 import { db, Prisma } from '@problemforge/database';
 import { contestAccess, hashObject, HttpError, audit, taskQuota } from '@problemforge/domain';
-import { CONTEST_RENDERER_VERSION, POLICY_VERSION, TEX_PROFILE, SAMPLE_RENDERER_VERSION, type ContestRenderInput } from '@problemforge/template-engine';
+import { CONTEST_RENDERER_VERSION, POLICY_VERSION, TEX_PROFILE, SAMPLE_RENDERER_VERSION, validateBody, type ContestRenderInput } from '@problemforge/template-engine';
 import { GO_JUDGE_VERSION } from '@problemforge/judge-adapter';
 import { authenticate, type Api } from '../app.ts';
 import { contestRevision } from './contests.ts';
@@ -14,6 +14,7 @@ export function bundleState(states:string[]){if(states.some(s=>s==='RUNNING'))re
 export async function contestBuildRoutes(app:Api){
   app.post('/api/contests/:id/builds',{preHandler:authenticate,schema:{params:Id,body:ContestBuildInput}},async req=>{
     const {revision,snapshot}=req.body.revisionId?await contestRevision(req.user,req.params.id,req.body.revisionId,true):await currentContestRevision(req.user,req.params.id,req.body.expectedVersion);
+    if(req.body.kinds.includes('EDITORIAL_BEAMER'))validateBody(snapshot.selection.beamerIntroduction??'','EDITORIAL_BEAMER',[]);
     const selected=req.body.subset?snapshot.selection.items.filter(i=>req.body.subset!.includes(i.problemId)):snapshot.selection.items;
     if(!selected.length||req.body.subset&&selected.length!==req.body.subset.length)throw new HttpError(422,'子集必须明确选择冻结清单中的题目');
     const missing=[];
@@ -34,11 +35,11 @@ export async function contestBuildRoutes(app:Api){
         for(const [i,id]of d.sampleRevisionIds.entries()){const sample=p.samples.find(s=>s.revisionId===id);if(!sample?.answer)throw new HttpError(422,'冻结样例的输入/答案清单不完整');
           const inputPath=`samples/sample-${i+1}.in`,answerPath=`samples/sample-${i+1}.ans`;paths.push({inputPath,answerPath});samples.push({revisionId:id,inputPath:`${namespace}/${inputPath}`,answerPath:`${namespace}/${answerPath}`,input:sample.input,answer:sample.answer});
         }
-        entries.push({namespace,code:item.code,body:d.body,metadata:d.metadata,assetPaths:used.map(a=>a.path),samples:paths,timeLimitMs:p.judgeSettings.timeLimitMs,memoryLimitMb:p.judgeSettings.memoryLimitMb,inputFile:p.judgeSettings.ioMode==='STDIO'?'standard input':p.judgeSettings.inputFile,outputFile:p.judgeSettings.ioMode==='STDIO'?'standard output':p.judgeSettings.outputFile});
+        entries.push({namespace,code:item.code,body:d.body,metadata:d.metadata,...(kind==='EDITORIAL_BEAMER'?{expectedDifficulty:item.expectedDifficulty??'',tags:p.meta.tags}:{}),assetPaths:used.map(a=>a.path),samples:paths,timeLimitMs:p.judgeSettings.timeLimitMs,memoryLimitMb:p.judgeSettings.memoryLimitMb,inputFile:p.judgeSettings.ioMode==='STDIO'?'standard input':p.judgeSettings.inputFile,outputFile:p.judgeSettings.ioMode==='STDIO'?'standard output':p.judgeSettings.outputFile});
       }
-      if(assets.reduce((n,a)=>n+a.bytes,0)>32_000_000||entries.reduce((n,e)=>n+Buffer.byteLength(e.body),0)>5_000_000)throw new HttpError(422,'单份比赛资料超过源码或资源上限');
+      if(assets.reduce((n,a)=>n+a.bytes,0)>32_000_000||entries.reduce((n,e)=>n+Buffer.byteLength(e.body),kind==='EDITORIAL_BEAMER'?Buffer.byteLength(snapshot.selection.beamerIntroduction??''):0)>5_000_000)throw new HttpError(422,'单份比赛资料超过源码或资源上限');
       const s=snapshot.selection;
-      const input={kind,mode:'contest',body:'',metadata:{title:s.title,author:s.author},language:s.language,contest:{title:s.title,author:s.author,stage:s.stage,dateHeader:s.dateHeader,dateCover:s.dateCover,entries},files:template.files,templateHash:template.hash,templateNumber:template.number,contentVersion:revision.number,contestRevisionId:revision.id,contestHash:revision.hash,selectedProblemIds:order.map(i=>i.problemId),explicitSubset:!!req.body.subset,assets,samples,
+      const input={kind,mode:'contest',body:'',metadata:{title:s.title,author:s.author},language:s.language,contest:{title:s.title,author:s.author,stage:s.stage,dateHeader:s.dateHeader,dateCover:s.dateCover,...(kind==='EDITORIAL_BEAMER'?{beamerIntroduction:s.beamerIntroduction??''}:{}),entries},files:template.files,templateHash:template.hash,templateNumber:template.number,contentVersion:revision.number,contestRevisionId:revision.id,contestHash:revision.hash,selectedProblemIds:order.map(i=>i.problemId),explicitSubset:!!req.body.subset,assets,samples,
         policy:POLICY_VERSION,toolchain:TEX_PROFILE,sandboxVersion:GO_JUDGE_VERSION,contestRendererVersion:CONTEST_RENDERER_VERSION,...(samples.length?{sampleRendererVersion:SAMPLE_RENDERER_VERSION}:{})};
       inputs.push({kind,templateVersionId:template.id,input:input as unknown as Prisma.InputJsonValue,inputHash:hashObject(input)});
     }

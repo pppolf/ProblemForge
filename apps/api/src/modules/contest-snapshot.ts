@@ -15,7 +15,9 @@ type SourceSnapshot = Awaited<ReturnType<typeof problemSnapshot>>;
 // Old saved contests keep their original JSON in storage, but now follow the source
 // problem too. Revision IDs remain meaningful only inside immutable snapshots.
 export function liveContestData(data: ContestDataValue): ContestDataValue {
-  return { ...data, items: data.items.map(({ revisionId, ...item }) => item) };
+  const { beamerIntroduction, ...selection } = data;
+  // Empty new controls are equivalent to the absent fields in historical snapshots.
+  return { ...selection, ...(beamerIntroduction?.trim() ? { beamerIntroduction } : {}), items: data.items.map(({ revisionId, expectedDifficulty, ...item }) => ({ ...item, ...(expectedDifficulty?.trim() ? { expectedDifficulty: expectedDifficulty.trim() } : {}) })) };
 }
 
 export async function contestSources(tx: Prisma.TransactionClient, data: ContestDataValue) {
@@ -68,6 +70,7 @@ export async function freezeCurrentContest(tx: Prisma.TransactionClient, contest
   if (contest.version !== expectedVersion) throw new HttpError(409, '比赛编排已改变，请重载合并', 'VERSION_CONFLICT');
   const data = liveContestData(contest.data as ContestDataValue);
   if (!data.items.length) throw new HttpError(422, '至少选择一道题目');
+  validateBody(data.beamerIntroduction ?? '', 'EDITORIAL_BEAMER', []);
   const sources = await contestSources(tx, data);
   const snapshot: FrozenContest = { schemaVersion: 1, selection: structuredClone(data), problems: [], templates: {} };
   for (const item of snapshot.selection.items) {

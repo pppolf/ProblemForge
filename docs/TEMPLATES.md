@@ -12,7 +12,11 @@ metadata.schema.json 为不执行代码的声明子集：type: object、addition
 
 题面 main.tex 通过 problem.tex 的 BODY 插槽容纳普通用户正文；多题 booklet.tex 使用同一导言与各题 item.tex。publication.json 仅含四项受限预览文字，正式比赛信息来自 ContestRevision。配置表单是管理员可选覆盖，未修改时保留上传源码；一旦覆盖也必须重新编译并发布新版本。
 
-`pf-contest-3` 将每题源码、图片、样例和 label/ref/eqref/pageref 放进 p1、p2 等独立命名空间，字面代码保持原样。题面/文档题解按题册顺序，Beamer 按独立 lectureOrder，CODE 始终保留比赛题号。资源/样例文件由 Worker 校验固定字节与哈希后复制，不能拼接私有宿主路径。渲染版本进入任务输入哈希，旧版本重试不偷偷改用新组装器。
+`pf-contest-4` 将每题源码、图片、样例和 label/ref/eqref/pageref 放进 p1、p2 等独立命名空间，字面代码保持原样。题面/文档题解按题册顺序，Beamer 按独立 lectureOrder，CODE 始终保留比赛题号。资源/样例文件由 Worker 校验固定字节与哈希后复制，不能拼接私有宿主路径。渲染版本进入任务输入哈希，旧版本重试不偷偷改用新组装器。
+
+比赛 Beamer 新增 `DIFFICULTY_OVERVIEW`（按讲解顺序排列、可分页的预计难度总览）、`BEAMER_INTRODUCTION`（比赛管理者填写的开场 frame，可留空）及 item.tex 的 `PROBLEM_OVERVIEW`（题名、预计难度和源题标签）插槽。题目难度来自比赛编排的 `expectedDifficulty`，标签来自当次冻结的源题 `meta.tags`；缺省分别显示“未设置”“暂无标签”。开场内容 `beamerIntroduction` 最多 40000 字符，保存、冻结和构建均经过 Beamer 正文策略校验，不允许读取文件、声明宏或引用未上传资源。它只进入比赛 Beamer，题面及文档题解不插入此内容。
+
+两套既有内置 Beamer 模板在本次渲染副本中适配：封面标题按可用宽度换行，超过高度后等比缩放，长连续英文可折行；页脚使用短标题；原讲解目录替换为难度总览，单独出题人页移除并改为题目概览。原模板和作者的讲解正文保持原字节，已发布模板无需重发，重新生成 PDF 即生效。自定义模板可显式放置三个新插槽；没有总览/开场插槽时在 CONTENTS 前补入，没有题目概览插槽时在 BODY 前补入。只识别并移除原内置模板的出题人 frame，不删除作者正文中的自定义页面。
 
 单题题面通过 `pf-statement-2` 将已保存判题配置中的时间、内存和输入输出名称固定进构建快照，填入 TIME_LIMIT / MEMORY_LIMIT / INPUT_FILE / OUTPUT_FILE；时间由 ms 转为 s，内存沿用模板的 MB 标签。单题册的题头与目录使用同一组值，比赛题册仍使用固定比赛清单内各题的配置。新内置模板直接使用插槽；对既有内置版本 main.tex / problem.tex 中原样的 `1 s / 256 MB` 标准题头，仅在本次渲染副本中替换成对应插槽，不修改数据库中的已发布版本或作者正文。自定义模板应使用上述插槽，任意写死的自定义题头不自动改写。
 

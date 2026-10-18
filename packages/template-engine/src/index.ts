@@ -5,6 +5,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { defaultJudgeSettings, type JudgeSettingsValue, type DocumentKind, type AdminStyle } from '@problemforge/contracts';
 import { SAMPLE_LAYOUT_PREAMBLE, renderSamplePairs } from './samples.ts';
+import { CONTEST_BEAMER_PREAMBLE, contestBeamerFiles, contestBeamerTitle, difficultyOverview, problemOverview } from './contest-beamer.ts';
 
 export const POLICY_VERSION = 'pf-content-6';
 export const TEX_PROFILE = 'xelatex-2022-bookworm-v1';
@@ -167,7 +168,7 @@ export function validateTemplate(files: TemplateFiles, kind: DocumentKind) {
   if (schema.type !== 'object' || schema.additionalProperties !== false || !properties || Object.keys(properties).some(k => !['title', 'author'].includes(k)) ||
     Object.values(properties).some(p => p.type !== 'string' || typeof p.maxLength !== 'number' || p.maxLength > 160)) throw new Error('metadata schema 仅允许受限的 title / author 文本信息');
   if (!files['main.tex'].includes('{{BODY}}') && !(files['main.tex'].includes('\\input{problem.tex}') && files['problem.tex']?.includes('{{BODY}}'))) throw new Error('模板缺少受控 {{BODY}} 插槽');
-  const allowed = new Set(['TITLE', 'AUTHOR', 'BODY', 'CONTEST_TITLE', 'CONTEST_STAGE', 'CONTEST_DATE_HEADER', 'CONTEST_DATE_COVER', 'PROBLEM_LIST','CONTENTS','CODE','TIME_LIMIT','MEMORY_LIMIT','INPUT_FILE','OUTPUT_FILE']);
+  const allowed = new Set(['TITLE', 'AUTHOR', 'BODY', 'CONTEST_TITLE', 'CONTEST_STAGE', 'CONTEST_DATE_HEADER', 'CONTEST_DATE_COVER', 'PROBLEM_LIST','CONTENTS','CODE','TIME_LIMIT','MEMORY_LIMIT','INPUT_FILE','OUTPUT_FILE','DIFFICULTY_OVERVIEW','BEAMER_INTRODUCTION','PROBLEM_OVERVIEW']);
   for (const [name, value] of Object.entries(files)) if (/\.(tex|sty|cls|def)$/.test(name)) for (const slot of value.matchAll(/\{\{([A-Z_]+)\}\}/g)) if (!allowed.has(slot[1])) throw new Error(`模板包含未知插槽：${slot[1]}`);
   if (files['publication.json']) publicationContext(files);
   validateBody(files['preview.tex'], kind);
@@ -209,20 +210,25 @@ function alignStatementHeader(source: string) {
   const pattern = fields.map(field => String.raw`\{[ \t\r\n]*\{\{${field}\}\}[ \t\r\n]*\}`).join('[ \\t\\r\\n]*');
   return source.replace(new RegExp(pattern, 'g'), fields.map(field => `{{{${field}}}}`).join(''));
 }
-export const CONTEST_RENDERER_VERSION='pf-contest-3';
-export type ContestRenderInput={title:string;author:string;stage:string;dateHeader:string;dateCover:string;entries:{namespace:string;code:string;body:string;metadata:{title:string;author:string};assetPaths:string[];samples:SamplePaths[];timeLimitMs:number;memoryLimitMb:number;inputFile:string;outputFile:string}[]};
+export const CONTEST_RENDERER_VERSION='pf-contest-4';
+export type ContestRenderInput={title:string;author:string;stage:string;dateHeader:string;dateCover:string;beamerIntroduction?:string;entries:{namespace:string;code:string;body:string;metadata:{title:string;author:string};expectedDifficulty?:string;tags?:string[];assetPaths:string[];samples:SamplePaths[];timeLimitMs:number;memoryLimitMb:number;inputFile:string;outputFile:string}[]};
 export function renderContest(files:TemplateFiles,kind:DocumentKind,input:ContestRenderInput){
   validateTemplate(files,kind);
   if(!files['booklet.tex']?.includes('{{CONTENTS}}')||!files['item.tex']?.includes('{{BODY}}'))throw new Error('整场模板必须提供 booklet.tex 的 CONTENTS 和 item.tex 的 BODY 插槽');
   if(!input.entries.length||input.entries.length>100||new Set(input.entries.map(e=>e.namespace)).size!==input.entries.length)throw new Error('整场题目清单为空、重复或超额');
+  const beamer=kind==='EDITORIAL_BEAMER';
+  if(beamer){validateBody(input.beamerIntroduction??'',kind);files=contestBeamerFiles(files,input.title);}
   const result:Record<string,string>={};
   const context:Record<string,string>={TITLE:escapeTex(input.title),AUTHOR:escapeTex(input.author),CONTEST_TITLE:escapeTex(input.title),CONTEST_STAGE:escapeTex(input.stage),CONTEST_DATE_HEADER:escapeTex(input.dateHeader),CONTEST_DATE_COVER:escapeTex(input.dateCover),BODY:'',CODE:'',TIME_LIMIT:'',MEMORY_LIMIT:'',INPUT_FILE:'',OUTPUT_FILE:'',
     CONTENTS:input.entries.map(e=>`\\input{${e.namespace}/item.tex}`).join('\n'),
     PROBLEM_LIST:input.entries.map(e=>`${escapeTex(e.code)} & ${escapeTex(e.metadata.title)} & ${e.timeLimitMs/1000} s & ${e.memoryLimitMb} MB \\\\`).join('\n'),
+    DIFFICULTY_OVERVIEW:beamer?difficultyOverview(input.entries):'',BEAMER_INTRODUCTION:beamer&&input.beamerIntroduction?.trim()?'\\input{contest-introduction.tex}':'',PROBLEM_OVERVIEW:'',
   };
+  if(beamer)context.CONTEST_TITLE=contestBeamerTitle(input.title);
   const fill=(source:string,values:Record<string,string>)=>(kind==='STATEMENT'?alignStatementHeader(source):source).replace(/\{\{([A-Z_]+)\}\}/g,(_,k:string)=>values[k]??context[k]??`{{${k}}}`);
   for(const [name,source]of Object.entries(files))if(/\.(tex|sty|cls|def)$/.test(name)&&!['preview.tex','item.tex'].includes(name))result[name]=fill(source,context);
   result['main.tex']=result['booklet.tex'];
+  if(beamer){result['main.tex']='\\RequirePackage{etoolbox}\n\\BeforeBeginEnvironment{document}{\\input{pf-contest-beamer.tex}}\n'+result['main.tex'];result['pf-contest-beamer.tex']=CONTEST_BEAMER_PREAMBLE;if(input.beamerIntroduction?.trim())result['contest-introduction.tex']=input.beamerIntroduction;}
   if(input.entries.some(entry=>entry.samples.length))result['main.tex']=SAMPLE_LAYOUT_PREAMBLE+result['main.tex'];
   for(const entry of input.entries){
     if(!/^p[1-9][0-9]*$/.test(entry.namespace)||!/^[A-Z][A-Z0-9]{0,7}$/.test(entry.code))throw new Error('不合法的比赛题目命名空间或题号');
@@ -236,7 +242,7 @@ export function renderContest(files:TemplateFiles,kind:DocumentKind,input:Contes
     body=body.replace(/\\(label|ref|eqref|pageref)\{([^{}\\]*)\}/g,(_,command:string,key:string)=>`\\${command}{${entry.namespace}:${key}}`);
     result[`${entry.namespace}/content.tex`]=body.replace(/\u0000([0-9]+)\u0000/g,(_,i:string)=>literals[Number(i)]);
     if(single['samples.tex'])result[`${entry.namespace}/samples.tex`]=single['samples.tex'].replace(/\{samples\//g,`{${entry.namespace}/samples/`);
-    result[`${entry.namespace}/item.tex`]=fill(files['item.tex'],{TITLE:escapeTex(entry.metadata.title),AUTHOR:escapeTex(entry.metadata.author),BODY:`\\input{${entry.namespace}/content.tex}`,CODE:escapeTex(entry.code),TIME_LIMIT:escapeTex(`${entry.timeLimitMs/1000} s`),MEMORY_LIMIT:escapeTex(`${entry.memoryLimitMb} MB`),INPUT_FILE:escapeTex(entry.inputFile),OUTPUT_FILE:escapeTex(entry.outputFile)});
+    result[`${entry.namespace}/item.tex`]=fill(files['item.tex'],{TITLE:escapeTex(entry.metadata.title),AUTHOR:escapeTex(entry.metadata.author),BODY:`\\input{${entry.namespace}/content.tex}`,CODE:escapeTex(entry.code),TIME_LIMIT:escapeTex(`${entry.timeLimitMs/1000} s`),MEMORY_LIMIT:escapeTex(`${entry.memoryLimitMb} MB`),INPUT_FILE:escapeTex(entry.inputFile),OUTPUT_FILE:escapeTex(entry.outputFile),PROBLEM_OVERVIEW:beamer?problemOverview(entry):''});
   }
   return result;
 }
@@ -258,6 +264,7 @@ export function render(files: TemplateFiles, kind: DocumentKind, body: string, m
   const context = publicationContext(files);
   const timeLimit = `${settings.timeLimitMs / 1000} s`, memoryLimit = `${settings.memoryLimitMb} MB`;
   const values: Record<string, string> = { TITLE: escapeTex(metadata.title), AUTHOR: escapeTex(metadata.author), BODY: '\\input{content.tex}',
+    DIFFICULTY_OVERVIEW:'',BEAMER_INTRODUCTION:'',PROBLEM_OVERVIEW:'',
     CONTENTS: '\\input{problem.tex}', CODE: 'A', TIME_LIMIT: escapeTex(timeLimit), MEMORY_LIMIT: escapeTex(memoryLimit), INPUT_FILE: escapeTex(settings.inputFile), OUTPUT_FILE: escapeTex(settings.outputFile),
     CONTEST_TITLE: escapeTex(context.contestTitle), CONTEST_STAGE: escapeTex(context.contestStage), CONTEST_DATE_HEADER: escapeTex(context.dateHeader), CONTEST_DATE_COVER: escapeTex(context.dateCover),
     PROBLEM_LIST: `A & ${escapeTex(metadata.title)} & ${escapeTex(timeLimit)} & ${escapeTex(memoryLimit)} \\\\\n` };

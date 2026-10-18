@@ -2,7 +2,7 @@ import { Type } from '@sinclair/typebox';
 import { kinds, ContestInput, ContestFreezeInput, type ContestDataValue } from '@problemforge/contracts';
 import { db, Prisma } from '@problemforge/database';
 import { contestAccess, problemAccess, hashObject, HttpError, audit } from '@problemforge/domain';
-import { templateLanguages, type TemplateFiles } from '@problemforge/template-engine';
+import { templateLanguages, validateBody, type TemplateFiles } from '@problemforge/template-engine';
 import { authenticate, type Api } from '../app.ts';
 import { owner } from './members.ts';
 import { liveContestData, contestSources, contestRevisionCurrent, freezeCurrentContest, type FrozenContest } from './contest-snapshot.ts';
@@ -15,6 +15,7 @@ export async function contestRevision(user:{id:string;role:string},contestId:str
   return {revision,snapshot:revision.data as unknown as FrozenContest};
 }
 async function validateSelection(user:{id:string;role:string},data:ContestDataValue,old?:ContestDataValue){
+  validateBody(data.beamerIntroduction??'','EDITORIAL_BEAMER',[]);
   if(new Set(data.items.map(i=>i.problemId)).size!==data.items.length||new Set(data.items.map(i=>i.code)).size!==data.items.length||new Set(data.items.map(i=>i.lectureOrder)).size!==data.items.length)throw new HttpError(422,'题目、题号和讲解顺序不能重复');
   for(const item of data.items){
     if(!old?.items.some(i=>i.problemId===item.problemId))await problemAccess(user,item.problemId);

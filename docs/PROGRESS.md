@@ -1057,3 +1057,23 @@ Linux 完整入口夹具实际运行 Bash update、自动加载 env.sh、Git 打
 **验证与云端操作：**业务代码未再修改，沿用上一节已通过的 26 项定向测试、四范围类型检查、原库回滚 API 和官方 NovaJudge 导入器检查，不重复执行全量或真实沙箱任务。云端保持原 Ubuntu、PM2、Caddyfile 与域名，用户在原服务器 root 终端执行 `cd /root/ProblemForge && git pull --ff-only origin master && bash deploy.sh update`。已核对现有 update 入口会载入原工具环境、先检查配置和端口/托管资源归属、自动备份并切换发布版本，最后检查本机与 HTTPS；若提示先收尾旧 pending，再执行同一 update 命令获取最新提交。
 
 **未验证与边界：**本轮没有远程连接或执行服务器更新，实际部署成功须以服务器的“部署完成”输出和线上页面检查为准。本地服务、数据库与模板保持现状，未增加端口或触及其他项目；推送准备无阻塞，云端更新待用户执行。
+
+## 比赛 Beamer 长标题、难度总览、开场总结和标签（2026-10-18）
+
+**实现：**CWNU 原封面通过 makebox 固定单行，导致长比赛名越界。比赛渲染器改用有界段落，按宽度换行、超高等比缩放，并给连续长英文增加断行机会；页脚用短标题，PDF 元信息保留完整文字。两套内置模板的独立出题人页移除，替换为题名、预计难度及源题标签的概览，讲解正文保留。讲题前新增按 lectureOrder 排列、可自动分页的难度总览；可选开场总结置于总览之后、各题之前。CWNU 动态显示顶部导航时重新计算页眉高度，解决概览顶对齐正文与标题条重叠，并保留管理员既有 section 钩子。
+
+比赛编排逐题新增 optional expectedDifficulty（40 字符），开场总结为 optional beamerIntroduction（40000 字符），负责人/编辑使用原权限、CAS 和保存保护。总结编辑器复用 SourceEditor，可填入完整 frame 示例、编写多页，超限保留草稿并阻止保存。预计难度留空为“未设置”，源题标签为空为“暂无标签”；空新字段归一为缺省，使旧冻结清单不会仅因空控件误判过期。保存、冻结、历史构建与渲染均按 Beamer 正文语法校验总结；没有比赛级图片资源入口，不允许资源引用或文件读取。新增内容与源题 meta.tags 固定进构建快照，题面和文档题解不插入这些内容，历史冻结/PDF 不改写。
+
+新增三个模板插槽 DIFFICULTY_OVERVIEW / BEAMER_INTRODUCTION / PROBLEM_OVERVIEW。`pf-contest-4` 对既有内置发布模板仅调整本次渲染副本，无需重新发布模板；自定义模板可显式放置插槽，缺省在 CONTENTS / BODY 前补入。辅助宏经文档开始前的环境钩子加载并防止重复加载，兼容被引用文件中的 document 入口、带空白入口及动态/静态短标题。已更新 TEMPLATES / USER_GUIDE；没有新增依赖或迁移。
+
+**实际检查：**`pnpm check contracts template-engine api web tex-worker` 五范围通过。显式执行 template-engine 的 contest、policy、statement-settings 与 scripts/contest-beamer-api.test.ts，19 项通过；覆盖旧模板适配、转义/拒绝危险内容、自动分页结构、旧快照兼容、历史输入不漂移、讲解排序/子集与其他材料排除。API 单元测试的持久化/访问/队列为替身，不冒充真实权限检查，默认 test/test:quick 清单未扩展。
+
+`.local/contest-beamer/verify-save.ts --rollback` 在原 problemforge_f054 数据库必定回滚事务中执行真实会话、Fastify GET/PUT、JSON 保存/读取、难度裁剪、空字段归一、CAS 409、VIEWER 403、缺 CSRF 403、非法 TeX/图片 422；被拒绝请求不修改行。原比赛前后哈希相同，临时用户/会话/成员/审计均为 0，Build/ContestRevision 数量不变。证据 api-save-result.json，没有监听、队列或业务构建。
+
+**真实 PDF 与页面：**直接使用原独立 Linux TeX 沙箱编译 6 组：原已发布导出模板 CWNU 长中文标题、160 字连续英文、宽屏含方括号标题、新 CWNU 30×40 字标签、宽屏 100 题及自定义 document/重复辅助宏/短标题/section 钩子。最终均 Accepted、exit=0、零 Overfull，源模板对象哈希保持；30 个长标签完整分成 4 页，100 题难度总览 17 页、总 PDF 218 页。Poppler 渲染并检查 19 张代表页，无裁切/重叠；没有宣称逐页检查全部 218 页。证据 sandbox.json、render-check.json 及 PDF/PNG，沙箱临时文件已清理。中途发现的 PDF 元信息展开与 CWNU 页眉高度问题已修正并重新实编译，没有把失败当成功。
+
+原 5180 浏览器实际打开现有 CWNU 比赛，检查逐题难度、开场总结编辑器、填入示例、字数和未保存/冻结禁用提示；控制台无 warn/error。验证内容仅为未保存草稿，临时标签已关闭，业务编排未改变。截图 browser-draft.png 位于上述忽略目录。
+
+**运行环境与收尾：**开始时原开发服务和 Docker 停止。启动已有 Docker Desktop，核对 5180/3100/15432/16379/15050/15051 无冲突、四个原容器的 ProblemForge 标签/主目录/端口归属后，启动这四个既有容器与主目录原 pnpm dev。最终核对零活动任务后仅重启该服务树加载最终代码，根 47052，Vite 13044、API 38236、两个 Worker 49164/6024；原 5180 首页 200、API 健康 ok、stderr 为空，无额外 Worker。题目、比赛/冻结、文稿/修订和模板指纹前后一致，活动 Build/TestRun 为 0，见 before/after、services-verified。沿用原数据库、私有目录和模板，无新端口/实例。
+
+**未验证与边界：**未提交真实业务队列构建、未保存测试草稿，未运行 Judge、全量/E2E、云端更新或公网部署；作者 TeX 仅在既有 Linux 沙箱执行，无宿主机回退。自定义主题任意布局及 CWNU 100 题顶部导航的极端组合未全面验证。实现及上述定向验收完成，无当前阻塞；更新交接并通过差异检查后本地 Git 提交，不 push。用户在原站保存编排后新建 Beamer 构建即可采用新内容和排版，历史 PDF 保留。
