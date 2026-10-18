@@ -23,7 +23,7 @@ export async function stageCloudUpdate(source, commit, run, node) {
     if ((await lstat(stage)).isSymbolicLink() || await realpath(stage) !== stage) throw new Error('发布包目录不能为符号链接');
     if (!await exists(`${release}/cloud-release.json`)) throw new Error(`发现未完成的打包目录：${stage}；保留现场，尚未停止原站`);
   } else {
-    await run(node, ['scripts/package-cloud.mjs', buildId], { cwd: source, timeout: 300000 });
+    await run(node, ['scripts/package-cloud.mjs', buildId, '--stage-only'], { cwd: source, timeout: 300000 });
   }
   if (await realpath(release) !== release) throw new Error('发布包目录不能为符号链接');
   const manifest = await verifyRelease(release);

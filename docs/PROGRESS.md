@@ -1095,3 +1095,19 @@ Linux 完整入口夹具实际运行 Bash update、自动加载 env.sh、Git 打
 **验证与更新方式：**业务代码未再修改，沿用以上两节已完成的定向类型检查、19 项 Beamer 测试、原库回滚验证和六组真实 Linux 沙箱 PDF 检查，不重复全量测试。现有服务器在 root 终端执行 `cd /root/ProblemForge && git pull --ff-only origin master && bash deploy.sh update`。update 沿用原工具环境、配置、端口与托管资源检查、备份及部署验证流程。若先收尾旧 pending，完成后再次运行同一更新命令。更新后协会用户重新登录同步姓名；保存比赛编排并新建 Beamer 构建采用新布局和内容，历史 PDF 保留。
 
 **边界：**本轮仅推送仓库与交接命令，不连接或部署服务器；云端更新结果仍待用户执行确认。本地开发服务、数据库及模板保持现状，无新增端口或实例，无当前推送准备阻塞。
+
+## 服务器更新占用持续增长：发布与备份轮转（2026-10-18）
+
+**定位：**用户报告每次更新可用空间约减少 2G，并回传只读统计 `/opt/problemforge/releases` 5.6G、`shared/backups` 2.7G、源码 `.local/releases` 78M。现有更新按每个提交安装完整依赖/构建新发布目录、生成全量 storage.tar 和数据库/配置备份，全部永久保留；源码另有展开包、source.tar、tar.gz。镜像配方不变时仅增加同一镜像的标签，不等于重复下载整层。没有服务器 df 前后或逐项版本明细，不把 8.3G 全部算作可释放空间，也未声称已远程清理。
+
+**实现：**新增 `bash deploy.sh cleanup` 预览与 `cleanup --apply`，沿用项目工具、资源归属和本机/HTTPS 健康检查及独占部署锁。预览不执行 provision 或删除。完整发布/备份按清单、来源、路径、普通文件与哈希验证；保留最近两个成功版本和最近两份自动备份，同时保护 current、PM2 实时/保存/备份清单、手工备份和保留备份引用的版本。版本实际保留数可能超过两个。旧版本以有效备份来源或新 .deployed.json 证明成功；未准备、没有成功证据、未知或损坏目录不删。pending 拒绝清理，无法识别来源的未完成备份保护全部版本。
+
+新手动备份明确标记 manual，自动升级备份标记 automatic。历史未区分用途的备份默认保留，只有显式 cleanup --apply 才同自动备份轮转；首次成功后 shared/cloud-retention.json 记住该选择，留下的历史备份随后会正常老化。文档说明旧版手动长期归档应先独立保管。删除前重新扫描验证，先删旧备份再删不再被引用的旧代码；不接触业务 storage、数据库卷或其他项目。备份哈希核验有额外磁盘读取，候选大小为逻辑大小，不能作为实际可释放容量承诺。
+
+部署通过 HTTPS、保存成功记录并清除 pending 后自动轮转；同提交 update 也能清理，清理错误仅警告，不推翻成功部署。旧镜像按已删发布目录的 .sandbox-images.json 核对精确 tag/imageId，只移除未被任何容器引用的标签，无 force/global prune。shared/retired-sandbox-images.json 在删目录前记录原镜像，仍被引用的镜像后续可重查，现存版本和备份引用继续保护。update 打包改 stage-only，不生成运输压缩包，解包后删除本次 source.tar；普通 package:cloud 仍输出 tar.gz/sha256。旧完整打包目录及匹配归档需重新校验才清理，未知/残缺/链接保留。
+
+**实际验证：**Windows Node 22.12.0 显式部署配置/流程/网络/进程/镜像/打包/轮转共 51 项，50 通过，1 项 Linux 进程组取消按平台跳过。Windows 临时目录实际删除、重复运行、legacy 首次选择与后续轮转、manual/current/PM2/pending/备份代码保护、内容变化、损坏、额外文件、symlink/junction、镜像队列均通过。真实 Git/tar 打包验证 stage-only 无多余归档、普通分发包继续生成及旧包删除；Docker 调用为替身，覆盖引用/ID 漂移/单项失败，不冒充真实镜像清理。
+
+WSL 既有 Ubuntu 22.04 的文件/打包/镜像替身/进程套件 30 项通过，包含真实 Linux 符号链接与父子进程取消；该环境 Node 为 18.20.8，只用于补充平台行为检查，不作为要求 Node 22.12+/24 的服务器部署验收。最后补充异常备份引用双重保护后，Windows 9 项轮转测试重跑通过。deploy.sh Bash 语法、部署脚本 Node 语法与 cleanup --help 通过，默认快查未扩展。证据汇总 `.local/deployment-retention/verification.json`；无作者代码、TeX、业务数据库或新监听。
+
+**环境与交付边界：**工作目录始终为 D:\project\ProblemForge，开始只读确认原 pnpm/Vite/API/Worker 路径；收尾原 5180/3100 无监听，Docker Linux daemon 不可用，本轮未启动、停止或切换开发服务/容器，未以新实例替代。没有连接云服务器、实际调用生产 cleanup、恢复数据库或部署公网；Linux 全入口 PM2/Caddy/Docker 联调及最终 df 回收量仍待服务器验证。实现和定向检查无阻塞，沿用本会话用户的仓库推送交付要求，提交后正常推送并核对远端；服务器按文档先预览/清理历史积累，再运行原 update。

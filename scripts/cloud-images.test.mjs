@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { digest } from './cloud-config.mjs';
-import { sandboxRecipe, prepareCloudSandboxes } from './cloud-images.mjs';
+import { sandboxRecipe, prepareCloudSandboxes, cleanupCloudSandboxImages } from './cloud-images.mjs';
 
 const kinds = ['tex', 'judge'];
 const id = number => `sha256:${String(number).repeat(64)}`;
@@ -128,4 +128,118 @@ test('recipe checks reject tampered inputs, unsupported COPY forms and invalid r
   for (const receipt of [{ format: 2 }, { format: 1, buildId: 'new-release', images: [] }, { format: 1, buildId: 'new-release', images: { foreign: {} } }]) {
     await assert.rejects(prepareCloudSandboxes({ ...g.options, receipt }), /记录无效/);
   }
+});
+
+function cleanupFixture() {
+  const buildId = 'old-release';
+  const receipt = { format: 1, buildId, images: Object.fromEntries(kinds.map((kind, i) => [kind, { imageId: id(i + 1), recipe: 'unused' }])) };
+  const images = new Map(kinds.map((kind, i) => [tag(kind, buildId), id(i + 1)]));
+  const containers = [], commands = [], messages = [];
+  const docker = async args => {
+    commands.push(args);
+    if (args[0] === 'image') {
+      if (args[1] === 'ls') return images.get(args.at(-1)) ?? '';
+      if (args[1] === 'inspect') return images.get(args[2]) ?? '';
+      if (args[1] === 'rm') {
+        assert.equal(args.length, 3);
+        assert.ok(args[2].startsWith('problemforge-'));
+        images.delete(args[2]);
+        return '';
+      }
+    }
+    if (args[0] === 'ps') {
+      assert.deepEqual(args.slice(0, 3), ['ps', '-aq', '--filter']);
+      return containers.filter(row => args[3] === `ancestor=${row.imageId}`).map(row => row.id).join('\n');
+    }
+    throw new Error(`Unexpected Docker command: ${args.join(' ')}`);
+  };
+  return { buildId, receipt, images, containers, commands, messages, docker,
+    options: { removedReleases: [{ buildId, receipt }], docker, say: text => messages.push(text) } };
+}
+
+test('sandbox cleanup defaults to a read-only preview and only removes exact recorded tags on apply', async () => {
+  const f = cleanupFixture();
+  f.images.set(tag('tex', 'current-release'), id(1));
+  const preview = await cleanupCloudSandboxImages(f.options);
+  assert.deepEqual(preview.removed, []);
+  assert.deepEqual(preview.errors, []);
+  assert.deepEqual(preview.skipped.map(row => row.reason), ['preview', 'preview']);
+  assert.equal(f.commands.some(args => args[1] === 'rm'), false);
+  const result = await cleanupCloudSandboxImages({ ...f.options, apply: true });
+  assert.deepEqual(result.removed.map(row => row.tag), kinds.map(kind => tag(kind, f.buildId)));
+  assert.deepEqual(result.errors, []);
+  assert.deepEqual(f.commands.filter(args => args[1] === 'rm'), kinds.map(kind => ['image', 'rm', tag(kind, f.buildId)]));
+  assert.equal(f.images.get(tag('tex', 'current-release')), id(1), 'other tags sharing the layer are preserved');
+});
+
+test('sandbox cleanup preserves images referenced by current, foreign and stopped containers', async () => {
+  for (const state of ['running', 'exited']) {
+    const f = cleanupFixture();
+    f.images.set(tag('tex', 'current-release'), id(1));
+    f.containers.push({ id: 'a'.repeat(64), imageId: id(1), state, project: state === 'running' ? 'problemforge-cloud' : 'foreign' });
+    const result = await cleanupCloudSandboxImages({ ...f.options, apply: true });
+    assert.equal(result.skipped.find(row => row.kind === 'tex').reason, 'container-reference');
+    assert.deepEqual(result.removed.map(row => row.kind), ['judge']);
+    assert.equal(f.images.get(tag('tex', f.buildId)), id(1));
+    assert.equal(f.images.get(tag('tex', 'current-release')), id(1));
+  }
+});
+
+test('sandbox cleanup refuses missing, malformed or mismatched receipts before Docker access', async () => {
+  for (const receipt of [null, { format: 2 }, { format: 1, buildId: 'another-release', images: {} },
+    { format: 1, buildId: 'old-release', images: [] },
+    { format: 1, buildId: 'old-release', images: { other: { imageId: id(1) } } },
+    { format: 1, buildId: 'old-release', images: { tex: { imageId: '--force' } } }]) {
+    const f = cleanupFixture();
+    const result = await cleanupCloudSandboxImages({ ...f.options, removedReleases: [{ buildId: f.buildId, receipt }], apply: true });
+    assert.deepEqual(result.removed, []);
+    assert.equal(f.commands.length, 0);
+    assert.equal(receipt ? result.errors.length : result.skipped.length, 1);
+  }
+  const f = cleanupFixture();
+  const result = await cleanupCloudSandboxImages({ ...f.options, removedReleases: [{ buildId: '../foreign', receipt: f.receipt }], apply: true });
+  assert.equal(result.errors.length, 1);
+  assert.equal(f.commands.length, 0);
+});
+
+test('sandbox cleanup preserves retagged images and rechecks image identity immediately before deletion', async () => {
+  const f = cleanupFixture();
+  f.images.set(tag('tex', f.buildId), id(9));
+  const changed = await cleanupCloudSandboxImages({ ...f.options, apply: true });
+  assert.equal(changed.errors.length, 1);
+  assert.match(changed.errors[0].message, /原记录不一致/);
+  assert.equal(f.images.get(tag('tex', f.buildId)), id(9));
+  const g = cleanupFixture();
+  const raced = await cleanupCloudSandboxImages({ ...g.options, apply: true, docker: async args => {
+    const value = await g.docker(args);
+    if (args[0] === 'ps' && args.at(-1) === `ancestor=${id(1)}`) g.images.set(tag('tex', g.buildId), id(9));
+    return value;
+  } });
+  assert.equal(raced.errors.length, 1);
+  assert.match(raced.errors[0].message, /清理前变化/);
+  assert.equal(g.images.get(tag('tex', g.buildId)), id(9));
+});
+
+test('sandbox cleanup reports an individual Docker failure and continues without force or global pruning', async () => {
+  const f = cleanupFixture();
+  const result = await cleanupCloudSandboxImages({ ...f.options, apply: true, docker: async args => {
+    if (args[1] === 'rm' && args[2] === tag('tex', f.buildId)) throw new Error('image is now in use');
+    return f.docker(args);
+  } });
+  assert.equal(result.errors.length, 1);
+  assert.deepEqual(result.removed.map(row => row.kind), ['judge']);
+  assert.ok(f.messages.some(message => message.startsWith('警告：')));
+  assert.equal(f.images.get(tag('tex', f.buildId)), id(1));
+  assert.equal(f.commands.some(args => args.includes('--force') || args.includes('prune')), false);
+});
+
+test('sandbox cleanup treats already absent tags and partial receipts as safe skips', async () => {
+  const f = cleanupFixture();
+  f.images.delete(tag('tex', f.buildId));
+  delete f.receipt.images.judge;
+  const result = await cleanupCloudSandboxImages({ ...f.options, apply: true });
+  assert.deepEqual(result.skipped.map(row => row.reason), ['absent', 'missing-receipt']);
+  assert.deepEqual(result.removed, []);
+  assert.deepEqual(result.errors, []);
+  assert.equal(f.commands.some(args => args[1] === 'rm'), false);
 });

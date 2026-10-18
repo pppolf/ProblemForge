@@ -2,7 +2,7 @@
 set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 # Reuse this project's existing tools for the source-checkout update command.
-if [[ "${1:-}" == update && -f /opt/problemforge-tools/env.sh ]]; then
+if [[ ( "${1:-}" == update || "${1:-}" == cleanup ) && -f /opt/problemforge-tools/env.sh ]]; then
   source /opt/problemforge-tools/env.sh
 fi
 if ! command -v node >/dev/null 2>&1; then

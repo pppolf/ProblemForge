@@ -92,3 +92,76 @@ export async function prepareCloudSandboxes({ directory, manifest, previous, rec
   }
   return result;
 }
+
+// The caller supplies only releases it has already removed under the deployment
+// lock. Never discover deletion candidates by a broad Docker name filter.
+export async function cleanupCloudSandboxImages({ removedReleases, docker, say = () => {}, apply = false }) {
+  const result = { removed: [], skipped: [], errors: [] };
+  const warn = (entry, message) => {
+    result.errors.push({ ...entry, message });
+    say(`警告：旧沙箱镜像清理未完成${entry.tag ? `（${entry.tag}）` : ''}：${message}`);
+  };
+  if (!Array.isArray(removedReleases)) {
+    warn({}, '已删除版本清单无效');
+    return result;
+  }
+  const seen = new Set();
+  for (const release of removedReleases) {
+    const buildId = release?.buildId;
+    if (typeof buildId !== 'string' || !/^[a-z0-9][a-z0-9.-]{2,80}$/.test(buildId)) {
+      warn({}, '版本标识无效，保留镜像');
+      continue;
+    }
+    const receipt = release.receipt;
+    if (!receipt) {
+      result.skipped.push({ buildId, reason: 'missing-receipt' });
+      say(`保留 ${buildId} 的沙箱镜像：没有原镜像记录。`);
+      continue;
+    }
+    if (receipt.format !== 1 || receipt.buildId !== buildId || !receipt.images || typeof receipt.images !== 'object' ||
+        Array.isArray(receipt.images) || Object.entries(receipt.images).some(([kind, entry]) =>
+          !kinds.includes(kind) || !entry || typeof entry !== 'object' || Array.isArray(entry) || !imageId(entry.imageId))) {
+      warn({ buildId }, '原镜像记录无效，保留镜像');
+      continue;
+    }
+    for (const kind of kinds) {
+      const target = tag(kind, buildId);
+      const entry = { buildId, kind, tag: target, imageId: receipt.images[kind]?.imageId };
+      if (!entry.imageId) {
+        result.skipped.push({ buildId, kind, tag: target, reason: 'missing-receipt' });
+        continue;
+      }
+      if (seen.has(target)) continue;
+      seen.add(target);
+      try {
+        const existing = await inspectImage(docker, target);
+        if (!existing) {
+          result.skipped.push({ ...entry, reason: 'absent' });
+          continue;
+        }
+        if (existing !== entry.imageId) throw new Error('镜像标签与原记录不一致，保留镜像');
+        // Include stopped and foreign containers. The ancestor filter may also
+        // preserve descendants; retaining too much is safer than removing them.
+        const containers = (await docker(['ps', '-aq', '--filter', `ancestor=${entry.imageId}`])).trim();
+        if (containers) {
+          result.skipped.push({ ...entry, reason: 'container-reference' });
+          say(`保留 ${target}：仍有容器引用该镜像。`);
+          continue;
+        }
+        if (apply !== true) {
+          result.skipped.push({ ...entry, reason: 'preview' });
+          say(`可清理旧沙箱镜像标签：${target}`);
+          continue;
+        }
+        if (await inspectImage(docker, target) !== entry.imageId) throw new Error('镜像标签在清理前变化，保留镜像');
+        // Remove the exact tag, never an image ID, --force, volumes or caches.
+        await docker(['image', 'rm', target]);
+        result.removed.push(entry);
+        say(`已清理旧沙箱镜像标签：${target}`);
+      } catch (error) {
+        warn(entry, error instanceof Error ? error.message : String(error));
+      }
+    }
+  }
+  return result;
+}

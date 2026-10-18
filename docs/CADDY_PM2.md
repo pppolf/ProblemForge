@@ -114,6 +114,12 @@ sudo bash /opt/problemforge/current/deploy.sh backup
 
 沙箱镜像按 Dockerfile、COPY 文件和 .dockerignore 的实际哈希比较，应用更新时复用原站运行中的镜像，仅构建改变的沙箱。复用前检查 Compose 项目、服务、运行状态和镜像 ID；每个发布目录保存 `.sandbox-images.json` 供失败重试校验。镜像来源或已有标签不一致会停止，不覆盖未知镜像。
 
+更新成功后自动轮转最近两份自动备份及最近两个成功版本；当前进程、PM2 保存记录、手工备份和保留备份引用的代码额外保护，所以版本目录可能超过两个。手工 `backup` 标记为 manual，不自动删除。历史无用途标记的备份默认保留；从源码根目录执行 `bash deploy.sh cleanup` 预览，`bash deploy.sh cleanup --apply` 才将历史备份一并轮转。存在 pending 或不一致状态时拒绝清理，未知、损坏、失败现场保留。旧镜像按原记录精确清理，并在 `shared/retired-sandbox-images.json` 保留重试清单，不做全机 Docker prune。详细步骤与保留边界见 [更新占用与旧文件清理](DEPLOY_HYDRO_CADDY.md#更新占用与旧文件清理)。
+
+首次显式历史清理完成后，`shared/cloud-retention.json` 保存这一选择，后续自动更新会将剩余历史备份也纳入最近两份的轮转；预览不改保留策略。
+
+磁盘轮转定向检查：`node --test scripts/cloud-retention.test.mjs scripts/cloud-update.test.mjs scripts/cloud-images.test.mjs`，包含真实临时文件删除、路径/恢复保护、旧包清理及精确镜像命令替身，不运行服务器部署或数据库恢复。
+
 ## 打包与验证范围
 
 开发者在干净的已提交工作区执行 `pnpm package:cloud <版本标识>`，输出位于 Git 忽略的 `.local/releases/`。包包含来源提交、迁移清单及逐文件 SHA-256，打包器拒绝私有数据路径、路径越界和符号链接；部署前重新核对，不复制开发 node_modules。

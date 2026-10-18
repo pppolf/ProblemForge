@@ -12,9 +12,12 @@ import { deployWorkflow } from './cloud-workflow.mjs';
 import { runCloudCommand } from './cloud-process.mjs';
 import { inspectCloudPorts, assertCloudPorts, repairCloudNetwork, assertHostPortUse, hostProbeCode } from './cloud-network.mjs';
 import { cloudSourceRevision, stageCloudUpdate } from './cloud-update.mjs';
-import { prepareCloudSandboxes } from './cloud-images.mjs';
+import { prepareCloudSandboxes, cleanupCloudSandboxImages } from './cloud-images.mjs';
+import { inspectCloudRetention, applyCloudRetention, retiredCloudImages } from './cloud-retention.mjs';
+import { inspectCloudStages, applyCloudStageRetention } from './cloud-stage-retention.mjs';
 
 let source = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const invocationSource = source;
 const shared = `${root}/shared`, current = `${root}/current`, marker = `${root}/.problemforge-managed`;
 const args = process.argv.slice(2);
 const command = args[0] && !args[0].startsWith('--') ? args.shift() : 'install';
@@ -24,7 +27,8 @@ const flags = {};
 for (let i = 0; i < args.length; i++) {
   const name = args[i];
   if (name === '--help') { flags.help = true; continue; }
-  if (!['--secrets-file', '--settings-file'].includes(name) || !args[i + 1] || flags[name]) throw new Error('参数：install / update / resume-network / plan / check-caddy / status / backup / reload-api；--secrets-file JSON；--settings-file JSON');
+  if (name === '--apply' && command === 'cleanup' && !flags.apply) { flags.apply = true; continue; }
+  if (!['--secrets-file', '--settings-file'].includes(name) || !args[i + 1] || flags[name]) throw new Error('参数：install / update / cleanup [--apply] / resume-network / plan / check-caddy / status / backup / reload-api；--secrets-file JSON；--settings-file JSON');
   flags[name] = resolve(args[++i]);
 }
 const exists = async path => { try { await access(path); return true; } catch { return false; } };
@@ -246,7 +250,7 @@ async function quiesce(previous) {
     await appNode(previous.path, ['scripts/cloud-database.ts', 'idle']);
   } catch (error) { await processAction('restart'); throw error; }
 }
-async function backup(previous) {
+async function backup(previous, purpose = 'automatic') {
   const out = `${shared}/backups/${new Date().toISOString().replace(/[^0-9]/g, '')}`;
   await mkdir(out, { mode: 0o700 });
   await appNode(previous.path, ['scripts/ops-state.ts', '--quiescent'], { output: `${out}/state.json` });
@@ -272,7 +276,8 @@ async function backup(previous) {
     const hash = createHash('sha256'); for await (const chunk of createReadStream(`${out}/${name}`)) hash.update(chunk);
     files[name] = hash.digest('hex');
   }
-  await writeFile(`${out}/manifest.json`, JSON.stringify({ format: 1, kind: 'problemforge-pm2', buildId: previous.manifest.buildId, files }, null, 2), { mode: 0o600 });
+  await writeFile(`${out}/manifest.json`, JSON.stringify({ format: 1, kind: 'problemforge-pm2', buildId: previous.manifest.buildId,
+    purpose, createdAt: new Date().toISOString(), files }, null, 2), { mode: 0o600 });
   say(`一致备份已保存：${out}`); return out;
 }
 async function installStartup() {
@@ -308,9 +313,63 @@ async function activateCaddy() {
   } finally { await rm(candidate, { force: true }); }
 }
 
+async function cleanupDeployment({ apply = false, includeLegacyBackups = false } = {}) {
+  const rows = await processList();
+  const processReleasePaths = rows.map(row => row.pm2_env?.pm_cwd);
+  if (processReleasePaths.some(path => typeof path !== 'string')) throw new Error('无法确认 PM2 版本目录');
+  // Saved process lists are also recovery references, including PM2's previous dump.
+  for (const name of ['dump.pm2', 'dump.pm2.bak']) {
+    const path = `${shared}/pm2/${name}`;
+    if (await exists(path)) {
+      const info = await lstat(path);
+      if (!info.isFile() || info.isSymbolicLink()) throw new Error('PM2 保存清单不是普通文件');
+      const saved = await json(path);
+      if (!Array.isArray(saved) || saved.some(row => !APP_NAMES.includes(row.name) || typeof row.pm_cwd !== 'string')) throw new Error('PM2 保存清单含未知进程或版本');
+      processReleasePaths.push(...saved.map(row => row.pm_cwd));
+    }
+  }
+  const options = { root, includeLegacyBackups, processReleasePaths };
+  const plan = await inspectCloudRetention(options);
+  const size = bytes => `${(bytes / 1024 ** 3).toFixed(2)} GiB`;
+  say(`清理策略：最近两份自动备份、最近两个成功版本；另外保留当前/PM2/备份引用的版本与手工备份。${plan.includeLegacyBackups ? '本次也轮转历史未标注备份。' : '历史未标注备份需显式 cleanup --apply 才轮转。'}`);
+  say(`已验证发布目录 ${size(plan.bytes.releases)}，备份 ${size(plan.bytes.backups)}；候选文件大小 ${size(plan.bytes.candidates)}（共享硬链接不等于实际回收空间）。`);
+  for (const item of plan.candidates) say(`${apply ? '清理候选' : '预览候选'}：${item.path} (${size(item.bytes)})`);
+  for (const item of plan.kept) say(`保留：${item.path} — ${item.reason}`);
+  for (const warning of plan.warnings) say(`提示：${warning}`);
+  if (plan.blocked.length) throw new Error(plan.blocked.join('；'));
+  if (apply) {
+    const removed = await applyCloudRetention(plan, options);
+    say(`已清理 ${removed.length} 个旧发布/备份目录。`);
+  }
+  const images = (await retiredCloudImages(root)).filter(item => !plan.protectedBuildIds.includes(item.buildId));
+  if (!apply) images.push(...plan.candidates.filter(item => item.type === 'release').map(item => ({ buildId: item.buildId, receipt: item.receipt })));
+  const imageResult = await cleanupCloudSandboxImages({ removedReleases: images, apply,
+    docker: argv => run(bins.docker, argv, { capture: true, timeout: 30000 }), say });
+  say(`旧沙箱标签：${apply ? '已移除' : '可移除'} ${apply ? imageResult.removed.length : imageResult.skipped.filter(item => item.reason === 'preview').length} 个，其他引用的镜像保留。`);
+  // Only a verified Git source checkout owns the transient packaging directory.
+  if (await exists(`${invocationSource}/.git`)) {
+    const top = await run('git', ['rev-parse', '--show-toplevel'], { cwd: invocationSource, capture: true, timeout: 10000 });
+    if (await realpath(top) !== await realpath(invocationSource)) throw new Error('清理打包目录必须从源码根目录执行');
+    const protectedBuildIds = [...plan.protectedBuildIds, ...plan.kept.filter(item => item.type === 'release').map(item => item.buildId).filter(Boolean)];
+    // The running package and any recovery version must remain readable.
+    const active = await activeRelease();
+    protectedBuildIds.push(active.manifest.buildId);
+    const stages = await inspectCloudStages(invocationSource, { protectedBuildIds });
+    for (const item of stages.candidates) say(`${apply ? '清理打包目录' : '预览打包目录'}：${item.path} (${size(item.bytes)})`);
+    for (const item of stages.retained) say(`保留打包文件：${item.path} — ${item.reason}`);
+    if (apply) await applyCloudStageRetention(stages, { protectedBuildIds });
+  }
+  if (!apply) say('本次仅预览；执行 bash deploy.sh cleanup --apply 才会删除上述候选。');
+}
+
+async function automaticCleanup() {
+  try { await cleanupDeployment({ apply: true }); }
+  catch (error) { say(`警告：部署已成功，旧文件清理未完成：${error.message}。可运行 bash deploy.sh cleanup 检查后重试。`); }
+}
+
 async function main() {
-  if (flags.help) { console.log('sudo bash deploy.sh [install|update|status|backup|reload-api]\n已有站点：在 Git 源码目录拉取代码后运行 bash deploy.sh update\n首次：--secrets-file /私有路径/problemforge.secrets.json\n可选首次配置：--settings-file settings.json\n只读预览：bash deploy.sh plan\n只读 Caddy 检查：node scripts/cloud-deploy.mjs check-caddy --settings-file settings.json\n旧包网络恢复并继续同一版本：node scripts/cloud-deploy.mjs resume-network\n详见 docs/CADDY_PM2.md'); return; }
-  if (!['install', 'update', 'resume-network', 'plan', 'check-caddy', 'status', 'backup', 'reload-api'].includes(command)) throw new Error('未知部署命令');
+  if (flags.help) { console.log('sudo bash deploy.sh [install|update|cleanup|status|backup|reload-api]\n已有站点：在 Git 源码目录拉取代码后运行 bash deploy.sh update\n磁盘清理预览：bash deploy.sh cleanup；确认执行：bash deploy.sh cleanup --apply\n首次：--secrets-file /私有路径/problemforge.secrets.json\n可选首次配置：--settings-file settings.json\n只读预览：bash deploy.sh plan\n只读 Caddy 检查：node scripts/cloud-deploy.mjs check-caddy --settings-file settings.json\n旧包网络恢复并继续同一版本：node scripts/cloud-deploy.mjs resume-network\n详见 docs/CADDY_PM2.md'); return; }
+  if (!['install', 'update', 'cleanup', 'resume-network', 'plan', 'check-caddy', 'status', 'backup', 'reload-api'].includes(command)) throw new Error('未知部署命令');
   const settingsInput = flags['--settings-file'] ? await json(flags['--settings-file']) : undefined;
   if (command === 'plan') {
     const proposed = cloudSettings(settingsInput);
@@ -337,7 +396,12 @@ async function main() {
   }
   let manifest = command === 'install' || recoveringNetwork ? await verifyRelease(source) : null;
   if (command !== 'install' && !await exists(marker)) throw new Error('尚未部署');
-  await provision(settingsInput, flags['--secrets-file']);
+  if (command === 'cleanup') {
+    if ((await readFile(marker, 'utf8')).trim() !== 'ProblemForge Caddy PM2 deployment v1') throw new Error('安装目录标记不匹配');
+    const account = await run('getent', ['passwd', user], { capture: true });
+    if (account.split(':')[5] !== `${shared}/home`) throw new Error('服务用户不属于本站托管目录');
+    identity = { uid: Number(await run('id', ['-u', user], { capture: true })), gid: Number(await run('id', ['-g', user], { capture: true })) };
+  } else await provision(settingsInput, flags['--secrets-file']);
   const lock = `${root}/.deploy.lock`;
   let handle;
   try { handle = await open(lock, 'wx', 0o600); await handle.writeFile(`${process.pid}\n`); }
@@ -347,6 +411,13 @@ async function main() {
     previous = await activeRelease();
     const pendingFile = `${shared}/pending-deploy.json`;
     const pending = await exists(pendingFile) ? await json(pendingFile) : null;
+    if (command === 'cleanup') {
+      if (pending) throw new Error('存在未完成部署，先完成原版本再清理');
+      await checkHostPortUse();
+      await status();
+      await cleanupDeployment({ apply: flags.apply === true, includeLegacyBackups: true });
+      return;
+    }
     if (recoveringNetwork && pendingReleasePath(pending) !== source) throw new Error('待完成版本已变化；停止网络恢复');
     if (updating) {
       if (!previous) throw new Error('update 仅用于已有站点，首次安装请使用发布包 install');
@@ -361,7 +432,7 @@ async function main() {
         const last = await exists(`${shared}/last-deploy.json`) ? await json(`${shared}/last-deploy.json`) : null;
         if (previous.manifest.gitCommit === commit && last?.gitCommit === commit && last.buildId === previous.manifest.buildId && last.httpsVerified === true) {
           await verifyRelease(previous.path);
-          await status(); say(`当前站点已是 ${commit.slice(0, 12)}，无需重复部署。`); return;
+          await status(); say(`当前站点已是 ${commit.slice(0, 12)}，无需重复部署。`); await automaticCleanup(); return;
         }
         say(`准备更新到 ${commit.slice(0, 12)}：自动打包、备份并部署。`);
         const staged = await stageCloudUpdate(source, commit, run, bins.node);
@@ -374,7 +445,7 @@ async function main() {
     if (command === 'reload-api') { await pm2(['reload', APP_NAMES[0]]); await pm2(['save']); await status(); return; }
     if (command === 'backup') {
       await quiesce(previous);
-      try { await backup(previous); } finally { await processAction('restart'); }
+      try { await backup(previous, 'manual'); } finally { await processAction('restart'); }
       await status(false); return;
     }
     if (!updating) await checkHostPortUse();
@@ -436,7 +507,9 @@ async function main() {
       },
       installStartup, activateProxy: activateCaddy, checkHttps: () => status(),
       recordSuccess: async () => {
-        await writeOwned(`${shared}/last-deploy.json`, JSON.stringify({ buildId: manifest.buildId, gitCommit: manifest.gitCommit, deployedAt: new Date().toISOString(), httpsVerified: true }, null, 2));
+        const success = JSON.stringify({ buildId: manifest.buildId, gitCommit: manifest.gitCommit, deployedAt: new Date().toISOString(), httpsVerified: true }, null, 2);
+        await writeOwned(`${shared}/last-deploy.json`, success);
+        await writeOwned(`${release}/.deployed.json`, success);
         await rm(pendingFile);
       },
       resumePrevious: () => processAction('restart'), stopApplication: () => processAction('stop'),
@@ -447,6 +520,7 @@ async function main() {
       },
     }, !!previous && !pending);
     say(`部署完成：${manifest.buildId}，本机及 HTTPS 健康检查通过。`);
+    await automaticCleanup();
     if (!previous) say(`管理员凭据：${shared}/bootstrap-admin.txt；普通用户使用协会账号登录。`);
     if (updating && pending) say('原未完成版本已收尾；再运行 bash deploy.sh update 可更新到源码目录的最新提交。');
   } finally { await handle.close(); await rm(lock); }
