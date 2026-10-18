@@ -19,7 +19,7 @@ const status = (code: number) => (error: unknown) => error instanceof HttpError 
 let response: () => Response | Promise<Response>, calls = 0;
 let submitted: any;
 const envelope = (data: any) => JSON.stringify({ code: 200, msg: 'success', data });
-const identity = (userId: string, name: string) => ({ userId, userAccount: name, userName: name, email: `${name}-${suffix}@example.test` });
+const identity = (userId: string, name: string) => ({ userId, userAccount: name, userName: `nickname-${name}`, realName: `真实姓名-${name}`, email: `${name}-${suffix}@example.test` });
 const identityBase = BigInt(Date.now()) * 10000n + BigInt(randomInt(1000));
 const fixtureIdentity = (offset: number) => String(identityBase + BigInt(offset));
 const remote = identity(fixtureIdentity(1), 'author'); emails.push(remote.email);
@@ -36,6 +36,9 @@ try {
   config.associationAppKey = 'verification-key-never-sent';
   response = () => new Response(envelope(remote).replace(`"${remote.userId}"`, remote.userId));
   assert.equal((await associationLogin('  author  ', '  password unchanged  ')).userId, remote.userId);
+  assert.equal(parseAssociationResponse(envelope({...remote, realName:'  张 三  '})).name, '张 三');
+  assert.equal(parseAssociationResponse(envelope({...remote, realName:'名'.repeat(100)})).name, '名'.repeat(80));
+  for(const realName of [undefined,null,'',' \t ',42,{},[]]) assert.equal(parseAssociationResponse(envelope({...remote,realName,userAccount:'  fallback-account  '})).name,'fallback-account');
   assert.equal(parseAssociationResponse(envelope({...remote, userId: '9223372036854775807'}).replace('"9223372036854775807"', '9223372036854775807')).userId, '9223372036854775807');
   assert.deepEqual(submitted, { appKey: config.associationAppKey, loginType: 'password', account: 'author', credential: '  password unchanged  ' });
   for (const data of [{ ...remote, userId: '9223372036854775808' }, { ...remote, userId: '1.2' }, { ...remote, userId: '0' }, { ...remote, email: '' }, null]) assert.throws(() => parseAssociationResponse(envelope(data)), status(502));
@@ -122,6 +125,8 @@ try {
       config.associationAppKey = 'verification-key-never-sent';
       const first = await login(remote);
       assert.equal(first.user.authProvider, 'association');
+      assert.equal(first.user.name,remote.realName);
+      assert.equal((await tx.user.findUniqueOrThrow({where:{id:first.user.id}})).name,remote.realName);
       await call('/auth/admin/password', {currentPassword: 'anything', newPassword: nextPassword}, first, 403);
       assert.match(String(first.res.headers['set-cookie']), /HttpOnly/); assert.match(String(first.res.headers['set-cookie']), /SameSite=Strict/);
       assert.equal(first.user.role, 'USER'); assert.ok(!first.res.body.includes('passwordHash')); assert.ok(!first.res.body.includes(config.associationAppKey));
@@ -149,8 +154,16 @@ try {
       const administrator = await login(adminInfo); assert.equal(administrator.user.id, localAdmin.id); assert.equal(administrator.user.role, 'ADMIN');
       await localLogin(adminInfo.email, localPassword, 401);
       await call('/auth/admin/password', {currentPassword: localPassword, newPassword: nextPassword}, administrator, 403);
-      const changed = await login({...remote, userAccount: 'renamed-account', userName: 'new nickname'});
-      assert.equal(changed.user.id, first.user.id); assert.equal(changed.user.name, 'new nickname');
+      // Simulate an existing user whose display name was synced by the old code.
+      await tx.user.update({where:{id:first.user.id},data:{name:remote.userName}});
+      const changed = await login({...remote, userAccount: 'renamed-account', userName: 'new nickname', realName:'  新姓名  '});
+      assert.equal(changed.user.id, first.user.id); assert.equal(changed.user.name, '新姓名');
+      assert.equal((await call('/auth/me',undefined,first)).json().user.name,'新姓名');
+      const synced = await tx.user.findUniqueOrThrow({where:{id:first.user.id}});
+      const nicknameChanged = await login({...remote,userAccount:'renamed-account',userName:'another nickname',realName:'新姓名'});
+      assert.equal(nicknameChanged.user.name,'新姓名');
+      assert.equal((await tx.user.findUniqueOrThrow({where:{id:first.user.id}})).version,synced.version);
+      evidence.push('real-name display on login and existing sessions, legacy nickname replaced on next login, nickname-only edits ignored, missing real name falls back to account');
       let managed = await tx.user.findUniqueOrThrow({where: {id: first.user.id}});
       await call(`/admin/users/${first.user.id}`, {expectedVersion: managed.version, role: 'USER', disabled: true}, administrator, 200, 'PATCH');
       await call('/auth/me', undefined, first, 401); await login(remote, remote.userAccount, 403);

@@ -30,7 +30,9 @@ export function parseAssociationResponse(text: string): AssociationUser {
       typeof u.userAccount !== 'string' || !u.userAccount.trim() || u.userAccount.length > 254 ||
       typeof u.email !== 'string' || u.email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(u.email.trim())) throw malformed();
   const userAccount = u.userAccount.trim();
-  return { userId: u.userId, userAccount, name: (typeof u.userName === 'string' && u.userName.trim() ? u.userName.trim() : userAccount).slice(0, 80), email: u.email.trim().toLowerCase() };
+  // userName is the association nickname. Display the real name consistently;
+  // if it is unavailable, retain the account fallback without using a nickname.
+  return { userId: u.userId, userAccount, name: (typeof u.realName === 'string' && u.realName.trim() ? u.realName.trim() : userAccount).slice(0, 80), email: u.email.trim().toLowerCase() };
 }
 
 export async function associationLogin(account: string, password: string): Promise<AssociationUser> {
