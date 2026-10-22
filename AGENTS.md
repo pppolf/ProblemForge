@@ -12,3 +12,4 @@
 - 不访问或修改其他项目及现有 OJ；不 push，不发布公网。
 - 如 Python 缺包，先检查虚拟环境；无法判断可问用户，确认环境后使用 pip 安装。
 - 收尾更新 docs/PROGRESS.md，区分实现、实际验证、未验证和阻塞。
+- 用户授权推送 GitHub 后，最终回复必须同时附上可直接复制的服务器更新指令，默认沿用 `/root/ProblemForge`：`cd /root/ProblemForge && git pull --ff-only origin master && bash deploy.sh update`；核对实际脚本和部署路径后再给出。明确区分代码已推送与服务器已部署，不把此偏好当作自动推送或自动部署授权。

@@ -1132,3 +1132,7 @@ WSL 既有 Ubuntu 22.04 的文件/打包/镜像替身/进程套件 30 项通过�
 用户明确要求推送 GitHub，本轮允许将图片功能提交 f9042ad 正常推送至 origin/master。推送前工作区干净，fetch 后远端 master 为 9f0ae0b，是本地 HEAD 的祖先；本地仅领先该功能提交，没有分叉，不使用强制推送。本交接记录随交付提交，随后推送并核对 GitHub master 与本地 HEAD 一致。
 
 没有再改业务代码，沿用上一节六范围类型检查、34 项定向检查、原库回滚及两套真实沙箱 PDF 的结果和限制，不重复全量验证。此轮不连接或更新云服务器，不改本地开发服务、数据库、模板或监听；服务器是否已经更新不能由 GitHub 推送结果代替。
+
+## 推送后的服务器更新指令偏好（2026-10-22）
+
+用户要求今后每次推送后都附上服务器更新指令，已写入 AGENTS.md 作为本仓库交付要求，不增加自动推送/部署授权。本次 GitHub master 已核对为 413f70016b211788214803cf0dd2ea08e2afd2b5，包含图片功能 f9042ad。服务器在原 `/root/ProblemForge` 执行 `git pull --ff-only origin master` 后运行 `bash deploy.sh update`；只读核对 cloud-deploy.mjs 的 update 流程先备份，再调用 scripts/database.ts migrate，最终为 Prisma migrate deploy，因此包含新增 ContestAsset 表迁移，无需手动建表。此次仅记录偏好和提供命令，未连接服务器、执行更新或改动业务代码；文档差异检查后本地提交。
