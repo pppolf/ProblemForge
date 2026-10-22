@@ -1126,3 +1126,9 @@ WSL 既有 Ubuntu 22.04 的文件/打包/镜像替身/进程套件 30 项通过�
 **真实 PDF 与界面：**用户原图 SHA-256 为 057e3a26405a5018e401a0536ecc3a0130b78d77590abd5ee2b291885dd3f39c。用原独立 Linux TeX 沙箱分别编译已发布 CWNU 4:3 与宽屏 16:9 模板，两次均 Accepted、exit=0、无 Overfull，模板对象哈希保持，沙箱临时文件已清理。Poppler 渲染两份第 3 页并人工检查，榜单含底部注释完整显示、无裁切或拉伸；未声称整场业务构建通过。原 5180 浏览器以原管理员进入现有比赛，核对入口、图片限制和空列表；无 warn/error。未在真实比赛持久上传/插入/保存示例图片，验证后退出账号。证据 `.local/contest-intro-assets/` 中 unit.log、types.log、api-result.json、sandbox-result.json、两份 PDF/PNG、browser-entry.png。
 
 **环境及收尾：**在 Windows 主目录直接实现。开始无 5180/3100 监听；随后发现四个原 Docker 容器已运行，只读核对 ProblemForge 项目、主目录 infra 与 15432/16379/15050/15051 端口归属，无新建/改配容器。迁移前对原库 pg_dump 备份至上述忽略目录 before-migration.dump（42281521 字节），应用唯一新增表迁移并生成 Prisma Client。原题目、比赛/冻结、文稿/修订、模板指纹前后一致，活动 Build/TestRun 均为 0。核对端口空闲和无原 API/Worker 残留后，在原目录启动原 pnpm dev，根 PID 61292、Vite 55716、API 64012、Worker 62672/42084；5180 首页 200、API 健康 ok、stderr 空，见 services-verified.json。未切换数据库/模板/端口，无新增依赖；未做全量/E2E、Judge、生产并发压力或云端更新。实现完成，无代码阻塞；完整业务冻结验证受既有源题验收状态限制。差异检查后本地提交，不 push 或发布公网。
+
+## 用户授权推送开场总结图片功能（2026-10-22）
+
+用户明确要求推送 GitHub，本轮允许将图片功能提交 f9042ad 正常推送至 origin/master。推送前工作区干净，fetch 后远端 master 为 9f0ae0b，是本地 HEAD 的祖先；本地仅领先该功能提交，没有分叉，不使用强制推送。本交接记录随交付提交，随后推送并核对 GitHub master 与本地 HEAD 一致。
+
+没有再改业务代码，沿用上一节六范围类型检查、34 项定向检查、原库回滚及两套真实沙箱 PDF 的结果和限制，不重复全量验证。此轮不连接或更新云服务器，不改本地开发服务、数据库、模板或监听；服务器是否已经更新不能由 GitHub 推送结果代替。
