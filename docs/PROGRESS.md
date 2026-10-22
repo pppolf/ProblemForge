@@ -1152,3 +1152,9 @@ SandboxClient 的 HTTP 错误增加方法与端点，错误响应仅读取最多
 **运行环境与边界：**本轮主目录原 Vite/API 仍监听 5180/3100，CIM 确认主目录路径；原 PostgreSQL/Redis/TeX/Judge 四容器均已停止，未把此状态称为开发站健康。只在核对原 Judge 标签、容器 ID、主目录 infra 与 15051 空闲后启动该既有容器做上述无数据库检查，完成后确认测试文件清零、其他依赖仍停止，再停止该容器恢复开始状态。未重启 API/Worker、启动数据库、改模板/数据、创建容器或新端口。
 
 **服务器交接：**go-judge v1.8.5 上游本地源码显示失败上传可能留下未登记、未进入 TTL 的部分文件；现存 28M 可能包含此类残留，不能自动猜测文件归属并删除。补丁推送后沿用 `cd /root/ProblemForge && git pull --ff-only origin master && bash deploy.sh update`，通过现有空闲检查与备份流程更新沙箱容器，再重新发起原题验收。Compose 只读 `config --hash judge-sandbox` 验证不同 PF_RELEASE_ID 会改变服务配置哈希，镜像本身无需重建；实际云端容器更新仍须查看部署输出。JUDGE / DEPLOY_HYDRO_CADDY / PLAN 已同步。当前仅本地实现与验证，尚未推送本次补丁或连接服务器，线上原题重跑未验证；遵守 AGENTS 默认不 push，完成本地提交后等待本次推送授权。
+
+## 用户授权推送 Judge 临时空间修复（2026-10-22）
+
+用户在确认问题定位、补丁与验证结果后，明确选择“现在推送，并给出服务器更新命令”。允许正常推送 master 的修复提交 2960147、此前更新指令偏好提交 27d90c7 及本交接记录至 origin/master。推送前已 fetch 核对远端 master 为本地祖先，无分叉、工作区干净；本记录提交后执行普通 push 并核对远端 HEAD，不强制推送。业务代码未再改变，沿用上一节 34 项定向回归、类型检查及真实 Linux 沙箱结果。
+
+服务器 root 终端执行 `cd /root/ProblemForge && git pull --ff-only origin master && bash deploy.sh update`，等待统一入口完成备份、容器/应用更新和本机/HTTPS 验证，然后重新发起原题验收。若先恢复旧 pending，按提示再次运行同一命令更新到本补丁。此轮只推送 GitHub，未连接云服务器、执行部署或确认线上原题通过；不得将推送成功当作线上已修复。
