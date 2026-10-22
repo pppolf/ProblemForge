@@ -1136,3 +1136,19 @@ WSL 既有 Ubuntu 22.04 的文件/打包/镜像替身/进程套件 30 项通过�
 ## 推送后的服务器更新指令偏好（2026-10-22）
 
 用户要求今后每次推送后都附上服务器更新指令，已写入 AGENTS.md 作为本仓库交付要求，不增加自动推送/部署授权。本次 GitHub master 已核对为 413f70016b211788214803cf0dd2ea08e2afd2b5，包含图片功能 f9042ad。服务器在原 `/root/ProblemForge` 执行 `git pull --ff-only origin master` 后运行 `bash deploy.sh update`；只读核对 cloud-deploy.mjs 的 update 流程先备份，再调用 scripts/database.ts migrate，最终为 Prisma migrate deploy，因此包含新增 ContestAsset 表迁移，无需手动建表。此次仅记录偏好和提供命令，未连接服务器、执行更新或改动业务代码；文档差异检查后本地提交。
+
+## 线上 Judge HTTP 500：临时缓存耗尽修复（2026-10-22）
+
+**定位：**用户回传的服务器日志明确记录 `POST /file` 写 `/dev/shm/go-judge...` 时 `no space left on device`，而宿主磁盘仍有 38G 可用、inode 使用 25%、Judge `oom=false`、重启数 0。容器 `/dev/shm` 上限 256 MiB；旧 Executor 将输入哈希缓存及所有 copyOutCached 文件保留至整项验收 finally，数据越多越容易填满。失败后的大量 DELETE 解释事后只剩 28M，不能据此排除峰值耗尽。与此前发布/备份目录累计占用为不同问题。
+
+**实现：**新增 SandboxFiles / SandboxFileScope，编译、生成、Validator、普通解法/文件 I/O、Checker 与三进程交互各自管理临时文件。输入只在本调用内哈希去重，执行结束后释放；输出、stderr 和交互记录写入私有持久存储后释放；C++ / Java 可执行产物及 Python 源码只有在编译/缓存加载及记录保存成功后才提升为任务级保留。上传中途、执行、下载、存储、进度/Invocation 写入及取消失败均走作用域 finally，已知删除失败 ID 保留至任务末尾重试。现有验证脚本可继续显式任务级 upload，生产调用全部使用作用域。未扩大 shm、修改执行限制、改数据库或增加宿主机执行回退。
+
+SandboxClient 的 HTTP 错误增加方法与端点，错误响应仅读取最多 4096 字节分类，不回显上游原文、路径或令牌。有明确 ENOSPC 才报告临时空间不足；空 POST /file 500 提示检查容器日志与 /dev/shm，不伪造具体原因。该客户端也供 TeX 使用，提示使用通用“沙箱容器”。默认 test/test:quick 清单不变。
+
+**定向检查：**显式运行 `node --import tsx --test packages/judge-adapter/src/index.test.ts scripts/judge-sandbox-files.test.ts scripts/generator-output.test.ts scripts/generator-dedup.test.ts scripts/interactive-samples.test.ts`，34 项全部通过，其中新增 18 项文件生命周期和 5 项 HTTP 诊断检查。容量替身覆盖 16 轮不同大输入/输出、编译与缓存、文件模式、交互及各失败路径，没有数据库/监听/作者代码执行；`pnpm check judge-adapter judge-worker` 通过。独立只读审查确认 pipeline/stress 的后续逻辑使用 Buffer/BlobRef，没有访问已释放 fileIds 的生产调用点。
+
+**真实 Linux 验证：**在既有 problemforge-judge-sandbox-1 / 127.0.0.1:15051、原 256 MiB shm 上执行 `.local/sandbox-files/verify-live.ts`。16 轮不同 16 MiB 输入和等量输出累计 512 MiB，全部 AC、原字节/hash 一致，每轮结束只剩编译后 Python 源码（文件系统分配 4 KiB）；这是直接 Executor 的容量夹具，不代表网页允许 16 MiB 解法输出。另实测编译缓存命中、二进制文件 I/O、C++ Interactor 与 Python 选手三次交互均 AC，调用结束只留各自编译产物；29 个 Invocation 为内存替身，存储只统计/保留编译缓存，无业务数据库连接或持久行。最后缓存 ID 为 0、shm 使用 0。证据 `.local/sandbox-files/live-result.json`。作者程序仅在 Linux 沙箱执行。
+
+**运行环境与边界：**本轮主目录原 Vite/API 仍监听 5180/3100，CIM 确认主目录路径；原 PostgreSQL/Redis/TeX/Judge 四容器均已停止，未把此状态称为开发站健康。只在核对原 Judge 标签、容器 ID、主目录 infra 与 15051 空闲后启动该既有容器做上述无数据库检查，完成后确认测试文件清零、其他依赖仍停止，再停止该容器恢复开始状态。未重启 API/Worker、启动数据库、改模板/数据、创建容器或新端口。
+
+**服务器交接：**go-judge v1.8.5 上游本地源码显示失败上传可能留下未登记、未进入 TTL 的部分文件；现存 28M 可能包含此类残留，不能自动猜测文件归属并删除。补丁推送后沿用 `cd /root/ProblemForge && git pull --ff-only origin master && bash deploy.sh update`，通过现有空闲检查与备份流程更新沙箱容器，再重新发起原题验收。Compose 只读 `config --hash judge-sandbox` 验证不同 PF_RELEASE_ID 会改变服务配置哈希，镜像本身无需重建；实际云端容器更新仍须查看部署输出。JUDGE / DEPLOY_HYDRO_CADDY / PLAN 已同步。当前仅本地实现与验证，尚未推送本次补丁或连接服务器，线上原题重跑未验证；遵守 AGENTS 默认不 push，完成本地提交后等待本次推送授权。

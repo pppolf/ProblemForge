@@ -389,6 +389,25 @@ cd /root/ProblemForge && git pull --ff-only origin master && bash deploy.sh upda
 
 若失败，保留报错；修复原因后仍执行 `bash deploy.sh update`。构建失败发生在停止原站之前；备份等迁移前步骤失败会尝试恢复原进程。存在 pending 时，入口使用新版部署器完成 pending 指定的原包，不越过迁移保护切换提交，完成后会提示再运行同一命令更新源码。仍在运行的部署或遗留锁不会被自动抢占，迁移后失败也不会自动回退生产库。
 
+## Judge 验收 HTTP 500 与临时空间不足
+
+2026-10-22 线上日志明确为 `POST /file` 写 `/dev/shm/go-judge...` 时 `no space left on device`。宿主磁盘仍有 38G 可用、inode 25%、容器没有 OOM；Judge 的 `/dev/shm` 独立限制为 256 MiB。旧 Worker 把每个测试点的输入/输出一直缓存到整项任务结束，大数据验收会累积填满。失败后 finally 批量删除，所以事后看到 `/dev/shm` 只用 28M 不能否定运行中耗尽。发布目录/备份轮转不能解决这个临时空间问题。
+
+修复改为单次调用及时释放文件，仅编译产物跨测试点保留；无需扩大 `/dev/shm` 或关闭 Linux 隔离。补丁已推送后，等待当前判题/构建完成，从原服务器 root 终端执行：
+
+```bash
+cd /root/ProblemForge && git pull --ff-only origin master && bash deploy.sh update
+```
+
+统一更新入口会检查端口归属、空闲任务和托管资源，备份并停止本站应用后切换版本。沙箱镜像本身无需重新构建；Compose 配置中的镜像标签使用新发布 ID，因此应在部署输出中看到 Judge 容器更新。成功后网页重新发起验收，再只读检查容器：
+
+```bash
+docker ps --filter label=com.docker.compose.project=problemforge-cloud --filter label=com.docker.compose.service=judge-sandbox --format 'table {{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Ports}}'
+docker exec problemforge-cloud-judge-sandbox-1 df -h /dev/shm
+```
+
+go-judge v1.8.5 上传中途失败可能遗留未返回 ID 的部分文件，且未进入文件超时队列；应用不能安全判断这些文件是否仍被别的任务使用。应在空闲维护时通过更新容器清掉旧沙箱临时状态，不在运行中清空 `/dev/shm`，不批量删除全站 `/file`，不对全机 Docker 做 prune。若部署没有更新 Judge 或验收仍失败，保留容器状态和对应时间的错误日志继续排查，不重复无差别清理。
+
 ## 更新占用与旧文件清理
 
 旧部署器每次更新都保留一个完整发布目录（含依赖和前端构建）、一份完整 `storage.tar`/数据库备份和源码打包文件，没有自动轮转，因而随更新次数累积。2026-10-18 用户提供的服务器只读统计为发布目录 5.6G、备份 2.7G、打包目录 78M；这说明主要累计在发布目录和备份，不能将这些数字全部视为可删除空间。

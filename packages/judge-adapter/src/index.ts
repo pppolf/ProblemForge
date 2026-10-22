@@ -16,6 +16,37 @@ export type SandboxCommand = {
 export type SandboxPipe = { in: { index: number; fd: number }; out: { index: number; fd: number }; proxy?: boolean; name?: string; max?: number };
 export type InteractionStop = { kind: 'IDLE' | 'OUTPUT_LIMIT' | 'EOF' | 'WALL' | 'INTERACTOR_EXIT'; direction?: string; exitCode?: number };
 export class InfrastructureError extends Error { readonly code = 'SANDBOX_UNAVAILABLE'; }
+
+// Error bodies may be empty (go-judge v1.8.5), HTML from a proxy, or contain
+// internal paths. Read a bounded prefix for classification; never echo it.
+async function httpFailure(response: Response, path: string, method: string) {
+  let detail = '';
+  const reader = response.body?.getReader();
+  if (reader) {
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      while (size < 4096) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const prefix = value.subarray(0, 4096 - size);
+        chunks.push(prefix); size += prefix.byteLength;
+      }
+      detail = Buffer.concat(chunks).toString('utf8');
+    } catch { /* An unreadable body must not hide the original HTTP failure. */ }
+    finally { await reader.cancel().catch(() => {}); }
+  }
+  const endpoint = path.startsWith('/file/') ? '/file/:id' : path;
+  const context = `${method} ${endpoint} HTTP ${response.status}`;
+  if (/no space left on device|\bENOSPC\b/i.test(detail)) {
+    return `${context}，沙箱临时文件存储空间不足，请检查沙箱容器的 /dev/shm`;
+  }
+  if (method === 'POST' && path === '/file' && response.status >= 500) {
+    return `${context}，沙箱文件上传失败，请检查沙箱容器日志及 /dev/shm 临时空间`;
+  }
+  return context;
+}
+
 export class SandboxClient {
   constructor(private url: string, private authToken: string) {}
   private async request(path: string, init: RequestInit = {}) {
@@ -24,7 +55,7 @@ export class SandboxClient {
         ...init, headers: { Authorization: `Bearer ${this.authToken}`, ...init.headers },
         signal: init.signal ?? AbortSignal.timeout(10000),
       });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) throw new Error(await httpFailure(response, path, init.method ?? 'GET'));
       return response;
     } catch (e) { throw new InfrastructureError(`Linux 沙箱服务不可用：${(e as Error).message}。任务没有在宿主机执行。`); }
   }

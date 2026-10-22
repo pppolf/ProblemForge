@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { db, Prisma } from '@problemforge/database';
 import { sha256, hashObject } from '@problemforge/domain';
 import type { PrivateFileStorage } from '@problemforge/storage';
@@ -7,16 +6,20 @@ import { JUDGE_POLICY, JUDGE_TOOLCHAIN, TESTLIB_HASH, checkerVerdict, executionV
 import { isCppLanguage, MAX_TEST_BYTES, type JudgeSettingsValue } from '@problemforge/contracts';
 import { runInteraction } from './interaction.ts';
 import { compilePlan, runtimeArgs } from './languages.ts';
+import { SandboxFiles, type SandboxFileScope } from './sandbox-files.ts';
 
 export class JudgeFailure extends Error { constructor(public code: string, message: string) { super(message); } }
 type Context = { caseRef?: string; selfTestId?: string };
+// Stream/output file IDs in result are diagnostic metadata only after capture;
+// their bytes and durable references below are the source for later invocations.
 export type Captured = { id: string; result: SandboxResult; verdict: string; stdout: Buffer; stderr: Buffer; output: Buffer | null; outputRef: BlobRef | null; diagnostic: string };
 export type Compiled = { program: ProgramSnapshot; executable: string; fileName: string };
 const env = ['PATH=/usr/bin:/bin', 'HOME=/w', 'TMPDIR=/tmp', 'LANG=C.UTF-8', 'TZ=UTC'];
 
 export class Executor {
-  private cacheIds = new Set<string>(); private blobCache = new Map<string, string>();
-  constructor(readonly runId: string, readonly sandbox: SandboxClient, private storage: PrivateFileStorage, readonly signal: AbortSignal, private testlib: string, private ownership: {problemId:string;leaseToken:string}) {}
+  private files: SandboxFiles;
+  constructor(readonly runId: string, readonly sandbox: SandboxClient, private storage: PrivateFileStorage, readonly signal: AbortSignal, private testlib: string, private ownership: {problemId:string;leaseToken:string}) { this.files = new SandboxFiles(sandbox); }
+  withFiles<T>(body: (files: SandboxFileScope) => Promise<T>) { return this.files.using(body); }
   async progress({data}:{data:Prisma.TestRunUpdateManyMutationInput}) {
     const updated=await db.testRun.updateMany({where:{id:this.runId,state:'RUNNING',leaseToken:this.ownership.leaseToken},data});
     if(!updated.count)throw new JudgeFailure('LEASE_LOST','任务租约已失效，旧 Worker 不再写入进度');
@@ -28,10 +31,12 @@ export class Executor {
     if (bytes.length !== ref.bytes || sha256(bytes) !== ref.hash) throw new JudgeFailure('INPUT_HASH_MISMATCH', '任务私有数据快照的字节/哈希不匹配');
     return bytes;
   }
-  async upload(bytes: Buffer) {
-    this.checkCanceled(); const hash = sha256(bytes);
-    const old = this.blobCache.get(hash); if (old) return old;
-    const id = await this.sandbox.upload('input.bin', bytes); this.cacheIds.add(id); this.blobCache.set(hash, id); return id;
+  async upload(bytes: Buffer, files?: SandboxFileScope) {
+    this.checkCanceled();
+    if (files) return files.upload(bytes);
+    // Explicit task-lifetime upload for trusted verification helpers. Production
+    // invocations always pass their own scope, so data cannot accumulate per run.
+    const id = await this.sandbox.upload('input.bin', bytes); this.files.track(id); return id;
   }
   async save(bytes: Buffer, label = 'data'): Promise<BlobRef> {
     const hash = sha256(bytes), key = `judge/${this.runId}/${label}/${hash}.bin`;
@@ -45,13 +50,16 @@ export class Executor {
       copyOutCached: ['stdout', 'stderr'], copyOutMax: Math.max(outputMax, 65536),
     };
   }
-  private async capture(program: ProgramSnapshot, command: SandboxCommand, phase: string, context: Context = {}, outputFile = 'stdout'): Promise<Captured> {
+  private async capture(program: ProgramSnapshot, command: SandboxCommand, phase: string, context: Context = {}, outputFile = 'stdout', files: SandboxFileScope): Promise<Captured> {
     this.checkCanceled();
     const [result] = await this.sandbox.execute(command, this.signal);
-    return this.captureResult(program, result, phase, context, outputFile);
+    files.trackResult(result);
+    // A Python compile's source becomes its executable and is promoted later.
+    if (phase !== 'COMPILE') await files.releaseInputs();
+    return this.captureResult(program, result, phase, context, outputFile, false, files);
   }
-  async captureResult(program: ProgramSnapshot, result: SandboxResult, phase: string, context: Context = {}, outputFile = 'stdout', deferChecks = false): Promise<Captured> {
-    for (const id of Object.values(result.fileIds ?? {})) this.cacheIds.add(id);
+  async captureResult(program: ProgramSnapshot, result: SandboxResult, phase: string, context: Context = {}, outputFile = 'stdout', deferChecks = false, files: SandboxFileScope): Promise<Captured> {
+    files.trackResult(result);
     // Raw streams are cached files: JSON's UTF-8 strings cannot preserve binary output.
     const get = async (name: string) => result.fileIds?.[name] ? this.sandbox.download(result.fileIds[name]) : Buffer.alloc(0);
     const stdout = await get('stdout'), stderr = await get('stderr');
@@ -59,6 +67,7 @@ export class Executor {
     if (result.status === 'Accepted' && (!result.fileIds?.stdout || !result.fileIds?.stderr)) throw new InfrastructureError('沙箱没有返回可保留原始字节的 stdout/stderr 文件');
     const stdoutRef = await this.save(stdout, 'stdout'), stderrRef = await this.save(stderr, 'stderr');
     const outputRef = output === null ? null : outputFile === 'stdout' ? stdoutRef : await this.save(output, 'file-output');
+    await files.release(['stdout', 'stderr', outputFile].flatMap(name => result.fileIds?.[name] ? [result.fileIds[name]] : []));
     let verdict: string = phase === 'COMPILE' ? executionVerdict(result) === 'AC' ? 'COMPILED' : 'CE'
       : phase.includes('VALIDATOR') ? validatorVerdict(result)
       : phase.includes('CHECKER') || phase === 'INTERACTOR' ? checkerVerdict(result) : executionVerdict(result);
@@ -82,6 +91,9 @@ export class Executor {
     return { id: invocation.id, result, verdict, stdout, stderr, output, outputRef, diagnostic };
   }
   async compile(program: ProgramSnapshot): Promise<{ compiled: Compiled | null; execution: Captured }> {
+    return this.withFiles(files => this.compileInScope(program, files));
+  }
+  private async compileInScope(program: ProgramSnapshot, files: SandboxFileScope): Promise<{ compiled: Compiled | null; execution: Captured }> {
     this.checkCanceled();
     if(!(await db.compileProfile.findUnique({where:{id:program.profile.id}}))?.enabled)throw new JudgeFailure('PROFILE_DISABLED','固定编译 profile 已停用，请更新后新建任务');
     const profile = program.profile.config;
@@ -93,24 +105,26 @@ export class Executor {
       let bytes:Buffer|undefined;
       try{bytes=await this.storage.get(cached.key);if(sha256(bytes)!==cached.hash||bytes.length!==cached.bytes)bytes=undefined;}catch{}
       if(bytes){
-        const executable=await this.upload(bytes),diagnostic=`复用固定编译缓存；来源任务 ${cached.sourceRunId}，本次未重新编译。`;
+        const executable=await this.upload(bytes, files),diagnostic=`复用固定编译缓存；来源任务 ${cached.sourceRunId}，本次未重新编译。`;
         const invocation=await db.invocation.create({data:{runId:this.runId,programId:program.id,programRevisionId:program.revisionId,phase:'COMPILE',verdict:'COMPILED',status:'Cached',exitStatus:0,timeMs:0,wallTimeMs:0,memoryBytes:0,diagnostic,detail:{cacheSourceRunId:cached.sourceRunId,cacheKey:cacheId}}});
         await this.progress({data:{completed:{increment:1},stage:`编译缓存 · ${program.name}`}});
+        files.keep(executable);
         return{compiled:{program,executable,fileName:plan.artifact},execution:{id:invocation.id,result:{status:'Cached',exitStatus:0,time:0,memory:0,runTime:0},verdict:'COMPILED',stdout:Buffer.alloc(0),stderr:Buffer.alloc(0),output:null,outputRef:null,diagnostic}};
       }
       await db.compileCache.deleteMany({where:{id:cacheId}});
     }
-    const sourceId = await this.upload(Buffer.from(program.source));
+    const sourceId = await this.upload(Buffer.from(program.source), files);
     const command = this.command(plan.args, { [plan.source]: { fileId: sourceId }, ...(isCppLanguage(program.profile.language) ? { 'testlib.h': { content: this.testlib } } : {}) }, profile.compileTimeMs, profile.compileMemoryMb, 262144, 30000);
     command.procLimit = 64; command.copyOutMax = 8_388_608;
     if (!isPython) command.copyOutCached!.push(`${plan.artifact}?`);
-    const execution = await this.capture(program, command, 'COMPILE');
+    const execution = await this.capture(program, command, 'COMPILE', {}, 'stdout', files);
     const executable = isPython ? sourceId : execution.result.fileIds?.[plan.artifact];
     if (execution.verdict !== 'COMPILED' || !executable) {
       await db.invocation.update({ where: { id: execution.id }, data: { verdict: 'CE' } }); return { compiled: null, execution: { ...execution, verdict: 'CE' } };
     }
     const binary=isPython?Buffer.from(program.source):await this.sandbox.download(executable),ref=await this.save(binary,'compile-cache');
     await db.compileCache.upsert({where:{id:cacheId},create:{id:cacheId,problemId:this.ownership.problemId,sourceRunId:this.runId,...ref},update:{sourceRunId:this.runId,...ref}});
+    files.keep(executable);
     return { compiled: { program, executable, fileName: plan.artifact }, execution };
   }
   runArgs(compiled: Compiled, argv: string[], memoryMb = 256) {
@@ -124,31 +138,36 @@ export class Executor {
   async generate(compiled: Compiled, argv: string[], seed: string, caseRef: string, repeat = false) {
     const cmd = this.programCommand(compiled, [...argv, seed], 2000, 256, MAX_TEST_BYTES);
     cmd.env = [...env, `PF_SEED=${seed}`];
-    return this.capture(compiled.program, cmd, repeat ? 'GENERATOR_REPEAT' : 'GENERATOR', { caseRef });
+    return this.withFiles(files => this.capture(compiled.program, cmd, repeat ? 'GENERATOR_REPEAT' : 'GENERATOR', { caseRef }, 'stdout', files));
   }
   async validate(compiled: Compiled, input: Buffer, context: Context) {
-    const cmd = this.programCommand(compiled, []);
-    cmd.files[0] = { fileId: await this.upload(input) };
-    return this.capture(compiled.program, cmd, 'VALIDATOR', context);
+    return this.withFiles(async files => {
+      const cmd = this.programCommand(compiled, []);
+      cmd.files[0] = { fileId: await this.upload(input, files) };
+      return this.capture(compiled.program, cmd, 'VALIDATOR', context, 'stdout', files);
+    });
   }
   async solution(compiled: Compiled, input: Buffer, settings: JudgeSettingsValue, caseRef: string, main = false) {
-    const cmd = this.programCommand(compiled, [], settings.timeLimitMs, settings.memoryLimitMb, settings.outputLimitBytes);
-    let outputFile = 'stdout';
-    if (settings.ioMode === 'FILES') {
-      cmd.copyIn[settings.inputFile] = { fileId: await this.upload(input) };
-      outputFile = settings.outputFile; cmd.copyOutCached!.push(`${outputFile}?`);
-    } else cmd.files[0] = { fileId: await this.upload(input) };
-    return this.capture(compiled.program, cmd, main ? 'MAIN_SOLUTION' : 'SOLUTION', { caseRef }, outputFile);
+    return this.withFiles(async files => {
+      const cmd = this.programCommand(compiled, [], settings.timeLimitMs, settings.memoryLimitMb, settings.outputLimitBytes);
+      let outputFile = 'stdout';
+      if (settings.ioMode === 'FILES') {
+        cmd.copyIn[settings.inputFile] = { fileId: await this.upload(input, files) };
+        outputFile = settings.outputFile; cmd.copyOutCached!.push(`${outputFile}?`);
+      } else cmd.files[0] = { fileId: await this.upload(input, files) };
+      return this.capture(compiled.program, cmd, main ? 'MAIN_SOLUTION' : 'SOLUTION', { caseRef }, outputFile, files);
+    });
   }
   async check(compiled: Compiled, input: Buffer, answer: Buffer, output: Buffer, context: Context, phase = 'CHECKER') {
-    const copyIn: SandboxCommand['copyIn'] = { [compiled.fileName]: { fileId: compiled.executable },
-      'checker-input': { fileId: await this.upload(input) }, 'checker-answer': { fileId: await this.upload(answer) }, 'checker-output': { fileId: await this.upload(output) } };
-    // Fixed testlib ordering is input, contestant output, jury answer.
-    return this.capture(compiled.program, this.command(this.runArgs(compiled, ['checker-input', 'checker-output', 'checker-answer']), copyIn), phase, context);
+    return this.withFiles(async files => {
+      const copyIn: SandboxCommand['copyIn'] = { [compiled.fileName]: { fileId: compiled.executable },
+        'checker-input': { fileId: await this.upload(input, files) }, 'checker-answer': { fileId: await this.upload(answer, files) }, 'checker-output': { fileId: await this.upload(output, files) } };
+      // Fixed testlib ordering is input, contestant output, jury answer.
+      return this.capture(compiled.program, this.command(this.runArgs(compiled, ['checker-input', 'checker-output', 'checker-answer']), copyIn), phase, context, 'stdout', files);
+    });
   }
   async interactive(contestant: Compiled, interactor: Compiled, input: Buffer, answer: Buffer | null, settings: JudgeSettingsValue, caseRef: string, main = false) {
-    return runInteraction(this, contestant, interactor, input, answer, settings, caseRef, main);
+    return this.withFiles(files => runInteraction(this, files, contestant, interactor, input, answer, settings, caseRef, main));
   }
-  trackFiles(result: SandboxResult) { for (const id of Object.values(result.fileIds ?? {})) this.cacheIds.add(id); }
-  async cleanup() { await Promise.allSettled([...this.cacheIds].map(id => this.sandbox.delete(id))); }
+  async cleanup() { await this.files.cleanup(); }
 }
