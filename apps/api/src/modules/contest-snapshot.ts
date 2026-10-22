@@ -3,10 +3,12 @@ import { db, Prisma } from '@problemforge/database';
 import { contestAccess, hashObject, HttpError } from '@problemforge/domain';
 import { templateLanguages, validateBody, type TemplateFiles } from '@problemforge/template-engine';
 import { problemSnapshot } from './revision-snapshot.ts';
+import { introductionAssets, type FrozenContestAsset } from './contest-assets.ts';
 
 export type FrozenContest = {
   schemaVersion: 1;
   selection: ContestDataValue;
+  introductionAssets?: FrozenContestAsset[];
   problems: { problemId: string; revisionId: string; revisionNumber: number | null; hash: string; judgeHash: string; acceptanceRunId: string; manifest: ProblemManifest }[];
   templates: Partial<Record<DocumentKind, { id: string; number: number; hash: string; files: TemplateFiles }>>;
 };
@@ -70,9 +72,10 @@ export async function freezeCurrentContest(tx: Prisma.TransactionClient, contest
   if (contest.version !== expectedVersion) throw new HttpError(409, '比赛编排已改变，请重载合并', 'VERSION_CONFLICT');
   const data = liveContestData(contest.data as ContestDataValue);
   if (!data.items.length) throw new HttpError(422, '至少选择一道题目');
-  validateBody(data.beamerIntroduction ?? '', 'EDITORIAL_BEAMER', []);
+  const assets = await introductionAssets(tx, contestId, data.beamerIntroduction ?? '');
   const sources = await contestSources(tx, data);
   const snapshot: FrozenContest = { schemaVersion: 1, selection: structuredClone(data), problems: [], templates: {} };
+  if (assets.length) snapshot.introductionAssets = assets;
   for (const item of snapshot.selection.items) {
     const source = sources.get(item.problemId);
     if (!source) throw new HttpError(409, `题号 ${item.code} 的源题已不存在，请调整比赛编排`);

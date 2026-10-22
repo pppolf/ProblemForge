@@ -15,6 +15,7 @@ import { problemRoutes } from './modules/problems.ts';
 import { templateRoutes } from './modules/templates.ts';
 import { buildRoutes } from './modules/builds.ts';
 import { assetRoutes } from './modules/assets.ts';
+import { contestAssetRoutes } from './modules/contest-assets.ts';
 import { judgeRoutes } from './modules/judge.ts';
 import { testRunRoutes } from './modules/test-runs.ts';
 import { stressRoutes } from './modules/stress.ts';
@@ -87,6 +88,7 @@ export async function createApp(logging = true) {
   await templateRoutes(app);
   await buildRoutes(app);
   await assetRoutes(app);
+  await contestAssetRoutes(app);
   await judgeRoutes(app);
   await testRunRoutes(app);
   await stressRoutes(app);

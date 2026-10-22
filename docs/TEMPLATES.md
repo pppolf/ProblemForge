@@ -12,7 +12,7 @@ metadata.schema.json 为不执行代码的声明子集：type: object、addition
 
 题面 main.tex 通过 problem.tex 的 BODY 插槽容纳普通用户正文；多题 booklet.tex 使用同一导言与各题 item.tex。publication.json 仅含四项受限预览文字，正式比赛信息来自 ContestRevision。配置表单是管理员可选覆盖，未修改时保留上传源码；一旦覆盖也必须重新编译并发布新版本。
 
-`pf-contest-4` 将每题源码、图片、样例和 label/ref/eqref/pageref 放进 p1、p2 等独立命名空间，字面代码保持原样。题面/文档题解按题册顺序，Beamer 按独立 lectureOrder，CODE 始终保留比赛题号。资源/样例文件由 Worker 校验固定字节与哈希后复制，不能拼接私有宿主路径。渲染版本进入任务输入哈希，旧版本重试不偷偷改用新组装器。
+`pf-contest-5` 将每题源码、图片、样例和 label/ref/eqref/pageref 放进 p1、p2 等独立命名空间，字面代码保持原样。开场总结图片使用独立的 introduction/assets 命名空间。题面/文档题解按题册顺序，Beamer 按独立 lectureOrder，CODE 始终保留比赛题号。资源/样例文件由 Worker 校验固定字节与哈希后复制，不能拼接私有宿主路径。渲染版本进入任务输入哈希，旧版本重试不偷偷改用新组装器。
 
 比赛 Beamer 新增 `DIFFICULTY_OVERVIEW`（按讲解顺序排列、可分页的预计难度总览）、`BEAMER_INTRODUCTION`（比赛管理者填写的开场 frame，可留空）及 item.tex 的 `PROBLEM_OVERVIEW`（题名、预计难度和源题标签）插槽。题目难度来自比赛编排的 `expectedDifficulty`，标签来自当次冻结的源题 `meta.tags`；缺省分别显示“未设置”“暂无标签”。开场内容 `beamerIntroduction` 最多 40000 字符，保存、冻结和构建均经过 Beamer 正文策略校验，不允许读取文件、声明宏或引用未上传资源。它只进入比赛 Beamer，题面及文档题解不插入此内容。
 
@@ -28,7 +28,7 @@ metadata.schema.json 为不执行代码的声明子集：type: object、addition
 
 ## 普通内容
 
-`pf-content-6` 使用 unified-latex AST 检查宏、环境、分组及参数，限制深度和节点数。允许常见段落、列表、表格、数学语法，包括表示异或/直和的 `\oplus`、`\xrightarrow{上方标注}` 与 `\xrightarrow[下方标注]{上方标注}`；公式与两处标注仍按相同内容策略检查。`\oplus` 无需额外宏包，现有内置模板已加载标注箭头所需 amsmath，无需修改正文或模板。Beamer 增加 frame、block、columns 和受控覆盖命令。当前批准清单以 packages/template-engine/src/index.ts 为准，未批准语法返回具体位置与原因，不自动放开完整文档入口。策略版本进入新构建的快照及缓存哈希，历史产物保留。
+`pf-content-7` 使用 unified-latex AST 检查宏、环境、分组及参数，限制深度和节点数。允许常见段落、列表、表格、数学语法，包括表示异或/直和的 `\oplus`、`\xrightarrow{上方标注}` 与 `\xrightarrow[下方标注]{上方标注}`；公式与两处标注仍按相同内容策略检查。`\oplus` 无需额外宏包，现有内置模板已加载标注箭头所需 amsmath，无需修改正文或模板。Beamer 增加 frame、block、columns 和受控覆盖命令。当前批准清单以 packages/template-engine/src/index.ts 为准，未批准语法返回具体位置与原因，不自动放开完整文档入口。策略版本进入新构建的快照及缓存哈希，历史产物保留。
 
 题面额外允许原 olymp 的 InputFile、OutputFile、Examples、exmp、Note 等宏及 example 环境。exmp 参数仍作为 TeX 遍历检查，不能借样例读取文件。verbatim / centerverbatim 为字面代码；原模板 listings 启用 escapeinside，故没有将 lstlisting 作为可跳过检查的字面环境开放。
 
@@ -40,7 +40,7 @@ metadata.schema.json 为不执行代码的声明子集：type: object、addition
 
 两套题面单题入口设置 `\ShortProblemTitle`，只显示题名；比赛入口通过 item.tex 显式输出 `Problem {{CODE}}. {{TITLE}}`，目录使用同样的完整前缀，不依赖 olymp 自动递增题号，因此选定子集或调整顺序仍保留原 CODE。此格式从原库 CWNU v4 / 简洁蓝色 v3 开始。文档题解的 `headings.tex` 将题名及各级章节设为左对齐，同时保留字体、颜色和页边距。原题册封面和 Beamer 模板保持原样。发布版本与历史 PDF 不自动改变，使用者需选择新版并重新构建。
 
-图片仅通过本题私有资源的 assets/{id}.png 或 .jpg 引用。includegraphics 参数只允许有上限的 width / height 字面尺寸及 linewidth / textwidth 比例。未授权路径、宏生成路径、附加执行参数被拒绝。资产字节、哈希与存储键随内容构建固定。
+图片仅通过本题私有资源的 assets/{id}.png 或 .jpg 引用；比赛开场总结使用本比赛已上传资源的同类路径，不可借用其他比赛或源题图片。`pf-content-7` 的 includegraphics 参数只允许有上限的 width / height 字面尺寸、linewidth / textwidth / textheight 比例及 keepaspectratio。自动插入的图片页使用 `width=1\linewidth,height=0.68\textheight,keepaspectratio`，适配横图与竖图。未授权路径、宏生成路径、附加执行参数被拒绝。比赛冻结的可选 introductionAssets 只记录正文实际引用的资源，固定字节数、哈希与存储键；无图片时保留旧快照形状，未插入的上传不改变比赛编排版本或冻结状态。
 
 禁止普通正文使用 documentclass、文档入口/导言、usepackage、定义/展开原语、主题/字体/全局布局修改、任意文件 I/O、TeX ^^ 字符预处理。语法限制不是执行隔离；作者内容和管理员模板均经 Linux namespace / cgroup / 有界文件和资源执行。
 

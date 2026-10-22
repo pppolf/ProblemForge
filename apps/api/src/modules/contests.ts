@@ -2,7 +2,8 @@ import { Type } from '@sinclair/typebox';
 import { kinds, ContestInput, ContestFreezeInput, type ContestDataValue } from '@problemforge/contracts';
 import { db, Prisma } from '@problemforge/database';
 import { contestAccess, problemAccess, hashObject, HttpError, audit } from '@problemforge/domain';
-import { templateLanguages, validateBody, type TemplateFiles } from '@problemforge/template-engine';
+import { templateLanguages, type TemplateFiles } from '@problemforge/template-engine';
+import { introductionAssets } from './contest-assets.ts';
 import { authenticate, type Api } from '../app.ts';
 import { owner } from './members.ts';
 import { liveContestData, contestSources, contestRevisionCurrent, freezeCurrentContest, type FrozenContest } from './contest-snapshot.ts';
@@ -14,8 +15,8 @@ export async function contestRevision(user:{id:string;role:string},contestId:str
   if(hashObject(revision.data)!==revision.hash)throw new HttpError(409,'冻结清单哈希不匹配');
   return {revision,snapshot:revision.data as unknown as FrozenContest};
 }
-async function validateSelection(user:{id:string;role:string},data:ContestDataValue,old?:ContestDataValue){
-  validateBody(data.beamerIntroduction??'','EDITORIAL_BEAMER',[]);
+async function validateSelection(user:{id:string;role:string},data:ContestDataValue,old?:ContestDataValue,contestId?:string){
+  await introductionAssets(db,contestId,data.beamerIntroduction??'');
   if(new Set(data.items.map(i=>i.problemId)).size!==data.items.length||new Set(data.items.map(i=>i.code)).size!==data.items.length||new Set(data.items.map(i=>i.lectureOrder)).size!==data.items.length)throw new HttpError(422,'题目、题号和讲解顺序不能重复');
   for(const item of data.items){
     if(!old?.items.some(i=>i.problemId===item.problemId))await problemAccess(user,item.problemId);
@@ -48,7 +49,7 @@ export async function contestRoutes(app:Api){
     },{isolationLevel:'RepeatableRead',timeout:30000});
   });
   app.put('/api/contests/:id',{preHandler:authenticate,schema:{params:Id,body:ContestInput}},async req=>{
-    await contestAccess(req.user,req.params.id,true);const old=await db.contest.findUniqueOrThrow({where:{id:req.params.id}});await validateSelection(req.user,req.body.data,old.data as ContestDataValue);
+    await contestAccess(req.user,req.params.id,true);const old=await db.contest.findUniqueOrThrow({where:{id:req.params.id}});await validateSelection(req.user,req.body.data,old.data as ContestDataValue,old.id);
     const result=await db.$transaction(async tx=>{const changed=await tx.contest.updateMany({where:{id:old.id,version:req.body.expectedVersion},data:{title:req.body.data.title,data:liveContestData(req.body.data),version:{increment:1}}});if(!changed.count)throw new HttpError(409,'比赛编排已改变，请重载合并','VERSION_CONFLICT');return tx.contest.findUniqueOrThrow({where:{id:old.id}});});await audit(req.user.id,'UPDATE_CONTEST',old.id);return result;
   });
   app.post('/api/contests/:id/freeze',{preHandler:authenticate,schema:{params:Id,body:ContestFreezeInput}},async req=>{

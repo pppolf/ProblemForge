@@ -1111,3 +1111,18 @@ Linux 完整入口夹具实际运行 Bash update、自动加载 env.sh、Git 打
 WSL 既有 Ubuntu 22.04 的文件/打包/镜像替身/进程套件 30 项通过，包含真实 Linux 符号链接与父子进程取消；该环境 Node 为 18.20.8，只用于补充平台行为检查，不作为要求 Node 22.12+/24 的服务器部署验收。最后补充异常备份引用双重保护后，Windows 9 项轮转测试重跑通过。deploy.sh Bash 语法、部署脚本 Node 语法与 cleanup --help 通过，默认快查未扩展。证据汇总 `.local/deployment-retention/verification.json`；无作者代码、TeX、业务数据库或新监听。
 
 **环境与交付边界：**工作目录始终为 D:\project\ProblemForge，开始只读确认原 pnpm/Vite/API/Worker 路径；收尾原 5180/3100 无监听，Docker Linux daemon 不可用，本轮未启动、停止或切换开发服务/容器，未以新实例替代。没有连接云服务器、实际调用生产 cleanup、恢复数据库或部署公网；Linux 全入口 PM2/Caddy/Docker 联调及最终 df 回收量仍待服务器验证。实现和定向检查无阻塞，沿用本会话用户的仓库推送交付要求，提交后正常推送并核对远端；服务器按文档先预览/清理历史积累，再运行原 update。
+## 比赛开场总结上传图片（2026-10-22）
+
+**实现：**用户希望将所附 AI 验题总览榜单插入比赛题解开场。比赛编排的开场编辑器上方新增上传、缩略图大图预览及“插入图片页”；上传 PNG/JPEG 后手动插入，追加完整 frame，采用 width=1\linewidth、height=0.68\textheight 和 keepaspectratio，保留原草稿并提醒保存。支持多张、多页，40000 字上限继续保护；只读成员不显示写入口，异步上传/加载按比赛与组件生命周期隔离。单张 1 MB、每场 100 张/20 MB；示例图 103985 字节，无需转换或压缩。
+
+新增 ContestAsset 独立表与 20261022000000_contest_assets 增量迁移，资源使用私有 ManagedStorage，读取再次检查比赛权限和字节哈希。共享既有 PNG/JPEG 验证器，不接受 SVG/TeX/脚本。上传先检查额度、完成独立存储预留，再持有 Contest 行锁复核额度和归档状态、写入资源及审计，避免在外层事务占池连接时嵌套存储事务；极端失败留下已登记未引用对象，由既有保守存储检查识别，不遗漏全局用量。上传未插入图片不改变编排版本。
+
+保存及冻结仅允许本比赛图片白名单，冻结可选 introductionAssets 仅保存 AST 实际引用的 path/key/hash/bytes；历史构建只取冻结资源，不回读当前图片列表，未用图片不改变冻结身份，无图片保持旧 JSON 形状。比赛 Beamer 单独使用 introduction/assets 命名空间，沿用 Worker 对每个 blob 的校验与 Linux 沙箱复制。pf-contest-5 / pf-content-7 增加受限 textheight 比例和 keepaspectratio；图片路径、文件读取和宏定义限制不放宽。AST 位置保护注释、verbatim 与 verb，避免演示文本被误替换或注释干扰实际引用。原生比赛 FULL / EDITORIAL_BEAMER 导出补齐冻结图片及不含存储 key 的索引；其他用途排除开场正文/图片，Polygon 相应用途报告省略警告。USER_GUIDE / TEMPLATES / PACKAGES 同步。
+
+**定向检查：**`pnpm check contracts database template-engine api web tex-worker` 六范围通过。显式运行 contest-beamer-api、contest-assets-export、hydro-exports-api、template-engine 的 contest/policy/statement-settings 共 34 项全部通过，覆盖实际路由契约、媒体和额度拒绝、图片白名单、历史 blob 固定、其他资料排除、原生 ZIP 原字节及缺失/损坏资源拒绝；API 离线测试的持久化/权限决定为替身，不冒充数据库并发或真实 ACL。共享验证器提取保持原题目图片规则，默认 test/test:quick 清单未扩展。
+
+`scripts/verify-contest-assets.ts --rollback --image=...` 在原 problemforge_f054 事务中用真实会话与 Fastify 路由，验证示例图片上传/下载原字节、编辑与只读/非成员权限、CSRF、未使用上传不改 version、实际图片捕获、跨比赛引用/下载拒绝、危险 TeX、撤权和归档拒绝，所有业务写入最终回滚；存储使用内存替身。期间完整冻结返回 409：原本地比赛七道源题均无匹配当前依赖的成功验收，因此真实冻结和业务队列未验收，没有伪造验收记录。冻结及历史构建逻辑由上述离线测试覆盖，不能替代该真实链路。回滚后 ContestAsset=0、ContestRevision=6、Build=78，原比赛哈希一致，临时用户/会话/审计均无残留。
+
+**真实 PDF 与界面：**用户原图 SHA-256 为 057e3a26405a5018e401a0536ecc3a0130b78d77590abd5ee2b291885dd3f39c。用原独立 Linux TeX 沙箱分别编译已发布 CWNU 4:3 与宽屏 16:9 模板，两次均 Accepted、exit=0、无 Overfull，模板对象哈希保持，沙箱临时文件已清理。Poppler 渲染两份第 3 页并人工检查，榜单含底部注释完整显示、无裁切或拉伸；未声称整场业务构建通过。原 5180 浏览器以原管理员进入现有比赛，核对入口、图片限制和空列表；无 warn/error。未在真实比赛持久上传/插入/保存示例图片，验证后退出账号。证据 `.local/contest-intro-assets/` 中 unit.log、types.log、api-result.json、sandbox-result.json、两份 PDF/PNG、browser-entry.png。
+
+**环境及收尾：**在 Windows 主目录直接实现。开始无 5180/3100 监听；随后发现四个原 Docker 容器已运行，只读核对 ProblemForge 项目、主目录 infra 与 15432/16379/15050/15051 端口归属，无新建/改配容器。迁移前对原库 pg_dump 备份至上述忽略目录 before-migration.dump（42281521 字节），应用唯一新增表迁移并生成 Prisma Client。原题目、比赛/冻结、文稿/修订、模板指纹前后一致，活动 Build/TestRun 均为 0。核对端口空闲和无原 API/Worker 残留后，在原目录启动原 pnpm dev，根 PID 61292、Vite 55716、API 64012、Worker 62672/42084；5180 首页 200、API 健康 ok、stderr 空，见 services-verified.json。未切换数据库/模板/端口，无新增依赖；未做全量/E2E、Judge、生产并发压力或云端更新。实现完成，无代码阻塞；完整业务冻结验证受既有源题验收状态限制。差异检查后本地提交，不 push 或发布公网。

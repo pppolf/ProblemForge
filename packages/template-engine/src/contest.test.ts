@@ -56,6 +56,63 @@ test('contest Beamer supports long unbroken metadata and paginated large overvie
  assert.match(result['p100/item.tex'],/标签29/);
 });
 
+test('contest introduction images use their own namespace and preserve literal examples',async()=>{
+ const body=String.raw`\begin{frame}{AI 验题结果总览}
+\centering
+% \begin{verbatim} assets/image.png is only an example in this comment.
+\includegraphics[width=1\linewidth,height=0.7\textheight,keepaspectratio]{assets/image.png}
+\end{frame}
+\begin{frame}{第二张图}
+\includegraphics[width=0.8\linewidth]{assets/chart.jpg}
+\includegraphics[height=2cm]{assets/image.png}
+\end{frame}
+\begin{frame}[fragile]{代码示例}
+\begin{verbatim}
+\includegraphics{assets/image.png}
+\includegraphics{assets/notuploaded.png}
+\end{verbatim}
+\verb|assets/chart.jpg|
+\end{frame}`;
+ const input:ContestRenderInput={title:'比赛',author:'',stage:'',dateHeader:'',dateCover:'',beamerIntroduction:body,beamerIntroductionAssetPaths:['assets/image.png','assets/chart.jpg','assets/unused.png'],entries:[{namespace:'p1',code:'A',body:String.raw`\begin{frame}{解法}\includegraphics{assets/image.png}\end{frame}`,metadata:{title:'题目',author:''},assetPaths:['assets/image.png'],samples:[],timeLimitMs:1000,memoryLimitMb:256,inputFile:'standard input',outputFile:'standard output'}]};
+ const original=structuredClone(input);
+ for(const template of ['editorial-beamer','editorial-beamer-wide']){
+  const files=await loadTemplateDirectory(fileURLToPath(new URL(`../../../templates/builtin/${template}/`,import.meta.url)));
+  const result=renderContest(files,'EDITORIAL_BEAMER',input);
+  assert.equal(result['contest-introduction.tex'],body
+   .replace('keepaspectratio]{assets/image.png}','keepaspectratio]{introduction/assets/image.png}')
+   .replace('width=0.8\\linewidth]{assets/chart.jpg}','width=0.8\\linewidth]{introduction/assets/chart.jpg}')
+   .replace('height=2cm]{assets/image.png}','height=2cm]{introduction/assets/image.png}'));
+  assert.equal(result['p1/content.tex'],String.raw`\begin{frame}{解法}\includegraphics{p1/assets/image.png}\end{frame}`);
+  assert.doesNotMatch(result['contest-introduction.tex'],/introduction\/introduction/);
+  assert.doesNotMatch(Object.values(result).join('\n'),/assets\/unused\.png/);
+  assert.deepEqual(input,original);
+ }
+});
+
+test('contest introduction assets cannot borrow problem assets or bypass the local image allowlist',async()=>{
+ const files=await loadTemplateDirectory(fileURLToPath(new URL('../../../templates/builtin/editorial-beamer/',import.meta.url)));
+ const input:ContestRenderInput={title:'比赛',author:'',stage:'',dateHeader:'',dateCover:'',entries:[{namespace:'p1',code:'A',body:String.raw`\begin{frame}{解法}\includegraphics{assets/image.png}\end{frame}`,metadata:{title:'题目',author:''},assetPaths:['assets/image.png'],samples:[],timeLimitMs:1000,memoryLimitMb:256,inputFile:'standard input',outputFile:'standard output'}]};
+ for(const paths of [undefined,[],['assets/another.png']]){
+  assert.throws(()=>renderContest(files,'EDITORIAL_BEAMER',{...input,beamerIntroduction:String.raw`\includegraphics{assets/image.png}`,beamerIntroductionAssetPaths:paths}),/图片必须/);
+ }
+ for(const path of ['../assets/image.png','/etc/passwd','https://example.com/image.png','introduction/assets/image.png','assets/../image.png','assets/image.svg']){
+  assert.throws(()=>renderContest(files,'EDITORIAL_BEAMER',{...input,beamerIntroduction:`\\includegraphics{${path}}`,beamerIntroductionAssetPaths:[path]}),/图片必须/);
+ }
+ const legacy=renderContest(files,'EDITORIAL_BEAMER',{...input,beamerIntroduction:String.raw`\begin{frame}{总结}文字说明\end{frame}`});
+ assert.equal(legacy['contest-introduction.tex'],String.raw`\begin{frame}{总结}文字说明\end{frame}`);
+ assert.equal(renderContest(files,'EDITORIAL_BEAMER',input)['contest-introduction.tex'],undefined);
+});
+
+test('non-Beamer contest documents omit introduction text and images',async()=>{
+ const input:ContestRenderInput={title:'比赛',author:'',stage:'',dateHeader:'',dateCover:'',beamerIntroduction:String.raw`\begin{frame}{总结}\includegraphics{assets/image.png}\end{frame}`,beamerIntroductionAssetPaths:['assets/image.png'],entries:[{namespace:'p1',code:'A',body:'正文',metadata:{title:'题目',author:''},assetPaths:[],samples:[],timeLimitMs:1000,memoryLimitMb:256,inputFile:'standard input',outputFile:'standard output'}]};
+ for(const [template,kind] of [['statement-compact','STATEMENT'],['editorial-document','EDITORIAL_DOCUMENT']] as const){
+  const files=await loadTemplateDirectory(fileURLToPath(new URL(`../../../templates/builtin/${template}/`,import.meta.url)));
+  const result=renderContest(files,kind,input);
+  assert.equal(result['contest-introduction.tex'],undefined);
+  assert.doesNotMatch(Object.values(result).join('\n'),/contest-introduction\.tex|assets\/image\.png|\\begin\{frame\}/);
+ }
+});
+
 test('custom Beamer entries load sizing before document startup and keep dynamic short titles plain',async()=>{
  const files=await loadTemplateDirectory(fileURLToPath(new URL('../../../templates/builtin/editorial-beamer-wide/',import.meta.url)));
  const input:ContestRenderInput={title:'标题 ] $` & 竞赛',author:'',stage:'',dateHeader:'',dateCover:'',entries:[{namespace:'p1',code:'A',body:'\\begin{frame}{解法}正文\\end{frame}',metadata:{title:'题目',author:''},assetPaths:[],samples:[],timeLimitMs:1000,memoryLimitMb:256,inputFile:'standard input',outputFile:'standard output'}]};

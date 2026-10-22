@@ -6,6 +6,7 @@ import{useTaskEvents}from'../task-events';
 import{api}from'../api';import MemberPanel from'../components/MemberPanel.vue';import PackagePanel from'../components/PackagePanel.vue';import PdfPreview from'../components/PdfPreview.vue';
 import EditorFeedback from '../components/EditorFeedback.vue';
 import SourceEditor from '../components/SourceEditor.vue';
+import ContestIntroductionAssets from '../components/ContestIntroductionAssets.vue';
 import { snapshot, mergeSaved, downloadDraft } from '../draft-state';
 import { rememberedChoice, useUnsavedGuard } from '../editor-navigation';
 const route=useRoute(),message=useMessage(),dialog=useDialog(),contest=ref<any>(),data=ref<ContestDataValue>(),dirty=ref(false),busy=ref(false),tab=rememberedChoice('contest-tab','arrange',['arrange','materials','members','packages']),saveError=ref('');
@@ -26,6 +27,7 @@ const introductionExample=String.raw`\begin{frame}{比赛总结}
 
 function changed(){dirty.value=true;}
 function updateIntroduction(value:string){if(!writable.value||!data.value)return;data.value.beamerIntroduction=value;changed();}
+function insertIntroductionImage(frame:string){if(!writable.value||!data.value)return;const current=data.value.beamerIntroduction??'';const next=current+`${current?'\n\n':''}${frame}\n`;if(next.length>40000){message.error('插入后开场总结将超过 40,000 字，请先缩短内容；图片已保留，可稍后插入');return;}updateIntroduction(next);message.success('图片页已追加到开场总结末尾，请保存编排');}
 useUnsavedGuard(()=>dirty.value||busy.value);
 async function act(fn:()=>Promise<void>){busy.value=true;try{await fn();}catch(e){message.error((e as Error).message);if((e as any).code==='MISSING_MATERIAL')missing.value=(e as any).details??[];}finally{busy.value=false;}}
 async function results(){bundles.value=await api(`/contests/${route.params.id}/builds`);releases.value=await api(`/contests/${route.params.id}/releases`);if(selectedBuild.value)await inspect(selectedBuild.value.id);}
@@ -57,6 +59,7 @@ function itemTitle(item:{problemId:string}){return selectedItems.value.find((p:a
   <div class="contest-beamer-introduction-heading"><h3 id="beamer-introduction-heading">Beamer 开场总结（可选）</h3><NButton v-if="writable" size="small" :disabled="Boolean(data.beamerIntroduction?.trim())" @click="updateIntroduction(introductionExample)">填入示例</NButton></div>
   <p class="muted">在封面、难度概览之后，各题讲解之前插入。可提前编写比赛总结、题目安排或致谢，留空不生成；仅用于 Beamer 题解 PDF，随编排一起保存。</p>
   <p class="muted">填写完整的 LaTeX frame 页面，可写多页；主题由所选模板统一控制。最多 40,000 字。</p>
+  <ContestIntroductionAssets :key="contest.id" :contest-id="contest.id" :writable="writable" @insert="insertIntroductionImage"/>
   <SourceEditor :model-value="data.beamerIntroduction??''" :readonly="!writable" @update:model-value="updateIntroduction"/>
   <div class="contest-introduction-count" :class="{'contest-introduction-error':introductionTooLong}">{{introductionLength.toLocaleString()}} / 40,000</div>
   <NAlert v-if="introductionTooLong" type="error">开场总结超过 40,000 字，请缩短后保存；当前内容仍保留在编辑器中。</NAlert>

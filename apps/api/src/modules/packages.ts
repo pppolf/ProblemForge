@@ -114,7 +114,19 @@ export async function packageRoutes(app:Api){
      const result=await exportHydroContest(frozen.selection.title,items,key=>storage.get(key),{testlib,license:await readFile(join(root,'vendor/testlib/LICENSE'))},{language:frozen.selection.language});files=result.files;report.push(...result.report);
     }else{
     for(const item of frozen.selection.items){const p=frozen.problems.find(p=>p.problemId===item.problemId)!;const prepared=await exportManifest(p.manifest,req.body.purpose,req.body.format,p.acceptanceRunId);const result=await exporter.export(prepared.manifest,req.body.purpose,key=>storage.get(key));report.push(...[...prepared.report,...result.report].map(v=>({...v,area:item.code+'/'+v.area})));files.set(`problems/${item.code}.zip`,await writeArchive(result.files));}
-    files.set('contest.json',Buffer.from(JSON.stringify({format:'problemforge-contest-bundle',version:1,purpose:req.body.purpose,selection:frozen.selection,revision:{id:r.id,number:r.number,hash:r.hash},items:frozen.selection.items.map(i=>({code:i.code,path:`problems/${i.code}.zip`,revisionId:i.revisionId}))},null,2)));
+    const {beamerIntroduction,...withoutIntroduction}=frozen.selection;
+    const includeIntroduction=req.body.format==='NATIVE'&&['FULL','EDITORIAL_BEAMER'].includes(req.body.purpose);
+    const introductionAssets:{path:string;hash:string;bytes:number}[]=[];
+    if(includeIntroduction&&beamerIntroduction?.trim()){
+     const used=new Set(validateBody(beamerIntroduction,'EDITORIAL_BEAMER',(frozen.introductionAssets??[]).map(a=>a.path)));
+     for(const asset of frozen.introductionAssets??[])if(used.has(asset.path)){
+      const bytes=await storage.get(asset.blob.key);
+      if(bytes.length!==asset.blob.bytes||sha256(bytes)!==asset.blob.hash)throw new PackageError('比赛开场总结图片与冻结清单哈希不匹配');
+      files.set(asset.path,bytes);introductionAssets.push({path:asset.path,hash:asset.blob.hash,bytes:asset.blob.bytes});
+     }
+    }
+    if(req.body.format==='POLYGON'&&['FULL','EDITORIAL_BEAMER'].includes(req.body.purpose)&&beamerIntroduction?.trim())report.push({area:'比赛开场总结',status:'WARNING',message:'Polygon 离线子集不支持比赛开场总结，正文及图片未导出；请使用原生完整包或 Beamer 题解包保留。'});
+    files.set('contest.json',Buffer.from(JSON.stringify({format:'problemforge-contest-bundle',version:1,purpose:req.body.purpose,selection:includeIntroduction?frozen.selection:withoutIntroduction,...(introductionAssets.length?{introductionAssets}:{}),revision:{id:r.id,number:r.number,hash:r.hash},items:frozen.selection.items.map(i=>({code:i.code,path:`problems/${i.code}.zip`,revisionId:i.revisionId}))},null,2)));
     }
    }else{if(!req.body.revisionId)throw new HttpError(400,'请选择题目固定修订');const r=await revisionAccess(req.user,req.body.revisionId);if(r.problemId!==req.params.id)throw new HttpError(404,'本题修订不存在');if(hashObject(r.manifest)!==r.hash)throw new HttpError(409,'修订清单校验失败');const prepared=await exportManifest(r.manifest as unknown as ProblemManifest,req.body.purpose,req.body.format,r.acceptanceRunId);const result=await exporter.export(prepared.manifest,req.body.purpose,key=>storage.get(key));files=result.files;report=[...prepared.report,...result.report];}
    const hydro=contest&&req.body.format==='HYDRO';

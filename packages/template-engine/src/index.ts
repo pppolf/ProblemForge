@@ -7,7 +7,7 @@ import { defaultJudgeSettings, type JudgeSettingsValue, type DocumentKind, type 
 import { SAMPLE_LAYOUT_PREAMBLE, renderSamplePairs } from './samples.ts';
 import { CONTEST_BEAMER_PREAMBLE, contestBeamerFiles, contestBeamerTitle, difficultyOverview, problemOverview } from './contest-beamer.ts';
 
-export const POLICY_VERSION = 'pf-content-6';
+export const POLICY_VERSION = 'pf-content-7';
 export const TEX_PROFILE = 'xelatex-2022-bookworm-v1';
 export const SAMPLE_RENDERER_VERSION = 'pf-samples-6';
 export type TemplateFiles = Record<string, string>;
@@ -63,7 +63,7 @@ export function validateBody(body: string, kind: DocumentKind, assetPaths: strin
     return nodes.map(n => {
       if (n.type === 'string') return n.content;
       if (n.type === 'whitespace') return ' ';
-      if (dimensions && n.type === 'macro' && ['linewidth', 'textwidth'].includes(n.content)) return `\\${n.content}`;
+      if (dimensions && n.type === 'macro' && ['linewidth', 'textwidth', 'textheight'].includes(n.content)) return `\\${n.content}`;
       throw new Error('图片路径和尺寸必须使用受限字面量');
     }).join('');
   }
@@ -72,13 +72,14 @@ export function validateBody(body: string, kind: DocumentKind, assetPaths: strin
       const args = node.args ?? [];
       if (args.length !== 4 || args[0].content.length || args[2].content.length) throw new Error('不支持此图片参数形式');
       const path = literal(args[3].content);
-      if (!/^assets\/[a-z0-9]+\.(png|jpg)$/.test(path) || !assetPaths.includes(path)) throw new Error('图片必须引用本题已经上传的 PNG/JPEG 资源路径');
+      if (!/^assets\/[a-z0-9]+\.(png|jpg)$/.test(path) || !assetPaths.includes(path)) throw new Error('图片必须引用已经上传的 PNG/JPEG 资源路径');
       const options = literal(args[1].content, true).replace(/\s/g, '');
       const keys = new Set<string>();
       if (options) for (const option of options.split(',')) {
-        const match = /^(width|height)=(\d*\.?\d+)(mm|cm|in|pt|\\linewidth|\\textwidth)$/.exec(option);
-        if (!match || keys.has(match[1])) throw new Error('图片仅允许 width / height 尺寸参数');
-        const maximum: Record<string, number> = { mm: 250, cm: 25, in: 9.8, pt: 710, '\\linewidth': 1, '\\textwidth': 1 };
+        if (option === 'keepaspectratio' && !keys.has(option)) { keys.add(option); continue; }
+        const match = /^(width|height)=(\d*\.?\d+)(mm|cm|in|pt|\\linewidth|\\textwidth|\\textheight)$/.exec(option);
+        if (!match || keys.has(match[1])) throw new Error('图片仅允许 width / height 尺寸和 keepaspectratio 参数');
+        const maximum: Record<string, number> = { mm: 250, cm: 25, in: 9.8, pt: 710, '\\linewidth': 1, '\\textwidth': 1, '\\textheight': 1 };
         if (!(Number(match[2]) > 0 && Number(match[2]) <= maximum[match[3]])) throw new Error('图片尺寸超出批准范围');
         keys.add(match[1]);
       }
@@ -210,14 +211,37 @@ function alignStatementHeader(source: string) {
   const pattern = fields.map(field => String.raw`\{[ \t\r\n]*\{\{${field}\}\}[ \t\r\n]*\}`).join('[ \\t\\r\\n]*');
   return source.replace(new RegExp(pattern, 'g'), fields.map(field => `{{{${field}}}}`).join(''));
 }
-export const CONTEST_RENDERER_VERSION='pf-contest-4';
-export type ContestRenderInput={title:string;author:string;stage:string;dateHeader:string;dateCover:string;beamerIntroduction?:string;entries:{namespace:string;code:string;body:string;metadata:{title:string;author:string};expectedDifficulty?:string;tags?:string[];assetPaths:string[];samples:SamplePaths[];timeLimitMs:number;memoryLimitMb:number;inputFile:string;outputFile:string}[]};
+// Preserve literal code; a label or resource path printed in verbatim is not a reference.
+function rewriteOutsideLiteralCode(source: string, rewrite: (body: string) => string) {
+  const literals: string[] = [];
+  const ranges: { start: number; end: number }[] = [];
+  function collect(node: Ast.Node) {
+    if (node.type === 'verbatim' || node.type === 'verb' || node.type === 'comment' || (node.type === 'environment' && node.env === 'centerverbatim')) {
+      if (node.position) ranges.push({ start: node.position.start.offset, end: node.position.end.offset });
+      return;
+    }
+    const child = node as unknown as { content?: Ast.Node[]; args?: { content: Ast.Node[] }[] };
+    if (Array.isArray(child.content)) for (const item of child.content) collect(item);
+    if (Array.isArray(child.args)) for (const arg of child.args) for (const item of arg.content) collect(item);
+  }
+  collect(parse(source));
+  let body = '', offset = 0;
+  for (const range of ranges.sort((a, b) => a.start - b.start)) {
+    body += source.slice(offset, range.start) + `\u0000${literals.push(source.slice(range.start, range.end)) - 1}\u0000`;
+    offset = range.end;
+  }
+  body += source.slice(offset);
+  return rewrite(body).replace(/\u0000([0-9]+)\u0000/g, (_, i: string) => literals[Number(i)]);
+}
+export const CONTEST_RENDERER_VERSION='pf-contest-5';
+export type ContestRenderInput={title:string;author:string;stage:string;dateHeader:string;dateCover:string;beamerIntroduction?:string;beamerIntroductionAssetPaths?:string[];entries:{namespace:string;code:string;body:string;metadata:{title:string;author:string};expectedDifficulty?:string;tags?:string[];assetPaths:string[];samples:SamplePaths[];timeLimitMs:number;memoryLimitMb:number;inputFile:string;outputFile:string}[]};
 export function renderContest(files:TemplateFiles,kind:DocumentKind,input:ContestRenderInput){
   validateTemplate(files,kind);
   if(!files['booklet.tex']?.includes('{{CONTENTS}}')||!files['item.tex']?.includes('{{BODY}}'))throw new Error('整场模板必须提供 booklet.tex 的 CONTENTS 和 item.tex 的 BODY 插槽');
   if(!input.entries.length||input.entries.length>100||new Set(input.entries.map(e=>e.namespace)).size!==input.entries.length)throw new Error('整场题目清单为空、重复或超额');
   const beamer=kind==='EDITORIAL_BEAMER';
-  if(beamer){validateBody(input.beamerIntroduction??'',kind);files=contestBeamerFiles(files,input.title);}
+  const introductionAssets=beamer?validateBody(input.beamerIntroduction??'',kind,input.beamerIntroductionAssetPaths??[]):[];
+  if(beamer)files=contestBeamerFiles(files,input.title);
   const result:Record<string,string>={};
   const context:Record<string,string>={TITLE:escapeTex(input.title),AUTHOR:escapeTex(input.author),CONTEST_TITLE:escapeTex(input.title),CONTEST_STAGE:escapeTex(input.stage),CONTEST_DATE_HEADER:escapeTex(input.dateHeader),CONTEST_DATE_COVER:escapeTex(input.dateCover),BODY:'',CODE:'',TIME_LIMIT:'',MEMORY_LIMIT:'',INPUT_FILE:'',OUTPUT_FILE:'',
     CONTENTS:input.entries.map(e=>`\\input{${e.namespace}/item.tex}`).join('\n'),
@@ -228,19 +252,24 @@ export function renderContest(files:TemplateFiles,kind:DocumentKind,input:Contes
   const fill=(source:string,values:Record<string,string>)=>(kind==='STATEMENT'?alignStatementHeader(source):source).replace(/\{\{([A-Z_]+)\}\}/g,(_,k:string)=>values[k]??context[k]??`{{${k}}}`);
   for(const [name,source]of Object.entries(files))if(/\.(tex|sty|cls|def)$/.test(name)&&!['preview.tex','item.tex'].includes(name))result[name]=fill(source,context);
   result['main.tex']=result['booklet.tex'];
-  if(beamer){result['main.tex']='\\RequirePackage{etoolbox}\n\\BeforeBeginEnvironment{document}{\\input{pf-contest-beamer.tex}}\n'+result['main.tex'];result['pf-contest-beamer.tex']=CONTEST_BEAMER_PREAMBLE;if(input.beamerIntroduction?.trim())result['contest-introduction.tex']=input.beamerIntroduction;}
+  if(beamer){
+    result['main.tex']='\\RequirePackage{etoolbox}\n\\BeforeBeginEnvironment{document}{\\input{pf-contest-beamer.tex}}\n'+result['main.tex'];
+    result['pf-contest-beamer.tex']=CONTEST_BEAMER_PREAMBLE;
+    if(input.beamerIntroduction?.trim())result['contest-introduction.tex']=rewriteOutsideLiteralCode(input.beamerIntroduction,body=>{
+      for(const path of introductionAssets)body=body.split(path).join(`introduction/${path}`);
+      return body;
+    });
+  }
   if(input.entries.some(entry=>entry.samples.length))result['main.tex']=SAMPLE_LAYOUT_PREAMBLE+result['main.tex'];
   for(const entry of input.entries){
     if(!/^p[1-9][0-9]*$/.test(entry.namespace)||!/^[A-Z][A-Z0-9]{0,7}$/.test(entry.code))throw new Error('不合法的比赛题目命名空间或题号');
     const single=render(files,kind,entry.body,entry.metadata,entry.assetPaths,'single',entry.samples);
-    // Preserve literal code; a label or resource path printed in verbatim is not a reference.
-    const literals:string[]=[];
-    let body=single['content.tex'].replace(/\\begin\{(verbatim|centerverbatim)\}[\s\S]*?\\end\{\1\}|\\verb\*?([^a-zA-Z\s])[^\r\n]*?\2/g,value=>`\u0000${literals.push(value)-1}\u0000`);
-    for(const path of entry.assetPaths)body=body.split(path).join(`${entry.namespace}/${path}`);
-    body=body.replace(/\\input\{samples\.tex\}/g,`\\input{${entry.namespace}/samples.tex}`);
-    // Local labels remain local when several independently authored texts meet.
-    body=body.replace(/\\(label|ref|eqref|pageref)\{([^{}\\]*)\}/g,(_,command:string,key:string)=>`\\${command}{${entry.namespace}:${key}}`);
-    result[`${entry.namespace}/content.tex`]=body.replace(/\u0000([0-9]+)\u0000/g,(_,i:string)=>literals[Number(i)]);
+    result[`${entry.namespace}/content.tex`]=rewriteOutsideLiteralCode(single['content.tex'],body=>{
+      for(const path of entry.assetPaths)body=body.split(path).join(`${entry.namespace}/${path}`);
+      body=body.replace(/\\input\{samples\.tex\}/g,`\\input{${entry.namespace}/samples.tex}`);
+      // Local labels remain local when several independently authored texts meet.
+      return body.replace(/\\(label|ref|eqref|pageref)\{([^{}\\]*)\}/g,(_,command:string,key:string)=>`\\${command}{${entry.namespace}:${key}}`);
+    });
     if(single['samples.tex'])result[`${entry.namespace}/samples.tex`]=single['samples.tex'].replace(/\{samples\//g,`{${entry.namespace}/samples/`);
     result[`${entry.namespace}/item.tex`]=fill(files['item.tex'],{TITLE:escapeTex(entry.metadata.title),AUTHOR:escapeTex(entry.metadata.author),BODY:`\\input{${entry.namespace}/content.tex}`,CODE:escapeTex(entry.code),TIME_LIMIT:escapeTex(`${entry.timeLimitMs/1000} s`),MEMORY_LIMIT:escapeTex(`${entry.memoryLimitMb} MB`),INPUT_FILE:escapeTex(entry.inputFile),OUTPUT_FILE:escapeTex(entry.outputFile),PROBLEM_OVERVIEW:beamer?problemOverview(entry):''});
   }

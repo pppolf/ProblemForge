@@ -70,6 +70,22 @@ test('images resolve only approved immutable assets and bounded local dimensions
   assert.throws(() => validateBody(`\\includegraphics[width=0.8\\linewidth,command=\\input{secret}]{${path}}`, 'STATEMENT', [path]), ContentPolicyError);
 });
 
+test('aspect-preserving images permit bounded text height but reject expanded or duplicate options', () => {
+  const path = 'assets/cimage123.png';
+  const options = String.raw`width=1\linewidth,height=0.7\textheight,keepaspectratio`;
+  assert.deepEqual(validateBody(String.raw`\includegraphics[${options}]{${path}}
+\includegraphics[height=2cm,keepaspectratio]{${path}}`, 'EDITORIAL_BEAMER', [path]), [path]);
+  for (const invalid of [
+    String.raw`height=1.01\textheight`, String.raw`height=0\textheight`,
+    String.raw`height=-0.7\textheight`, String.raw`height=0.7\paperheight`,
+    String.raw`height=0.7\textheight,height=0.5\textheight`,
+    'keepaspectratio,keepaspectratio', 'keepaspectratio=false', 'angle=90',
+    String.raw`height=\dimexpr\textheight-2cm\relax`,
+    String.raw`width=1\linewidth,keepaspectratio,command=\input{secret}`,
+  ]) assert.throws(() => validateBody(String.raw`\includegraphics[${invalid}]{${path}}`, 'EDITORIAL_BEAMER', [path]), ContentPolicyError, invalid);
+  assert.throws(() => validateBody(String.raw`\textheight`, 'EDITORIAL_BEAMER'), ContentPolicyError);
+});
+
 test('interactive statement headings stay in template-owned macros without allowing author definitions', async () => {
   const body = '\\Description\n描述。\n\\interactor\n协议。\n\\InteractionStart\n初始信息。\n\\InteractionQuery\n询问。\n\\InteractionAnswer\n回答。\n\\InteractionNotes\n注意事项。\n\\InteractionExample\n示例。';
   assert.doesNotThrow(() => validateBody(body, 'STATEMENT'));
