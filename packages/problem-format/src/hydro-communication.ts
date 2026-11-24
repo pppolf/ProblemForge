@@ -299,6 +299,12 @@ static int finish_verdict(int real_stdout_fd, int real_stderr_fd, bool ok, const
     return 0;
 }
 
+static std::vector<char> to_cstr(const std::string& s) {
+    std::vector<char> buf(s.begin(), s.end());
+    buf.push_back('\\0');
+    return buf;
+}
+
 static std::string resolve_answer_file() {
     const char* tc_env = std::getenv("HYDRO_TESTCASE");
     if (tc_env && *tc_env) {
@@ -321,6 +327,7 @@ int main(int argc, char* argv[]) {
     int real_stderr_fd = ::dup(STDERR_FILENO);
     if (real_stdout_fd < 0 || real_stderr_fd < 0) return 1;
 
+    try {
     if (argc < 5) {
         return pf_mgr::finish_verdict(real_stdout_fd, real_stderr_fd, false, "Invalid Hydro communication manager arguments");
     }
@@ -356,10 +363,10 @@ int main(int argc, char* argv[]) {
     std::clearerr(stderr);
 
     std::string tout_path = ".pf_pass1_tout.bin";
-    std::vector<char> a0(std::string("interactor").begin(), std::string("interactor").end()); a0.push_back('\\0');
-    std::vector<char> a1(std::string(".pf_orig.in").begin(), std::string(".pf_orig.in").end()); a1.push_back('\\0');
-    std::vector<char> a2(tout_path.begin(), tout_path.end()); a2.push_back('\\0');
-    std::vector<char> a3(ans_path.begin(), ans_path.end()); a3.push_back('\\0');
+    std::vector<char> a0 = pf_mgr::to_cstr("interactor");
+    std::vector<char> a1 = pf_mgr::to_cstr(".pf_orig.in");
+    std::vector<char> a2 = pf_mgr::to_cstr(tout_path);
+    std::vector<char> a3 = pf_mgr::to_cstr(ans_path);
     char* p1_argv[5] = { a0.data(), a1.data(), a2.data(), a3.data(), nullptr };
 
     int p1_exit = 0;
@@ -422,10 +429,10 @@ int main(int argc, char* argv[]) {
         ::close(p2_err_fd);
         std::clearerr(stderr);
     }
-    std::vector<char> c0(std::string("checker").begin(), std::string("checker").end()); c0.push_back('\\0');
-    std::vector<char> c1(std::string(".pf_orig.in").begin(), std::string(".pf_orig.in").end()); c1.push_back('\\0');
-    std::vector<char> c2(std::string(".pf_pass2.ouf").begin(), std::string(".pf_pass2.ouf").end()); c2.push_back('\\0');
-    std::vector<char> c3(ans_path.begin(), ans_path.end()); c3.push_back('\\0');
+    std::vector<char> c0 = pf_mgr::to_cstr("checker");
+    std::vector<char> c1 = pf_mgr::to_cstr(".pf_orig.in");
+    std::vector<char> c2 = pf_mgr::to_cstr(".pf_pass2.ouf");
+    std::vector<char> c3 = pf_mgr::to_cstr(ans_path);
     char* p2_argv[5] = { c0.data(), c1.data(), c2.data(), c3.data(), nullptr };
 
     int p2_exit = 0;
@@ -439,6 +446,11 @@ int main(int argc, char* argv[]) {
     std::string p2_msg;
     (void)pf_mgr::read_file_bytes(".pf_p2_err.txt", p2_msg);
     return pf_mgr::finish_verdict(real_stdout_fd, real_stderr_fd, p2_exit == 0, p2_msg);
+    } catch (const std::exception& e) {
+        return pf_mgr::finish_verdict(real_stdout_fd, real_stderr_fd, false, std::string("Manager exception: ") + e.what());
+    } catch (...) {
+        return pf_mgr::finish_verdict(real_stdout_fd, real_stderr_fd, false, "Manager unknown exception");
+    }
 }
 `;
 }

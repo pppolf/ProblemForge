@@ -1232,3 +1232,9 @@ SandboxClient 的 HTTP 错误增加方法与端点，错误响应仅读取最多
   - 真实 Linux `go-judge` 沙箱按 HydroJudge `communication.ts` 协议（`g++ -O2 -std=c++14 -Wall` 编译 `manager.cpp`、3 进程 4 管道、`HYDRO_TESTCASE=1`、校验两轮选手进程均 `exitStatus=0` 无 `SIGPIPE`/RE）验证 7 项场景全部通过：自定义 Checker（C++ AC、Python 3 AC、WA、第 1 轮 PE 无 RE/SIGPIPE）、内置 `TOKENS`（AC、WA）以及 `>128 KiB` 第 2 轮大数据双工传输（AC）；同时重跑 ProblemForge 两轮执行器（6 项）与 TeX 沙箱 PDF 编译（1 项），14/14 全部通过。
   - `pnpm check problem-format api web`、`pnpm build:web`、`pnpm test:quick`（11/11）、`scripts/communication.test.ts` + `scripts/hydro-exports-api.test.ts`（6/6）全部通过；已重启本机 `pnpm dev` 并验证 `127.0.0.1:3100/api/health` 与 `127.0.0.1:5180/` 健康。
 - **未验证与阻塞：**尚未由用户在真实 Hydro 站点重新上传导入并提交验收；无已知阻塞。本地提交，不 push。
+
+### 补充修复：消除 Hydro `manager.cpp` 临时 `std::string` 迭代器跨容器 UB（2026-11-24）
+
+- **问题根因：**用户在线上 Hydro 站点实测导入 `743` 提交标程后报 `WA (Manager exited with code 6)`（`SIGABRT`）。只读排查评测记录与 `manager.cpp` 后定位：合成的 `manager.cpp` 中 `std::vector<char> a0(std::string("interactor").begin(), std::string("interactor").end())` 等 5 处构造分别对两个独立临时 `std::string` 取 `begin()`/`end()` 迭代器，构成跨容器迭代器未定义行为；线上 Hydro 默认 `cc` 编译选项为 GCC 14.3.0 `-std=c++23`（无 `-O2`），栈上两个临时对象差值为负导致 `std::vector` 抛出未捕获的 `std::length_error` 进而触发 `std::terminate()` / `SIGABRT`（退出码 6）。
+- **修复：**在 `packages/problem-format/src/hydro-communication.ts` 中新增 `pf_mgr::to_cstr(const std::string&)` 从单一命名字符串构造 `argv` 缓冲区，并为 `main()` 外层增加顶层 `try / catch (const std::exception&)` 兜底输出诊断信息。
+- **验证与服务：**在本地 Linux `go-judge` 沙箱中以 `-O0 -Wall -std=c++23 -D_GLIBCXX_DEBUG`（libstdc++ 严格迭代器校验模式）、`-O2 -Wall -std=c++14`、`-O0 -Wall -std=c++11` 三组编译选项全部运行 AC；重跑 `pnpm check problem-format api`、`pnpm test:quick`（11/11）、`scripts/communication.test.ts`（5/5）及 `.local/communication-verify/verify-live.ts`（14/14）全部通过；已重启本机 `pnpm dev` 加载最新导出代码。尚未在真实线上 Hydro 站点再次上传验收；本地提交，不 push。
