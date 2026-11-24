@@ -1158,3 +1158,23 @@ SandboxClient 的 HTTP 错误增加方法与端点，错误响应仅读取最多
 用户在确认问题定位、补丁与验证结果后，明确选择“现在推送，并给出服务器更新命令”。允许正常推送 master 的修复提交 2960147、此前更新指令偏好提交 27d90c7 及本交接记录至 origin/master。推送前已 fetch 核对远端 master 为本地祖先，无分叉、工作区干净；本记录提交后执行普通 push 并核对远端 HEAD，不强制推送。业务代码未再改变，沿用上一节 34 项定向回归、类型检查及真实 Linux 沙箱结果。
 
 服务器 root 终端执行 `cd /root/ProblemForge && git pull --ff-only origin master && bash deploy.sh update`，等待统一入口完成备份、容器/应用更新和本机/HTTPS 验证，然后重新发起原题验收。若先恢复旧 pending，按提示再次运行同一命令更新到本补丁。此轮只推送 GitHub，未连接云服务器、执行部署或确认线上原题通过；不得将推送成功当作线上已修复。
+
+## 全站现代极客工程风 UI 重构、体验优化与 Judge OpenJDK 补丁更新（2026-11-24）
+
+**实现：**
+1. **Judge 沙箱 OpenJDK 17 安全补丁更新（经用户确认）：**Debian Bookworm 安全源已滚动升级 OpenJDK 17，原固定版本 `17.0.20.1+1-1~deb12u1` 不可拉取。同步更新 `infra/judge-sandbox.Dockerfile` 与 `packages/judge-core/src/index.ts` 的 `JUDGE_TOOLCHAIN` 至 `17.0.21.1+2-1~deb12u1`，不放宽执行限制、隔离或回退策略。
+2. **全站 UI 重构与亮/暗双主题联动：**基于现代极客工程工作台风格重构 `apps/web`，通过 `index.html`、`src/theme.ts` 与全局样式令牌同步 CSS 变量、Naive UI 主题与 Monaco Editor 亮/暗配色（支持侧边栏一键切换并持久化，避免首屏闪烁）；重构侧边栏导航（支持桌面端折叠与移动端抽屉）、分栏登录页，以及题目/比赛/工作区/任务/模板/管理后台全部页面与核心工作区面板的视觉层级、排版和 XCPC 语义色板。
+3. **题目快捷重命名与标题区分：**保留「题目名称（列表与工作区标题，`PUT /api/problems/:id/meta`）」与「文稿排版标题（仅影响当前文稿 PDF 渲染，`PUT /api/documents/:id`）」的职责分离，并在工作区主标题旁新增快捷「重命名」弹窗；同步修复 `ProblemManagement.vue` 在题目版本更新后表单名称未刷新的问题。
+4. **全站 9 项交互体验优化：**新增 `⌘K / Ctrl+K` 全局命令面板（`CommandPalette.vue`）与一键复制 ID 工具（`clipboard.ts`）；支持 `Ctrl/⌘+S` 快捷保存与 `Ctrl/⌘+Enter` 快捷触发 PDF 构建/判题验收；PDF 构建完成后自动切至预览页；精简工作区工具栏并加入可拖拽分栏及空模板引导横幅；增强 Monaco LaTeX 数学/环境/节标题高亮与光标位置插入常用片段栏；补齐判题矩阵汇总条、返回矩阵按钮、角色胶囊及 Stress/TestData 交互细节；将全部页面内 `window.confirm` / `window.prompt` 替换为 Naive UI 对话框/弹窗；运维审计日志映射并展示操作人用户名。
+
+**实际验证：**
+- 定向类型与测试检查：`pnpm check judge-core web` 通过；`pnpm test:quick` 11/11 通过；`pnpm build:web`（`vue-tsc --noEmit && vite build`）在最终样式微调后重跑通过。
+- 本机真实 Linux 沙箱联调：在 macOS arm64 + Colima Docker 独立 Linux 沙箱（TeX `15050` / Judge `15051`）与原 5180/3100 开发服务下，实际完成三类模板发布，以及测试题 `A + B Problem` 与 `Test 比赛` 的生成器、标程造数据、自测、部分分多程序验收（AC/WA/TLE）、对拍找反例、三类题目 PDF、三类比赛 PDF、修订冻结和 Hydro/原生导出验证；所有代码和 TeX 均仅在 Linux 沙箱执行。
+- 浏览器实测：在 `http://localhost:5180` 实际打开登录页、题目列表、工作区（文稿与判题）、运维日志、模板管理，检查亮/暗双主题渲染与 `⌘K` 面板交互，控制台 0 报错。
+
+**未验证与阻塞：**
+- 未执行全量 P0—P7 历史回归脚本、E2E、压力测试或协会真实 `APPKEY` 联调；无已知功能阻塞。
+
+## 用户授权推送 UI 重构与 OpenJDK 补丁更新（2026-11-24）
+
+用户明确要求“现在你提交github吧”，授权将本轮 Judge OpenJDK 17 补丁更新、全站 UI 重构与 9 项体验优化及本交接记录提交至本地 `master` 并推送至 `origin/master`（普通快进推送，不强制推送）。推送前已核对 `.env`、`.local/`、`storage/` 均未进入暂存区，且 `deploy.sh` 复用 `scripts/cloud-deploy.mjs` 支持 `/root/ProblemForge` 下的 `bash deploy.sh update`（含 Judge 沙箱镜像变更后的自动重建与更新）。此轮仅推送代码至 GitHub，未连接云服务器或执行线上部署；服务器需由用户在终端执行更新命令后方才生效。
