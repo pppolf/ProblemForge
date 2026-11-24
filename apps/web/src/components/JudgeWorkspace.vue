@@ -159,9 +159,16 @@ async function saveProgram() {
   } catch (e) { programError.value=(e as Error).message; message.error(programError.value); return false; } finally { busy.value = false; }
 }
 async function saveSettings() {
-  if(busy.value)return;const submitted=snapshot(settings.value);
+  if (busy.value) return;
+  const submitted = snapshot(settings.value) as any;
+  if (submitted.interactionMode !== 'INTERACTIVE') delete submitted.interaction;
+  if (submitted.interactionMode !== 'COMMUNICATION') delete submitted.communication;
   busy.value = true;
-  try { const saved = await api(`/problems/${props.problemId}/judge-settings`, { method: 'PUT', body: JSON.stringify({ expectedVersion: settingsVersion.value, settings: submitted }) }); settingsVersion.value = saved.version; settingsSaved.value = JSON.stringify(submitted); emit('settingsSaved'); await refreshRuns(); message.success(settingsDirty.value?'已保存提交的配置；继续输入的修改仍未保存':'判题配置已保存'); }
+  try {
+    const saved = await api(`/problems/${props.problemId}/judge-settings`, { method: 'PUT', body: JSON.stringify({ expectedVersion: settingsVersion.value, settings: submitted }) });
+    settings.value = saved.settings; settingsVersion.value = saved.version; settingsSaved.value = JSON.stringify(saved.settings);
+    emit('settingsSaved'); await refreshRuns(); message.success('判题配置已保存');
+  }
   catch (e) { message.error((e as Error).message); } finally { busy.value = false; }
 }
 async function submit(purpose: JudgePurpose) {

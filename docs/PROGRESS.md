@@ -1209,3 +1209,9 @@ SandboxClient 的 HTTP 错误增加方法与端点，错误响应仅读取最多
 
 **未验证与阻塞：**
 - 未向外部真实 Hydro / NovaJudge 线上站点上传导入测试（Hydro 与 NovaJudge 格式均对照用户提供的两份真实题包并在本地 Linux 沙箱完成了编译与双轮运行验证）；未做浏览器内真实新建通信题与队列验收全点击流程，未运行全量 P0—P7 历史套件或云端部署。无已知代码或环境阻塞；完成本地 Git 提交，不 push。
+
+### 补充修正：重启开发后端加载新契约、题面格式模板精简（2026-11-24）
+
+- **判题设置保存失败定位与修复：**主目录原 `pnpm dev` 中 API 与两个 Worker 以非 watch 的 `tsx` 运行，此前未重启导致旧 API 进程仍持有旧版 TypeBox `JudgeSettings` 契约，拒绝前端提交的 `COMMUNICATION` 字段。另在 `JudgeWorkspace.vue` 的 `saveSettings()` 提交前清理非当前执行模式的 `interaction` / `communication` 子对象并回填服务端返回值。确认零活跃任务后重启原主目录 `pnpm dev`（保持 `5180` / `3100` 及原库不变），API、Web、Judge Worker、TeX Worker 均已加载最新代码且健康在线。
+- **交互 / 通信题面正文格式模板调整：**将 `StatementFormatPicker.vue` 按钮与弹窗统一更名为「交互 / 通信格式」，从 `statement-formats.ts` 移除具体示例题「多项式机器（Easy Version）」，仅保留「通用交互题格式」与「通用通信题格式（first / second）」两套通用模板，并按用户要求去掉两套模板开头的 `\Description` 命令。
+- **定向验证：**`pnpm check web`、`pnpm build:web` 及两份题面模板的 `validateBody` 内容策略校验均通过；原 5180/3100 健康检查通过。本地提交，不 push。
