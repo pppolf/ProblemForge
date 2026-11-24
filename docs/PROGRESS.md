@@ -1178,3 +1178,11 @@ SandboxClient 的 HTTP 错误增加方法与端点，错误响应仅读取最多
 ## 用户授权推送 UI 重构与 OpenJDK 补丁更新（2026-11-24）
 
 用户明确要求“现在你提交github吧”，授权将本轮 Judge OpenJDK 17 补丁更新、全站 UI 重构与 9 项体验优化及本交接记录提交至本地 `master` 并推送至 `origin/master`（普通快进推送，不强制推送）。推送前已核对 `.env`、`.local/`、`storage/` 均未进入暂存区，且 `deploy.sh` 复用 `scripts/cloud-deploy.mjs` 支持 `/root/ProblemForge` 下的 `bash deploy.sh update`（含 Judge 沙箱镜像变更后的自动重建与更新）。此轮仅推送代码至 GitHub，未连接云服务器或执行线上部署；服务器需由用户在终端执行更新命令后方才生效。
+
+## 用户授权云服务器更新上线（2026-11-24）
+
+用户明确授权连接云服务器更新 ProblemForge 并提醒关注服务器资源。更新前只读核对端口归属（`5181/25432/26379/25050/25051` 全部由 ProblemForge 独占，站点 `idle`）、内存（`7.6 GiB` 总内存、无 Swap、仅余 `1.18 GiB` 可用）与磁盘（`/` 余 `18 GiB`，占用 85%）。鉴于 `pnpm build:web` 峰值 RSS 约 `1.35 GiB`，在确认无进行中任务后仅暂停 ProblemForge 自身 4 个 PM2 进程释放约 `762 MiB` 内存，随后执行 `git pull --ff-only origin master` 与标准 `bash deploy.sh update`；全程未触碰同机其他项目服务或非本项目 Docker 镜像。
+
+**实际验证：**`deploy.sh update` 零报错完成 `git-c6e793238e6c69705245f42495020caea75626ac` 发布：TeX 沙箱镜像因输入未变直接复用，Judge 沙箱重建为 OpenJDK `17.0.21.1+2-1~deb12u1` 镜像，保存一致备份 `/opt/problemforge/shared/backups/20261124095841674`（5.79 GiB），数据库无待执行迁移，PM2（2 API + 1 TeX + 1 Judge）及四容器均恢复健康。`http://127.0.0.1:5181/api/health`、`https://problems.cwnupaa.com/api/health` 均返回 HTTP 200 `status=ok`，首页返回 HTTP/2 200；内核日志无 OOM 记录，同机其余 14 个非本项目容器零重启。
+
+**资源提醒与未验证：**更新后内存可用 `1.4 GiB`（较更新前更宽裕），但因保留了 `5.79 GiB` 自动备份与上一版本用于回滚，`/` 磁盘剩余降至 `9.8 GiB`（92%）；未清理非本项目 Docker 镜像（`docker system df` 显示约 `17.45 GB` 可回收），后续再次更新前建议先清理无关旧镜像或扩容磁盘，并评估配置适量 Swap。本次未在云端浏览器实测登录及在线触发真实评测任务。
