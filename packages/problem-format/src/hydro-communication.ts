@@ -1,165 +1,6 @@
 import type { JudgeSettingsValue } from '@problemforge/contracts';
 import { PackageError } from './archive.ts';
 
-export const HYDRO_COMPILE_SH = '#!/bin/bash\nexec /usr/bin/python3 /w/phase-runner.py compile "$@"\n';
-export const HYDRO_EXECUTE_SH = '#!/bin/bash\nexec /usr/bin/python3 /w/phase-runner.py run "$@"\n';
-
-/**
- * Generic Hydro multi-pass runner: reads a length-prefixed frame
- * (`__PF_PHASE_LEN__ <bytes>\n<payload>`) from stdin, writes it to a temporary file
- * so arbitrary multi-line / large inputs never deadlock a 64 KiB pipe buffer, and
- * binds that file as stdin (providing a real EOF) before execing the user program.
- */
-export const HYDRO_PHASE_RUNNER_PY = `"""Run one complete communication stage with arbitrary-size input and real EOF."""
-import json
-import os
-import shutil
-import sys
-
-MAX_FRAME_BYTES = 128 * 1024 * 1024
-
-with open("phase-languages.json", encoding="utf-8") as f:
-    languages = json.load(f)
-
-
-def compile_program():
-    import subprocess
-    key = os.environ["HYDRO_LANG"]
-    lang = languages[key]
-    if lang["compile"]:
-        result = subprocess.run(lang["compile"])
-        if result.returncode:
-            return result.returncode
-    payload = lang["target"] if lang["compile"] else lang["code_file"]
-    # Hydro transfers one build artifact. Preserve its language and its original bytes.
-    with open(payload, "rb") as source, open(".phase-build", "wb") as bundle:
-        bundle.write(key.encode("ascii") + b"\\n")
-        shutil.copyfileobj(source, bundle)
-    os.replace(".phase-build", lang["target"])
-    return 0
-
-
-def read_exact_bytes(stream, size):
-    chunks = []
-    remaining = size
-    while remaining > 0:
-        chunk = stream.read(min(remaining, 65536))
-        if not chunk:
-            return None
-        chunks.append(chunk)
-        remaining -= len(chunk)
-    return b"".join(chunks)
-
-
-def read_exact_to_file(stream, size, dest):
-    remaining = size
-    while remaining > 0:
-        chunk = stream.read(min(remaining, 65536))
-        if not chunk:
-            return False
-        dest.write(chunk)
-        remaining -= len(chunk)
-    return True
-
-
-def run_stage():
-    header = sys.stdin.buffer.readline(128)
-    if not header.startswith(b"__PF_PHASE_LEN__ ") or not header.endswith(b"\\n"):
-        sys.stderr.write(f"phase-runner: bad header {header[:64]!r}\\n")
-        return 1
-    try:
-        size = int(header[len(b"__PF_PHASE_LEN__ "):].strip())
-    except ValueError:
-        sys.stderr.write("phase-runner: invalid frame length\\n")
-        return 1
-    if size < 0 or size > MAX_FRAME_BYTES:
-        sys.stderr.write(f"phase-runner: frame size out of range: {size}\\n")
-        return 1
-
-    use_pipe = size <= 60000
-    payload_bytes = None
-    if use_pipe:
-        payload_bytes = read_exact_bytes(sys.stdin.buffer, size)
-        if payload_bytes is None:
-            sys.stderr.write("phase-runner: truncated frame\\n")
-            return 1
-    else:
-        with open(".phase-stdin", "wb") as temp_in:
-            if not read_exact_to_file(sys.stdin.buffer, size, temp_in):
-                sys.stderr.write("phase-runner: truncated large frame\\n")
-                return 1
-
-    targets = {entry["target"] for entry in languages.values()}
-    bundles = [p for p in targets if os.path.isfile(p)]
-    if len(bundles) != 1:
-        sys.stderr.write(f"phase-runner: expected 1 build bundle, found {bundles!r}\\n")
-        return 1
-    with open(bundles[0], "rb") as bundle:
-        key = bundle.readline(100).rstrip(b"\\n").decode("ascii")
-        lang = languages[key]
-        with open(".phase-program", "wb") as output:
-            shutil.copyfileobj(bundle, output)
-    payload = lang["target"] if lang["compile"] else lang["code_file"]
-    os.chmod(".phase-program", 0o700)
-    os.replace(".phase-program", payload)
-    if bundles[0] != payload:
-        os.unlink(bundles[0])
-
-    if use_pipe:
-        read_fd, write_fd = os.pipe()
-        if payload_bytes:
-            os.write(write_fd, payload_bytes)
-        os.close(write_fd)
-        os.dup2(read_fd, 0)
-        os.close(read_fd)
-    else:
-        fd = os.open(".phase-stdin", os.O_RDONLY)
-        os.dup2(fd, 0)
-        os.close(fd)
-    argv = lang["execute"] + sys.argv[2:]
-    os.execvp(argv[0], argv)
-
-
-if __name__ == "__main__":
-    if sys.argv[1] == "compile":
-        sys.exit(compile_program())
-    sys.exit(run_stage())
-`;
-
-export const HYDRO_PHASE_LANGUAGES_JSON = JSON.stringify({
-  bash: { code_file: 'foo.sh', target: 'foo', compile: [], execute: ['/bin/bash', 'foo.sh'] },
-  c: { code_file: 'foo.c', target: 'foo', compile: ['/usr/bin/gcc', '-Wall', '--std=c99', '-o', 'foo', 'foo.c', '-lm'], execute: ['/w/foo'] },
-  cc: { code_file: 'foo.cc', target: 'foo', compile: ['/usr/bin/g++', '-Wall', '-std=c++14', '-o', 'foo', 'foo.cc', '-lm', '-I/include'], execute: ['/w/foo'] },
-  'cc.cc98': { code_file: 'foo.cc', target: 'foo', compile: ['/usr/bin/g++', '-Wall', '-std=c++98', '-o', 'foo', 'foo.cc', '-lm', '-I/include'], execute: ['/w/foo'] },
-  'cc.cc98o2': { code_file: 'foo.cc', target: 'foo', compile: ['/usr/bin/g++', '-Wall', '-std=c++98', '-o', 'foo', 'foo.cc', '-lm', '-O2', '-I/include'], execute: ['/w/foo'] },
-  'cc.cc11': { code_file: 'foo.cc', target: 'foo', compile: ['/usr/bin/g++', '-Wall', '-std=c++11', '-o', 'foo', 'foo.cc', '-lm', '-I/include'], execute: ['/w/foo'] },
-  'cc.cc11o2': { code_file: 'foo.cc', target: 'foo', compile: ['/usr/bin/g++', '-Wall', '-std=c++11', '-o', 'foo', 'foo.cc', '-lm', '-O2', '-I/include'], execute: ['/w/foo'] },
-  'cc.cc14': { code_file: 'foo.cc', target: 'foo', compile: ['/usr/bin/g++', '-Wall', '-std=c++14', '-o', 'foo', 'foo.cc', '-lm', '-I/include'], execute: ['/w/foo'] },
-  'cc.cc14o2': { code_file: 'foo.cc', target: 'foo', compile: ['/usr/bin/g++', '-Wall', '-std=c++14', '-o', 'foo', 'foo.cc', '-lm', '-O2', '-I/include'], execute: ['/w/foo'] },
-  'cc.cc17': { code_file: 'foo.cc', target: 'foo', compile: ['/usr/bin/g++', '-Wall', '-std=c++17', '-o', 'foo', 'foo.cc', '-lm', '-I/include'], execute: ['/w/foo'] },
-  'cc.cc17o2': { code_file: 'foo.cc', target: 'foo', compile: ['/usr/bin/g++', '-Wall', '-std=c++17', '-o', 'foo', 'foo.cc', '-lm', '-O2', '-I/include'], execute: ['/w/foo'] },
-  'cc.cc20': { code_file: 'foo.cc', target: 'foo', compile: ['/usr/bin/g++', '-Wall', '-std=c++20', '-o', 'foo', 'foo.cc', '-lm', '-I/include'], execute: ['/w/foo'] },
-  'cc.cc20o2': { code_file: 'foo.cc', target: 'foo', compile: ['/usr/bin/g++', '-Wall', '-std=c++20', '-o', 'foo', 'foo.cc', '-lm', '-O2', '-I/include'], execute: ['/w/foo'] },
-  'cc.cc23': { code_file: 'foo.cc', target: 'foo', compile: ['/usr/bin/g++', '-Wall', '-std=c++23', '-o', 'foo', 'foo.cc', '-lm', '-I/include'], execute: ['/w/foo'] },
-  'cc.cc23o2': { code_file: 'foo.cc', target: 'foo', compile: ['/usr/bin/g++', '-Wall', '-std=c++23', '-o', 'foo', 'foo.cc', '-lm', '-O2', '-I/include'], execute: ['/w/foo'] },
-  pas: { code_file: 'foo.pas', target: 'foo', compile: ['/usr/bin/fpc', '-O2', '-o/w/foo', 'foo.pas'], execute: ['/w/foo'] },
-  java: { code_file: 'Main.java', target: 'Main.jar', compile: ['/usr/bin/bash', '-c', 'javac -d /w -encoding utf8 ./Main.java && jar -J-Djava.io.tmpdir=/w cvf Main.jar *.class >/dev/null'], execute: ['/usr/bin/java', '-cp', 'Main.jar', 'Main'] },
-  kt: { code_file: 'foo.kt', target: 'foo', compile: ['echo', 'Invalid language selection'], execute: ['echo', 'Invalid language selection'] },
-  'kt.jvm': { code_file: 'foo.kt', target: 'foo.jar', compile: ['kotlinc', '-include-runtime', '-d', 'foo.jar', 'foo.kt'], execute: ['/usr/bin/java', '-jar', 'foo.jar'] },
-  py: { code_file: 'foo.py', target: 'foo', compile: ['/usr/bin/python', '-c', "import py_compile; py_compile.compile('/w/foo.py', '/w/foo', doraise=True)"], execute: ['/usr/bin/python', 'foo'] },
-  'py.py2': { code_file: 'foo.py', target: 'foo', compile: ['/usr/bin/python', '-c', "import py_compile; py_compile.compile('/w/foo.py', '/w/foo', doraise=True)"], execute: ['/usr/bin/python', 'foo'] },
-  'py.py3': { code_file: 'foo.py', target: 'foo', compile: ['/usr/bin/python3', '-c', "import py_compile; py_compile.compile('/w/foo.py', '/w/foo', doraise=True)"], execute: ['/usr/bin/python3', 'foo'] },
-  'py.pypy3': { code_file: 'foo.py', target: 'foo', compile: ['/bin/bash', '-c', '/usr/bin/pypy3 -c "import py_compile; py_compile.compile(\'/w/foo.py\', \'/w/foo\', doraise=True)" && mv foo.py foo'], execute: ['/bin/bash', '-c', 'mv foo foo.py && /usr/bin/pypy3 -B foo.py'] },
-  php: { code_file: 'foo.php', target: 'foo', compile: [], execute: ['/usr/bin/php', 'foo.php'] },
-  rs: { code_file: 'foo.rs', target: 'foo', compile: ['/usr/bin/rustc', '-O', '-o', '/w/foo', '/w/foo.rs'], execute: ['/w/foo'] },
-  hs: { code_file: 'foo.hs', target: 'foo', compile: ['/usr/bin/ghc', '-O', '-outputdir', '/tmp', '-o', 'foo', 'foo.hs'], execute: ['/w/foo'] },
-  js: { code_file: 'foo.js', target: 'foo', compile: [], execute: ['/usr/bin/node', '/w/foo.js'] },
-  go: { code_file: 'foo.go', target: 'foo', compile: ['/usr/bin/go', 'build', '-o', 'foo', 'foo.go'], execute: ['/w/foo'] },
-  rb: { code_file: 'foo.rb', target: 'foo', compile: [], execute: ['/usr/bin/ruby', 'foo.rb'] },
-  cs: { code_file: 'foo.cs', target: 'foo', compile: ['/usr/bin/mcs', '-optimize+', '-out:/w/foo', '/w/foo.cs'], execute: ['/usr/bin/mono', 'foo'] },
-  r: { code_file: 'foo.r', target: 'foo', compile: [], execute: ['/bin/sh', '-c', 'cat /dev/stdin >stdin && /usr/bin/Rscript --vanilla foo.r'] },
-}, null, 2) + '\n';
-
 function prepareUserCppSource(source: string, label: string): { includes: string[]; body: string } {
   const normalized = source.replace(/\r\n/g, '\n');
   const includes: string[] = [];
@@ -167,7 +8,7 @@ function prepareUserCppSource(source: string, label: string): { includes: string
   for (const line of normalized.split('\n')) {
     const trimmed = line.trim();
     if (/^#\s*include\b/.test(trimmed)) {
-      if (!/"testlib\.h"|<testlib\.h>/.test(trimmed)) includes.push(trimmed);
+      if (!/"testlib\.h"|<testlib\.h>|"polygon-testlib\.h"/.test(trimmed)) includes.push(trimmed);
       continue;
     }
     kept.push(line);
@@ -183,7 +24,7 @@ function prepareUserCppSource(source: string, label: string): { includes: string
   } else if (mainNoArgs.test(body)) {
     body = body.replace(mainNoArgs, 'int pf_main(int, char**)');
   } else {
-    throw new PackageError(`无法在 ${label} 中识别标准 main 函数签名，无法自动合成 Hydro 通信交互器`);
+    throw new PackageError(`无法在 ${label} 中识别标准 main 函数签名，无法自动合成 Hydro 通信管理器`);
   }
   return { includes, body };
 }
@@ -219,12 +60,10 @@ bool pf_special(std::string s) {
     return s == "nan" || s == "inf" || s == "infinity";
 }` : ''}
 int pf_verdict(bool accepted, const std::string& msg) {
-    TestlibFinalizeGuard::registered = true;
     std::cerr << (accepted ? "ok " : "wrong answer ") << msg << std::endl;
     return accepted ? 0 : 1;
 }
 int pf_main(int argc, char** argv) {
-    TestlibFinalizeGuard::registered = true;
     std::setlocale(LC_ALL, "C");
     if (argc < 4) { std::cerr << "FAIL Missing checker paths" << std::endl; return 3; }
     std::ifstream expected(argv[3], std::ios::binary), actual(argv[2], std::ios::binary);
@@ -249,23 +88,29 @@ int pf_main(int argc, char** argv) {
 }
 
 /**
- * Synthesizes a single-process, zero-fork Hydro multi_pass: 2 interactor.cpp from
- * ProblemForge's unified Pass-1 Interactor + Pass-2 Checker (custom or built-in).
+ * Synthesizes a native Hydro `type: communication` (`num_processes: 2`) manager.cpp
+ * from ProblemForge's unified Pass-1 Interactor + Pass-2 Checker (custom or built-in).
+ *
+ * Hydro invokes `manager /proc/self/fd/3 /proc/self/fd/4 /proc/self/fd/5 /proc/self/fd/6`
+ * with the raw test input on stdin and `HYDRO_TESTCASE` (1-based) in the environment,
+ * reads score ratio (`1` or `0`) from manager stdout, and displays manager stderr.
+ * No compile.sh / execute.sh / phase-runner.py wrapper is needed; all Hydro languages work natively.
  */
-export function buildHydroCommunicationInteractor(
+export function buildHydroCommunicationManager(
   interactorSource: string,
   checkerSource: string | null,
   settings: JudgeSettingsValue,
+  answerFileNames: string[],
 ): string {
   const pass1 = prepareUserCppSource(interactorSource, 'Interactor');
   const pass2 = checkerSource ? prepareUserCppSource(checkerSource, 'Checker') : null;
   const includes = [...new Set([...pass1.includes, ...(pass2?.includes ?? [])])];
+  const escapedAnswers = answerFileNames.map(name => JSON.stringify(name)).join(', ');
 
-  return `// Auto-synthesized by ProblemForge for Hydro multi_pass: 2 communication judging.
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
-#endif
-#include "testlib.h"
+  return `// Auto-synthesized by ProblemForge for native Hydro communication judging (num_processes: 2).
+#define TESTLIB_THROW_EXIT_EXCEPTION_INSTEAD_OF_EXIT
+#include "polygon-testlib.h"
+#include <cerrno>
 #include <clocale>
 #include <cmath>
 #include <csignal>
@@ -276,17 +121,29 @@ export function buildHydroCommunicationInteractor(
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <poll.h>
 #include <string>
 #include <unistd.h>
 #include <vector>
 ${includes.join('\n')}
 
-namespace pf_bridge {
-static int real_stdout_fd = -1;
-static int real_stdin_fd = -1;
-static bool pass1_sent = false;
-static std::string orig_inf_bytes;
-static std::string tout_path;
+namespace pf_pass1 {
+${pass1.body}
+} // namespace pf_pass1
+
+${pass2 ? `namespace pf_pass2 {\n${pass2.body}\n} // namespace pf_pass2` : builtinPass2Checker(settings)}
+
+namespace pf_mgr {
+static const char* const kAnswerFiles[] = { ${escapedAnswers}${answerFileNames.length ? ', ' : ''}nullptr };
+static const size_t kAnswerCount = ${answerFileNames.length};
+
+static int parse_proc_fd(const char* path) {
+    if (!path) return -1;
+    const std::string s(path);
+    const std::string prefix = "/proc/self/fd/";
+    if (s.compare(0, prefix.size(), prefix) != 0) return -1;
+    return std::atoi(path + prefix.size());
+}
 
 static bool write_all_fd(int fd, const char* data, size_t len) {
     size_t offset = 0;
@@ -297,6 +154,116 @@ static bool write_all_fd(int fd, const char* data, size_t len) {
             return false;
         }
         offset += static_cast<size_t>(n);
+    }
+    return true;
+}
+
+static std::string read_all_fd(int fd) {
+    std::string out;
+    char buf[65536];
+    for (;;) {
+        ssize_t n = ::read(fd, buf, sizeof(buf));
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        if (n == 0) break;
+        out.append(buf, static_cast<size_t>(n));
+    }
+    return out;
+}
+
+static void drain_fd_nonblock(int fd, size_t max_bytes) {
+    int flags = ::fcntl(fd, F_GETFL, 0);
+    if (flags >= 0) ::fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    char buf[65536];
+    size_t total = 0;
+    while (total < max_bytes) {
+        ssize_t n = ::read(fd, buf, sizeof(buf));
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        if (n == 0) break;
+        total += static_cast<size_t>(n);
+    }
+}
+
+static bool pump_pass2(int write_fd, int read_fd, const std::string& input, std::string& output) {
+    int wf = ::fcntl(write_fd, F_GETFL, 0);
+    int rf = ::fcntl(read_fd, F_GETFL, 0);
+    if (wf >= 0) ::fcntl(write_fd, F_SETFL, wf | O_NONBLOCK);
+    if (rf >= 0) ::fcntl(read_fd, F_SETFL, rf | O_NONBLOCK);
+
+    size_t offset = 0;
+    bool write_open = true;
+    bool read_open = true;
+    if (input.empty()) {
+        ::close(write_fd);
+        write_open = false;
+    }
+
+    char buf[65536];
+    while (write_open || read_open) {
+        struct pollfd fds[2];
+        nfds_t nfds = 0;
+        int w_idx = -1, r_idx = -1;
+        if (write_open) {
+            w_idx = static_cast<int>(nfds);
+            fds[nfds].fd = write_fd;
+            fds[nfds].events = POLLOUT;
+            fds[nfds].revents = 0;
+            ++nfds;
+        }
+        if (read_open) {
+            r_idx = static_cast<int>(nfds);
+            fds[nfds].fd = read_fd;
+            fds[nfds].events = POLLIN;
+            fds[nfds].revents = 0;
+            ++nfds;
+        }
+        int rc = ::poll(fds, nfds, -1);
+        if (rc < 0) {
+            if (errno == EINTR) continue;
+            if (write_open) ::close(write_fd);
+            if (read_open) ::close(read_fd);
+            return false;
+        }
+        if (w_idx >= 0 && (fds[w_idx].revents & (POLLOUT | POLLERR | POLLHUP | POLLNVAL))) {
+            while (offset < input.size()) {
+                ssize_t n = ::write(write_fd, input.data() + offset, input.size() - offset);
+                if (n < 0) {
+                    if (errno == EINTR) continue;
+                    if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+                    ::close(write_fd);
+                    write_open = false;
+                    break;
+                }
+                offset += static_cast<size_t>(n);
+            }
+            if (write_open && offset >= input.size()) {
+                ::close(write_fd);
+                write_open = false;
+            }
+        }
+        if (r_idx >= 0 && (fds[r_idx].revents & (POLLIN | POLLHUP | POLLERR | POLLNVAL))) {
+            for (;;) {
+                ssize_t n = ::read(read_fd, buf, sizeof(buf));
+                if (n < 0) {
+                    if (errno == EINTR) continue;
+                    if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+                    ::close(read_fd);
+                    read_open = false;
+                    break;
+                }
+                if (n == 0) {
+                    ::close(read_fd);
+                    read_open = false;
+                    break;
+                }
+                output.append(buf, static_cast<size_t>(n));
+            }
+        }
     }
     return true;
 }
@@ -316,170 +283,162 @@ static bool write_file_bytes(const std::string& path, const std::string& data) {
     return static_cast<bool>(f);
 }
 
-static bool send_phase_frame(int fd, const std::string& payload) {
-    std::string header = "__PF_PHASE_LEN__ " + std::to_string(payload.size()) + "\\n";
-    return write_all_fd(fd, header.data(), header.size()) && write_all_fd(fd, payload.data(), payload.size());
+static std::string trim_msg(std::string s) {
+    while (!s.empty() && (s.back() == '\\n' || s.back() == '\\r')) s.pop_back();
+    if (s.size() > 1000) s.resize(1000);
+    return s;
 }
 
-static void flush_pass1_to_contestant() {
-    if (pass1_sent) return;
-    pass1_sent = true;
-    std::cout.flush();
-    std::fflush(nullptr);
-    std::string payload;
-    if (!read_file_bytes(".pf_pass1_out.bin", payload)) payload.clear();
-    (void)send_phase_frame(real_stdout_fd, payload);
-    ::close(real_stdout_fd);
-    real_stdout_fd = -1;
+static int finish_verdict(int real_stdout_fd, int real_stderr_fd, bool ok, const std::string& msg) {
+    const std::string score = ok ? "1\\n" : "0\\n";
+    (void)write_all_fd(real_stdout_fd, score.data(), score.size());
+    std::string clean = trim_msg(msg);
+    if (clean.empty()) clean = ok ? "ok" : "wrong answer";
+    clean.push_back('\\n');
+    (void)write_all_fd(real_stderr_fd, clean.data(), clean.size());
+    return 0;
 }
 
-static ssize_t pass1_ouf_read(void*, char* buf, size_t size) {
-    flush_pass1_to_contestant();
-    for (;;) {
-        ssize_t n = ::read(real_stdin_fd, buf, size);
-        if (n < 0 && errno == EINTR) continue;
-        return n < 0 ? -1 : n;
+static std::string resolve_answer_file() {
+    const char* tc_env = std::getenv("HYDRO_TESTCASE");
+    if (tc_env && *tc_env) {
+        long idx = std::strtol(tc_env, nullptr, 10);
+        if (idx >= 1 && static_cast<size_t>(idx) <= kAnswerCount) {
+            const char* candidate = kAnswerFiles[idx - 1];
+            if (candidate && ::access(candidate, R_OK) == 0) return std::string(candidate);
+        }
     }
+    (void)write_file_bytes(".pf_empty.ans", "");
+    return ".pf_empty.ans";
 }
-
-static void on_pass1_exit(int status, void*) {
-    if (status != 0) return;
-    tout.flush();
-    if (tout.is_open()) tout.close();
-    std::string pass2_in;
-    if (!read_file_bytes(tout_path, pass2_in)) {
-        std::fprintf(stderr, "FAIL cannot read pass-1 tout\\n");
-        ::_exit(3);
-    }
-    std::ofstream next("nextpass.in", std::ios::binary | std::ios::trunc);
-    if (!next) {
-        std::fprintf(stderr, "FAIL cannot write nextpass.in\\n");
-        ::_exit(3);
-    }
-    next << "__PF_NEXTPASS_V1__\\n" << orig_inf_bytes.size() << ' ' << pass2_in.size() << '\\n';
-    next.write(orig_inf_bytes.data(), static_cast<std::streamsize>(orig_inf_bytes.size()));
-    next.write(pass2_in.data(), static_cast<std::streamsize>(pass2_in.size()));
-    next.flush();
-    if (!next) {
-        std::fprintf(stderr, "FAIL failed flushing nextpass.in\\n");
-        ::_exit(3);
-    }
-}
-
-static void registerInteraction(int argc, char* argv[]) {
-    ::registerInteraction(argc, argv);
-    cookie_io_functions_t funcs = {};
-    funcs.read = pass1_ouf_read;
-    std::FILE* cookie = ::fopencookie(nullptr, "rb", funcs);
-    if (!cookie) quitf(_fail, "Cannot attach communication cookie stream");
-    ouf.init(cookie, _output);
-}
-} // namespace pf_bridge
-
-namespace pf_pass1 {
-using pf_bridge::registerInteraction;
-${pass1.body}
-} // namespace pf_pass1
-
-${pass2 ? `namespace pf_pass2 {\n${pass2.body}\n} // namespace pf_pass2` : builtinPass2Checker(settings)}
+} // namespace pf_mgr
 
 int main(int argc, char* argv[]) {
+    disableFinalizeGuard();
     std::signal(SIGPIPE, SIG_IGN);
-    const char* env_pass = std::getenv("HYDRO_MULTI_PASS");
-    const std::string pass = env_pass ? env_pass : "";
-    if (argc < 3) {
-        std::fprintf(stderr, "FAIL expected Hydro interactor arguments\\n");
-        return 3;
+
+    int real_stdout_fd = ::dup(STDOUT_FILENO);
+    int real_stderr_fd = ::dup(STDERR_FILENO);
+    if (real_stdout_fd < 0 || real_stderr_fd < 0) return 1;
+
+    if (argc < 5) {
+        return pf_mgr::finish_verdict(real_stdout_fd, real_stderr_fd, false, "Invalid Hydro communication manager arguments");
     }
-    if (pass == "1") {
-        if (!pf_bridge::read_file_bytes(argv[1], pf_bridge::orig_inf_bytes)) {
-            std::fprintf(stderr, "FAIL cannot read original test input\\n");
-            return 3;
-        }
-        // Hydro may pass /dev/null as argv[2] (tout); capture tout into a local regular file instead.
-        pf_bridge::tout_path = ".pf_pass1_tout.bin";
-        pf_bridge::real_stdout_fd = ::dup(STDOUT_FILENO);
-        pf_bridge::real_stdin_fd = ::dup(STDIN_FILENO);
-        int tmp_fd = ::open(".pf_pass1_out.bin", O_CREAT | O_TRUNC | O_WRONLY, 0600);
-        if (pf_bridge::real_stdout_fd < 0 || pf_bridge::real_stdin_fd < 0 || tmp_fd < 0) {
-            std::fprintf(stderr, "FAIL cannot initialize pass-1 buffer\\n");
-            return 3;
-        }
-        if (::dup2(tmp_fd, STDOUT_FILENO) < 0) {
-            std::fprintf(stderr, "FAIL cannot redirect pass-1 stdout\\n");
-            return 3;
-        }
-        ::close(tmp_fd);
-        ::on_exit(pf_bridge::on_pass1_exit, nullptr);
-        std::vector<char> tout_arg(pf_bridge::tout_path.begin(), pf_bridge::tout_path.end());
-        tout_arg.push_back('\\0');
-        std::vector<char*> p1_argv(argv, argv + argc);
-        p1_argv[2] = tout_arg.data();
-        p1_argv.push_back(nullptr);
-        return pf_pass1::pf_main(argc, p1_argv.data());
-    }
-    if (pass != "2") {
-        std::fprintf(stderr, "FAIL expected HYDRO_MULTI_PASS=1 or 2\\n");
-        return 3;
+    int p0_from = pf_mgr::parse_proc_fd(argv[1]);
+    int p0_to = pf_mgr::parse_proc_fd(argv[2]);
+    int p1_from = pf_mgr::parse_proc_fd(argv[3]);
+    int p1_to = pf_mgr::parse_proc_fd(argv[4]);
+    if (p0_from < 0 || p0_to < 0 || p1_from < 0 || p1_to < 0) {
+        return pf_mgr::finish_verdict(real_stdout_fd, real_stderr_fd, false, "Invalid communication pipe descriptors");
     }
 
-    std::ifstream next_in(argv[1], std::ios::binary);
-    std::string magic;
-    size_t orig_len = 0, pass2_len = 0;
-    if (!next_in || !std::getline(next_in, magic) || magic != "__PF_NEXTPASS_V1__" || !(next_in >> orig_len >> pass2_len)) {
-        std::fprintf(stderr, "FAIL invalid nextpass.in header\\n");
-        return 3;
+    // Read raw test input from manager stdin before redirecting stdio to Process 0.
+    std::string orig_input = pf_mgr::read_all_fd(STDIN_FILENO);
+    if (!pf_mgr::write_file_bytes(".pf_orig.in", orig_input)) {
+        return pf_mgr::finish_verdict(real_stdout_fd, real_stderr_fd, false, "Failed to materialize test input");
     }
-    if (next_in.get() != '\\n') {
-        std::fprintf(stderr, "FAIL malformed nextpass.in separator\\n");
-        return 3;
+    std::string ans_path = pf_mgr::resolve_answer_file();
+
+    // ---------- Pass 1 (Process 0 <-> User Interactor) ----------
+    int p1_err_fd = ::open(".pf_p1_err.txt", O_CREAT | O_TRUNC | O_WRONLY, 0600);
+    if (p1_err_fd < 0) {
+        ::close(p0_to); ::close(p0_from); ::close(p1_to); ::close(p1_from);
+        return pf_mgr::finish_verdict(real_stdout_fd, real_stderr_fd, false, "Failed to open pass-1 diagnostic log");
     }
-    std::string orig_inf(orig_len, '\\0'), pass2_in(pass2_len, '\\0');
-    if (orig_len && !next_in.read(&orig_inf[0], static_cast<std::streamsize>(orig_len))) {
-        std::fprintf(stderr, "FAIL truncated original input in nextpass.in\\n");
-        return 3;
+    ::dup2(p0_from, STDIN_FILENO);
+    ::dup2(p0_to, STDOUT_FILENO);
+    ::dup2(p1_err_fd, STDERR_FILENO);
+    ::close(p0_from);
+    ::close(p0_to);
+    ::close(p1_err_fd);
+    std::clearerr(stdin);
+    std::clearerr(stdout);
+    std::clearerr(stderr);
+
+    std::string tout_path = ".pf_pass1_tout.bin";
+    std::vector<char> a0(std::string("interactor").begin(), std::string("interactor").end()); a0.push_back('\\0');
+    std::vector<char> a1(std::string(".pf_orig.in").begin(), std::string(".pf_orig.in").end()); a1.push_back('\\0');
+    std::vector<char> a2(tout_path.begin(), tout_path.end()); a2.push_back('\\0');
+    std::vector<char> a3(ans_path.begin(), ans_path.end()); a3.push_back('\\0');
+    char* p1_argv[5] = { a0.data(), a1.data(), a2.data(), a3.data(), nullptr };
+
+    int p1_exit = 0;
+    try {
+        p1_exit = pf_pass1::pf_main(4, p1_argv);
+    } catch (exit_exception& e) {
+        p1_exit = e.getExitCode();
     }
-    if (pass2_len && !next_in.read(&pass2_in[0], static_cast<std::streamsize>(pass2_len))) {
-        std::fprintf(stderr, "FAIL truncated pass-2 input in nextpass.in\\n");
-        return 3;
-    }
-    if (!pf_bridge::write_file_bytes(".pf_orig.in", orig_inf)) {
-        std::fprintf(stderr, "FAIL cannot materialize original input\\n");
-        return 3;
-    }
-    if (!pf_bridge::send_phase_frame(STDOUT_FILENO, pass2_in)) {
-        std::fprintf(stderr, "FAIL cannot send pass-2 input to contestant\\n");
-        return 3;
-    }
-    ::close(STDOUT_FILENO);
-    std::string pass2_out;
-    char buf[65536];
-    for (;;) {
-        ssize_t n = ::read(STDIN_FILENO, buf, sizeof(buf));
-        if (n < 0) {
-            if (errno == EINTR) continue;
-            break;
-        }
-        if (n == 0) break;
-        pass2_out.append(buf, static_cast<size_t>(n));
-    }
-    if (!pf_bridge::write_file_bytes(".pf_pass2.ouf", pass2_out)) {
-        std::fprintf(stderr, "FAIL cannot materialize pass-2 output\\n");
-        return 3;
-    }
-    std::string ans_path;
-    if (argc >= 4) {
-        ans_path = argv[3];
+    std::cout.flush();
+    std::cerr.flush();
+    std::fflush(nullptr);
+    tout.flush();
+    if (tout.is_open()) tout.close();
+    inf.close();
+    ans.close();
+
+    // Close Process 0 stdin (our STDOUT_FILENO) and non-blocking drain Process 0 stdout
+    // without blocking on Process 0 in case it is waiting for EOF from sandbox exit.
+    int devnull = ::open("/dev/null", O_RDWR);
+    if (devnull >= 0) {
+        ::dup2(devnull, STDOUT_FILENO);
     } else {
-        ans_path = ".pf_empty.ans";
-        (void)pf_bridge::write_file_bytes(ans_path, "");
+        ::close(STDOUT_FILENO);
     }
-    char arg0[] = "checker";
-    std::vector<char> arg1_buf(std::string(".pf_orig.in").begin(), std::string(".pf_orig.in").end()); arg1_buf.push_back('\\0');
-    std::vector<char> arg2_buf(std::string(".pf_pass2.ouf").begin(), std::string(".pf_pass2.ouf").end()); arg2_buf.push_back('\\0');
-    std::vector<char> arg3_buf(ans_path.begin(), ans_path.end()); arg3_buf.push_back('\\0');
-    char* fake_argv[5] = { arg0, arg1_buf.data(), arg2_buf.data(), arg3_buf.data(), nullptr };
-    return pf_pass2::pf_main(4, fake_argv);
+    pf_mgr::drain_fd_nonblock(STDIN_FILENO, 64 * 1024 * 1024);
+    if (devnull >= 0) {
+        ::dup2(devnull, STDIN_FILENO);
+        ::close(devnull);
+    } else {
+        ::close(STDIN_FILENO);
+    }
+
+    if (p1_exit != 0) {
+        // Close Process 1 pipes and exit immediately so the sandbox delivers EOF to Process 1.
+        ::close(p1_to);
+        ::close(p1_from);
+        std::string p1_msg;
+        (void)pf_mgr::read_file_bytes(".pf_p1_err.txt", p1_msg);
+        return pf_mgr::finish_verdict(real_stdout_fd, real_stderr_fd, false, p1_msg.empty() ? "First invocation rejected by interactor" : p1_msg);
+    }
+
+    // ---------- Pass 2 (tout -> Process 1 -> User Checker / Built-in Comparator) ----------
+    std::string pass2_in;
+    if (!pf_mgr::read_file_bytes(tout_path, pass2_in)) {
+        ::close(p1_to);
+        ::close(p1_from);
+        return pf_mgr::finish_verdict(real_stdout_fd, real_stderr_fd, false, "Interactor did not produce second-pass input (tout)");
+    }
+    std::string pass2_out;
+    if (!pf_mgr::pump_pass2(p1_to, p1_from, pass2_in, pass2_out)) {
+        return pf_mgr::finish_verdict(real_stdout_fd, real_stderr_fd, false, "Failed to communicate with process 1");
+    }
+    if (!pf_mgr::write_file_bytes(".pf_pass2.ouf", pass2_out)) {
+        return pf_mgr::finish_verdict(real_stdout_fd, real_stderr_fd, false, "Failed to materialize second-pass output");
+    }
+
+    int p2_err_fd = ::open(".pf_p2_err.txt", O_CREAT | O_TRUNC | O_WRONLY, 0600);
+    if (p2_err_fd >= 0) {
+        ::dup2(p2_err_fd, STDERR_FILENO);
+        ::close(p2_err_fd);
+        std::clearerr(stderr);
+    }
+    std::vector<char> c0(std::string("checker").begin(), std::string("checker").end()); c0.push_back('\\0');
+    std::vector<char> c1(std::string(".pf_orig.in").begin(), std::string(".pf_orig.in").end()); c1.push_back('\\0');
+    std::vector<char> c2(std::string(".pf_pass2.ouf").begin(), std::string(".pf_pass2.ouf").end()); c2.push_back('\\0');
+    std::vector<char> c3(ans_path.begin(), ans_path.end()); c3.push_back('\\0');
+    char* p2_argv[5] = { c0.data(), c1.data(), c2.data(), c3.data(), nullptr };
+
+    int p2_exit = 0;
+    try {
+        p2_exit = pf_pass2::pf_main(4, p2_argv);
+    } catch (exit_exception& e) {
+        p2_exit = e.getExitCode();
+    }
+    std::cerr.flush();
+    std::fflush(nullptr);
+    std::string p2_msg;
+    (void)pf_mgr::read_file_bytes(".pf_p2_err.txt", p2_msg);
+    return pf_mgr::finish_verdict(real_stdout_fd, real_stderr_fd, p2_exit == 0, p2_msg);
 }
 `;
 }

@@ -1,7 +1,7 @@
 import { defaultCommunicationSettings, isCppLanguage, isJudgingData, type ProblemManifest, type StoredBlob, type TestDataTargetValue } from '@problemforge/contracts';
 import { stringify as stringifyYaml } from 'yaml';
 import { PackageError, limits } from './archive.ts';
-import { HYDRO_COMPILE_SH, HYDRO_EXECUTE_SH, HYDRO_PHASE_LANGUAGES_JSON, HYDRO_PHASE_RUNNER_PY, buildHydroCommunicationInteractor } from './hydro-communication.ts';
+import { buildHydroCommunicationManager } from './hydro-communication.ts';
 import { digest } from './native.ts';
 import type { Issue, PackageResult } from './types.ts';
 
@@ -135,8 +135,8 @@ export async function exportTestData(
   if (communication) {
     const interactor = pickCppTool('INTERACTOR', 'interactor.cpp');
     const customChecker = settings.checkerMode === 'CUSTOM' ? pickCppTool('CHECKER', 'checker.cpp') : null;
-    usesTestlib = true;
     if (target === 'NOVAJUDGE') {
+      usesTestlib = true;
       put('interactor.cpp', Buffer.from(interactor.source));
       report.push({ area: 'interactor.cpp', status: 'MAPPED', message: `已保留第 1 轮中转 Interactor「${interactor.name}」的固定源码（${interactor.profile.language}）。` });
       if (customChecker) {
@@ -148,15 +148,14 @@ export async function exportTestData(
       }
       report.push({ area: '通信配置', status: 'MAPPED', message: `按 NovaJudge 两轮通信模型导出：run_count=2、interactor_runs=[1]、output_limit=${(settings.communication?.outputLimitBytes ?? defaultCommunicationSettings.outputLimitBytes).toLocaleString('zh-CN')} 字节。` });
     } else {
-      const hydroInteractor = buildHydroCommunicationInteractor(interactor.source, customChecker?.source ?? null, settings);
-      put('interactor.cpp', Buffer.from(hydroInteractor));
-      put('compile.sh', Buffer.from(HYDRO_COMPILE_SH));
-      put('execute.sh', Buffer.from(HYDRO_EXECUTE_SH));
-      put('phase-runner.py', Buffer.from(HYDRO_PHASE_RUNNER_PY));
-      put('phase-languages.json', Buffer.from(HYDRO_PHASE_LANGUAGES_JSON));
-      report.push({ area: 'interactor.cpp', status: 'MAPPED', message: `已将本地 Interactor「${interactor.name}」与${customChecker ? `自定义 Checker「${customChecker.name}」` : `内置 ${settings.checkerMode} 比较器`}自动合成为 Hydro multi_pass: 2 交互器（单进程零子进程）。` });
-      report.push({ area: '通信包装脚本', status: 'MAPPED', message: '已生成通用长度帧 phase-runner.py、compile.sh、execute.sh 和 phase-languages.json，支持任意多行/大数据输入并向每轮选手进程提供真实 EOF。' });
-      report.push({ area: '工具编译', status: 'WARNING', message: 'Hydro 将按 multi_pass: 2 交互模式编译 interactor.cpp；上传后请确认目标站 C++ 编译配置与 phase-languages.json 语言命令匹配，并实际提交标程验收。' });
+      const answerFileNames = tests.map(t => `${t.number}.ans`);
+      const hydroManager = buildHydroCommunicationManager(interactor.source, customChecker?.source ?? null, settings, answerFileNames);
+      put('manager.cpp', Buffer.from(hydroManager));
+      put('polygon-testlib.h', support.testlib);
+      put('testlib.LICENSE', support.license);
+      report.push({ area: 'manager.cpp', status: 'MAPPED', message: `已将本地 Interactor「${interactor.name}」与${customChecker ? `自定义 Checker「${customChecker.name}」` : `内置 ${settings.checkerMode} 比较器`}自动合成为 Hydro 原生通信管理器 manager.cpp（type: communication，num_processes: 2，附独立 polygon-testlib.h 避免被目标站默认 testlib.h 覆盖）。` });
+      report.push({ area: '通信运行模式', status: 'MAPPED', message: '使用 Hydro 原生双进程通信模式（无需包装脚本，原生支持 Hydro 全部语言）；第 1 轮与第 2 轮各自拥有独立进程与时空限制，并向选手进程提供真实 EOF。' });
+      report.push({ area: '工具编译', status: 'WARNING', message: 'Hydro 将使用默认 C++ 编译配置编译 manager.cpp；若 Interactor 或 Checker 使用了高版本 C++ 语法，请确认目标站 C++ 编译配置兼容并实际提交标程验收。' });
     }
   } else {
     if ((!interactive && !nativeComparison) || (interactive && settings.interaction?.verdictMode === 'CHECKER')) {
@@ -179,10 +178,10 @@ export async function exportTestData(
   const config: Record<string, unknown> = communication
     ? (target === 'HYDRO'
       ? {
-        type: 'interactive', time: `${settings.timeLimitMs}ms`, memory: `${settings.memoryLimitMb}m`,
-        interactor: 'interactor.cpp', multi_pass: 2,
+        time: `${settings.timeLimitMs}ms`, memory: `${settings.memoryLimitMb}m`,
+        type: 'communication', num_processes: 2, manager: 'manager.cpp',
+        judge_extra_files: ['polygon-testlib.h', ...tests.map(t => `${t.number}.ans`)],
         subtasks: [{ score: 100, id: 1, type: 'min', cases }],
-        user_extra_files: ['compile.sh', 'execute.sh', 'phase-runner.py', 'phase-languages.json'],
       }
       : {
         type: 'communication', checker: 'checker.cpp', cases, interactor: 'interactor.cpp',

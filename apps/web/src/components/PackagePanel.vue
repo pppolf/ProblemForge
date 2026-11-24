@@ -46,7 +46,7 @@ async function revoke(id: string) { await act(async () => { await api(`/releases
 <template>
   <div class="p4-editor">
     <section v-if="scope === 'problems'" class="test-data-export">
-      <div><h3>{{ targets.find(t => t.value === dataTarget)?.label }}</h3><p v-if="dataTarget === 'HYDRO'">以「题目名称_导出时间」打包：problem.yaml、problem.md、solution/ 和 testdata/。将 {{ language || '默认语言' }} 的题面与文档题解转为 Markdown，保留数学公式；测试数据、工具与配置放在 testdata/（通信题自动合成 Hydro multi_pass: 2 交互器与通用包装脚本）。在 Hydro 题库「从 Hydro 导入」上传整个 ZIP；文档题解会导入为题目题解。</p><p v-else-if="dataTarget === 'NOVAJUDGE_PROBLEM'">导出 {{ language || '默认语言' }} 的题面、展示样例、图片、时空限制与判题数据，包含 problem.json、data/ 和引用的 assets/。根据判题配置生成传统题、SPJ、交互题或两轮通信题，可在 NovaJudge「导入题目」直接上传整个 ZIP。</p><p v-else>普通题和通信题导出 *.in、*.ans；交互题仅导出 *.in。随包附所需 Checker / Interactor。</p></div>
+      <div><h3>{{ targets.find(t => t.value === dataTarget)?.label }}</h3><p v-if="dataTarget === 'HYDRO'">以「题目名称_导出时间」打包：problem.yaml、problem.md、solution/ 和 testdata/。将 {{ language || '默认语言' }} 的题面与文档题解转为 Markdown，保留数学公式；测试数据、工具与配置放在 testdata/（通信题自动合成 Hydro 原生通信管理器 manager.cpp，无需包装脚本，原生支持全部语言）。在 Hydro 题库「从 Hydro 导入」上传整个 ZIP；文档题解会导入为题目题解。</p><p v-else-if="dataTarget === 'NOVAJUDGE_PROBLEM'">导出 {{ language || '默认语言' }} 的题面、展示样例、图片、时空限制与判题数据，包含 problem.json、data/ 和引用的 assets/。根据判题配置生成传统题、SPJ、交互题或两轮通信题，可在 NovaJudge「导入题目」直接上传整个 ZIP。</p><p v-else>普通题和通信题导出 *.in、*.ans；交互题仅导出 *.in。随包附所需 Checker / Interactor。</p></div>
       <div class="p4-toolbar">
         <NSelect v-model:value="dataTarget" :options="targets" aria-label="导出目标平台" :disabled="busy" />
         <NSelect v-model:value="dataSource" :options="dataOptions" aria-label="导出内容来源" :disabled="busy" />
@@ -57,7 +57,7 @@ async function revoke(id: string) { await act(async () => { await api(`/releases
         <small>传统格式使用 NovaJudge 的逐行比较，会忽略行末空格及全文首尾空白。自定义 Checker、浮点比较自动导出为 SPJ；交互题使用 Interactor；通信题导出为两轮 Run-Twice（含 Interactor 与 Checker）。导出不包含题解或参考解。</small>
       </template>
       <NAlert v-if="hasUnsaved && dataSource === 'WORKING'" type="warning">请先保存编辑，再导出当前内容。</NAlert>
-      <small v-else>可直接导出已保存的内容，无需先冻结。{{ dataTarget === 'HYDRO' ? '交互题 testdata/ 仅含输入；通信题自动合成 multi_pass: 2 交互器并保留 *.in / *.ans 与两轮展示样例。' : dataTarget === 'NOVAJUDGE_PROBLEM' ? '交互题 data/ 仅含隐藏输入；通信题导出 data/ 下的隐藏输入、答案、Interactor 与 Checker，并在 problem.json 保留四段通信样例。' : '交互/通信样例仅用于展示，不导出为测试点。' }}</small>
+      <small v-else>可直接导出已保存的内容，无需先冻结。{{ dataTarget === 'HYDRO' ? '交互题 testdata/ 仅含输入；通信题导出为 Hydro 原生 type: communication（num_processes: 2 + manager.cpp），保留 *.in / *.ans 与两轮展示样例。' : dataTarget === 'NOVAJUDGE_PROBLEM' ? '交互题 data/ 仅含隐藏输入；通信题导出 data/ 下的隐藏输入、答案、Interactor 与 Checker，并在 problem.json 保留四段通信样例。' : '交互/通信样例仅用于展示，不导出为测试点。' }}</small>
     </section>
     <section v-else class="test-data-export">
       <div><h3>NovaJudge 比赛题包</h3><p>将比赛全部题目打包为一个 ZIP，按编排顺序建立「序号_题号_题目名称」文件夹。每题包含题面、样例、图片、时空限制、测试数据及所需判题工具，可在 NovaJudge 批量导入。</p></div>

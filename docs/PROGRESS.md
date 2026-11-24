@@ -1220,3 +1220,15 @@ SandboxClient 的 HTTP 错误增加方法与端点，错误响应仅读取最多
 
 - **问题与修复：**Hydro `interactive` 模式会向 `interactor` 传入 `/dev/null` 作为 `argv[2]`，此前合成的 `interactor.cpp` 直接复用 `argv[2]` 读取 `tout` 会导致第 2 轮输入丢失；现改为强制将第 1 轮 `tout` 重定向至本地常规文件 `.pf_pass1_tout.bin` 后打包写入 `nextpass.in`，并在每轮发送长度帧后显式关闭 `stdout`。同时在 `phase-runner.py` 中对 `<= 60 KiB` 输入直接沿用内存 `os.pipe()`（仅大输入落盘 `.phase-stdin`）并输出 stderr 诊断；`writeArchive` 对 `.sh` 成员设置 `0o100755` 可执行权限位。
 - **验证与服务：**`pnpm check problem-format`、`scripts/communication.test.ts`（5/5）及真实 Linux 沙箱验证（将 Hydro 模拟 harness 的 `argv[2]` 改为 `/dev/null` 后 6 项 Hydro 用例全部通过）均绿灯；已重启本机 `pnpm dev` 加载最新导出逻辑。本地提交，不 push。
+
+### 补充修正：Hydro 通信题导出切换为 Hydro 原生 `type: communication`（2026-11-24）
+
+- **根因定位：**应用户要求只读排查目标 Hydro 站点的评测日志与 `@hydrooj/hydrojudge` 源码后确认，标准 `@hydrooj/hydrojudge` 并未实现 `multi_pass: 2` / `HYDRO_MULTI_PASS`（仅 UI Schema 保留了字段，评测引擎实际支持的是原生 `type: communication` + `num_processes: 2` + `manager.cpp`）。导致此前导出的 `multi_pass: 2` 交互器因缺少 `HYDRO_MULTI_PASS` 立即退出，`phase-runner.py` 读到 EOF 后返回 1，被 Hydro 判为 `Runtime Error (Your program returned 1.)`。
+- **实现改动：**
+  - 重写 `packages/problem-format/src/hydro-communication.ts` 为 `buildHydroCommunicationManager`，将本地 `Interactor` 与（自定义或内置）`Checker` 自动合成为 Hydro 原生 `manager.cpp`（基于 `testlib.h` 内置 `TESTLIB_THROW_EXIT_EXCEPTION_INSTEAD_OF_EXIT` 异常钩子单进程顺序执行两轮，通过 `HYDRO_TESTCASE` 定位当前测试点 `.ans`，第 2 轮用 `poll()` 非阻塞双工泵避免大数据管道死锁，第 1 轮失败时非阻塞清理并立即退出以让沙箱向两个选手进程送达 EOF 避免 `SIGPIPE`/TLE）。
+  - 更新 `packages/problem-format/src/test-data.ts`：Hydro 通信题改为导出 `type: communication`、`num_processes: 2`、`manager: manager.cpp`、`judge_extra_files: ['polygon-testlib.h', ...*.ans]` 与 `subtasks`，不再生成 `compile.sh` / `execute.sh` / `phase-runner.py` / `phase-languages.json`，原生支持 Hydro 全部语言；同时使用独立 `polygon-testlib.h` 避免被 Hydro 编译时覆写为站内旧版 `testlib.h`。
+  - 同步更新 `apps/web/src/components/PackagePanel.vue` 说明文案与 `scripts/communication.test.ts` 单测断言。
+- **实际验证：**
+  - 真实 Linux `go-judge` 沙箱按 HydroJudge `communication.ts` 协议（`g++ -O2 -std=c++14 -Wall` 编译 `manager.cpp`、3 进程 4 管道、`HYDRO_TESTCASE=1`、校验两轮选手进程均 `exitStatus=0` 无 `SIGPIPE`/RE）验证 7 项场景全部通过：自定义 Checker（C++ AC、Python 3 AC、WA、第 1 轮 PE 无 RE/SIGPIPE）、内置 `TOKENS`（AC、WA）以及 `>128 KiB` 第 2 轮大数据双工传输（AC）；同时重跑 ProblemForge 两轮执行器（6 项）与 TeX 沙箱 PDF 编译（1 项），14/14 全部通过。
+  - `pnpm check problem-format api web`、`pnpm build:web`、`pnpm test:quick`（11/11）、`scripts/communication.test.ts` + `scripts/hydro-exports-api.test.ts`（6/6）全部通过；已重启本机 `pnpm dev` 并验证 `127.0.0.1:3100/api/health` 与 `127.0.0.1:5180/` 健康。
+- **未验证与阻塞：**尚未由用户在真实 Hydro 站点重新上传导入并提交验收；无已知阻塞。本地提交，不 push。

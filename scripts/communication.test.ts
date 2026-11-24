@@ -202,36 +202,43 @@ test('NovaJudge communication export matches Run-Twice protocol and 4-part sampl
   }
 });
 
-test('Hydro communication export synthesizes multi_pass=2 interactor and generic phase-runner', async () => {
+test('Hydro communication export synthesizes native type=communication manager.cpp', async () => {
   const support = {
     testlib: await readFile(join(root, 'vendor/testlib/testlib.h')),
     license: await readFile(join(root, 'vendor/testlib/LICENSE')),
   };
-  const { manifest, read } = makeCommunicationManifest('CUSTOM');
-  const result = await exportHydroProblem(manifest, read, support, { exportedAt: new Date('2026-11-24T12:00:00Z') });
-  const prefix = [...result.files.keys()][0].split('/')[0];
-  const configYaml = result.files.get(`${prefix}/testdata/config.yaml`)!.toString('utf8');
-  const problemMd = result.files.get(`${prefix}/problem.md`)!.toString('utf8');
-  const interactorCpp = result.files.get(`${prefix}/testdata/interactor.cpp`)!.toString('utf8');
-  const phaseRunner = result.files.get(`${prefix}/testdata/phase-runner.py`)!.toString('utf8');
+  for (const checkerMode of ['CUSTOM', 'TOKENS'] as const) {
+    const { manifest, read } = makeCommunicationManifest(checkerMode);
+    const result = await exportHydroProblem(manifest, read, support, { exportedAt: new Date('2026-11-24T12:00:00Z') });
+    const prefix = [...result.files.keys()][0].split('/')[0];
+    const configYaml = result.files.get(`${prefix}/testdata/config.yaml`)!.toString('utf8');
+    const problemMd = result.files.get(`${prefix}/problem.md`)!.toString('utf8');
+    const managerCpp = result.files.get(`${prefix}/testdata/manager.cpp`)!.toString('utf8');
 
-  assert.match(configYaml, /type:\s*interactive/);
-  assert.match(configYaml, /multi_pass:\s*2/);
-  assert.match(configYaml, /interactor:\s*interactor\.cpp/);
-  assert.match(configYaml, /user_extra_files:\s*\n\s*-\s*compile\.sh\s*\n\s*-\s*execute\.sh\s*\n\s*-\s*phase-runner\.py\s*\n\s*-\s*phase-languages\.json/);
-  assert.match(configYaml, /input:\s*2\.in\s*\n\s*output:\s*2\.ans/);
-  assert.match(configYaml, /input:\s*3\.in\s*\n\s*output:\s*3\.ans/);
+    assert.match(configYaml, /type:\s*communication/);
+    assert.match(configYaml, /num_processes:\s*2/);
+    assert.match(configYaml, /manager:\s*manager\.cpp/);
+    assert.match(configYaml, /judge_extra_files:\s*\n\s*-\s*polygon-testlib\.h\s*\n\s*-\s*2\.ans\s*\n\s*-\s*3\.ans/);
+    assert.match(configYaml, /input:\s*2\.in\s*\n\s*output:\s*2\.ans/);
+    assert.match(configYaml, /input:\s*3\.in\s*\n\s*output:\s*3\.ans/);
+    assert.equal(result.files.has(`${prefix}/testdata/polygon-testlib.h`), true);
+    assert.equal(result.files.has(`${prefix}/testdata/testlib.h`), false);
+    assert.equal(result.files.has(`${prefix}/testdata/compile.sh`), false);
+    assert.equal(result.files.has(`${prefix}/testdata/phase-runner.py`), false);
 
-  assert.match(problemMd, /```input1\nfirst\n7\n```/);
-  assert.match(problemMd, /```output1\n7\n```/);
-  assert.match(problemMd, /```input2\nsecond\n7 5\n```/);
-  assert.match(problemMd, /```output2\n12\n```/);
+    assert.match(problemMd, /```input1\nfirst\n7\n```/);
+    assert.match(problemMd, /```output1\n7\n```/);
+    assert.match(problemMd, /```input2\nsecond\n7 5\n```/);
+    assert.match(problemMd, /```output2\n12\n```/);
 
-  assert.match(interactorCpp, /HYDRO_MULTI_PASS/);
-  assert.match(interactorCpp, /__PF_PHASE_LEN__/);
-  assert.match(interactorCpp, /namespace pf_pass1/);
-  assert.match(interactorCpp, /namespace pf_pass2/);
-  assert.match(phaseRunner, /__PF_PHASE_LEN__/);
+    assert.match(managerCpp, /TESTLIB_THROW_EXIT_EXCEPTION_INSTEAD_OF_EXIT/);
+    assert.match(managerCpp, /#include "polygon-testlib\.h"/);
+    assert.match(managerCpp, /HYDRO_TESTCASE/);
+    assert.match(managerCpp, /namespace pf_pass1/);
+    assert.match(managerCpp, /namespace pf_pass2/);
+    if (checkerMode === 'CUSTOM') assert.match(managerCpp, /registerTestlibCmd/);
+    else assert.match(managerCpp, /pf_tokens/);
+  }
 });
 
 test('Native v1 export/import round-trips communication settings and 4-part communication samples', async () => {
