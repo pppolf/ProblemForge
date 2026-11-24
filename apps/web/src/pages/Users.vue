@@ -35,9 +35,29 @@ function revoke(u: ManagedUser) {
 }
 </script>
 <template>
-  <div class="page-heading"><div><h1>用户管理</h1><p>超级管理员使用独立本地账号，协会用户首次登录后自动加入。此处管理角色、启停和登录设备。</p></div></div>
+  <div class="page-heading"><div><span class="page-kicker">IDENTITY &amp; ACCESS</span><h1>用户管理</h1><p>超级管理员使用独立本地账号，协会用户首次登录后自动加入。此处管理角色、启停与登录会话。</p></div></div>
   <NAlert v-if="error && !show" type="error" class="spaced">{{ error }}</NAlert>
-  <div class="panel"><div class="panel-toolbar"><NInput v-model:value="search" placeholder="查找名称、邮箱或协会账号" style="max-width:360px"/><NButton @click="load">刷新列表</NButton></div><div style="overflow-x:auto"><table class="data-table"><thead><tr><th>名称 / 邮箱</th><th>登录方式</th><th>系统角色</th><th>状态</th><th>管理</th></tr></thead><tbody><tr v-for="u in visible" :key="u.id"><td><strong>{{ u.name }}</strong><small>{{ u.email }}</small></td><td>{{ u.localAdmin ? '独立本地账号' : u.associationAccount || '协会账号' }}<small>{{ u.localAdmin ? '无需绑定协会' : u.associationUserId ? `ID ${u.associationUserId}` : '旧账号待绑定' }}</small></td><td>{{ u.localAdmin ? '超级管理员' : u.role === 'ADMIN' ? '系统管理员' : '普通用户' }}</td><td><NTag :type="u.disabled ? 'default' : u.localAdmin || u.associationUserId ? 'success' : 'warning'">{{ u.disabled ? '已停用' : u.localAdmin || u.associationUserId ? '已启用' : '待绑定' }}</NTag></td><td><NSpace><NButton size="small" :disabled="busy" :aria-label="`编辑 ${u.name} 的权限`" @click="open(u)">编辑权限</NButton><NButton size="small" :disabled="busy" @click="revoke(u)">撤销会话</NButton></NSpace></td></tr></tbody></table></div></div>
+  <div class="panel">
+    <div class="panel-toolbar list-toolbar">
+      <NInput v-model:value="search" placeholder="查找名称、邮箱或协会账号" class="search-field" clearable />
+      <NButton @click="load">刷新列表</NButton>
+      <span class="list-count">共 <strong>{{ visible.length }}</strong> 位用户</span>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="data-table">
+        <thead><tr><th>名称 / 邮箱</th><th>登录方式</th><th>系统角色</th><th>状态</th><th>管理</th></tr></thead>
+        <tbody>
+          <tr v-for="u in visible" :key="u.id">
+            <td><strong>{{ u.name }}</strong><small class="mono">{{ u.email }}</small></td>
+            <td>{{ u.localAdmin ? '独立本地账号' : u.associationAccount || '协会账号' }}<small class="mono">{{ u.localAdmin ? '无需绑定协会' : u.associationUserId ? `ID ${u.associationUserId}` : '旧账号待绑定' }}</small></td>
+            <td><NTag size="small" :bordered="false" :type="u.role === 'ADMIN' ? 'info' : 'default'">{{ u.localAdmin ? '超级管理员' : u.role === 'ADMIN' ? '系统管理员' : '普通用户' }}</NTag></td>
+            <td><NTag size="small" :bordered="false" :type="u.disabled ? 'default' : u.localAdmin || u.associationUserId ? 'success' : 'warning'">{{ u.disabled ? '已停用' : u.localAdmin || u.associationUserId ? '已启用' : '待绑定' }}</NTag></td>
+            <td><NSpace><NButton size="small" secondary :disabled="busy" :aria-label="`编辑 ${u.name} 的权限`" @click="open(u)">编辑权限</NButton><NButton size="small" :disabled="busy" @click="revoke(u)">撤销会话</NButton></NSpace></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
   <NModal v-model:show="show" preset="card" title="编辑用户权限" style="width:min(500px,95vw)" :mask-closable="!busy" :closable="!busy" :close-on-esc="!busy">
     <NAlert v-if="error" type="error" class="spaced">{{ error }}。本地输入已保留，关闭后刷新列表可取得最新版本。</NAlert>
     <p>{{ edit?.name }} · {{ edit?.email }}</p>

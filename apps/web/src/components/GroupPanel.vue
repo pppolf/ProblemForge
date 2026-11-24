@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, watch } from 'vue';
-import { NButton, NInput, NInputNumber, NSelect, NFormItem, NAlert, NEmpty, useMessage } from 'naive-ui';
+import { NButton, NInput, NInputNumber, NSelect, NFormItem, NAlert, NEmpty, useMessage, useDialog } from 'naive-ui';
 import { api } from '../api';
 import { isJudgingData, type TestGroupsValue } from '@problemforge/contracts';
 const props=defineProps<{problemId:string;tests:any[];programs:any[];writable:boolean;interactive?:boolean}>();
 const emit=defineEmits<{dirty:[value:boolean];saved:[]}>();
-const message=useMessage(), groups=ref<TestGroupsValue['groups']>([]), version=ref(0), busy=ref(false), loaded=ref(false), saved=ref('[]');
+const message=useMessage(), dialog=useDialog(), groups=ref<TestGroupsValue['groups']>([]), version=ref(0), busy=ref(false), loaded=ref(false), saved=ref('[]');
 const dirty=computed(()=>loaded.value&&JSON.stringify(groups.value)!==saved.value);
 watch(dirty,value=>emit('dirty',value));
 const eligibleTests=computed(()=>props.tests.filter(t=>isJudgingData({interactionMode:props.interactive?'INTERACTIVE':'BATCH'},t)));
@@ -14,11 +14,17 @@ const hasUnavailableMembers=computed(()=>groups.value.some(group=>group.members.
 const validatorOptions=computed(()=>props.programs.filter(p=>p.enabled&&p.role==='EXTRA_VALIDATOR'&&p.validatorScope==='GROUPS').map(p=>({label:`${p.name} · v${p.version}`,value:p.id})));
 onMounted(async()=>{try{const r=await api(`/problems/${props.problemId}/test-groups`);version.value=r.version;groups.value=r.data.groups;saved.value=JSON.stringify(groups.value);loaded.value=true;}catch(e){message.error((e as Error).message);}});
 function add(){groups.value.push({id:`g${groups.value.length+1}`,points:0,aggregation:'ALL',members:[],dependencies:[],extraValidatorIds:[]});}
-function fromLabels(){
-  if(groups.value.length&&!window.confirm('用现有标签建立新的数据组草稿，替换当前组编辑内容？'))return;
+function applyFromLabels(){
   const map=new Map<string,TestGroupsValue['groups'][number]>();
   for(const t of eligibleTests.value){if(!map.has(t.groupName))map.set(t.groupName,{id:t.groupName,points:0,aggregation:'ALL',members:[],dependencies:[],extraValidatorIds:[]});map.get(t.groupName)!.members.push({testId:t.id,revisionId:t.currentRevision.id,weight:1});}
   groups.value=[...map.values()];
+}
+function fromLabels(){
+  if(groups.value.length){
+    dialog.warning({title:'按现有标签重建数据组草稿？',content:'将用当前测试数据的分组标签替换正在编辑的数据组草稿。保存后才会生效。',positiveText:'确认替换',negativeText:'取消',onPositiveClick:applyFromLabels});
+    return;
+  }
+  applyFromLabels();
 }
 function membersChanged(index:number,ids:string[]){const g=groups.value[index];g.members=ids.map(id=>g.members.find(m=>m.testId===id)??{testId:id,revisionId:props.tests.find(t=>t.id===id).currentRevision.id,weight:1});}
 function updateVersions(index:number){const g=groups.value[index];g.members=g.members.map(m=>({...m,revisionId:props.tests.find(t=>t.id===m.testId)?.currentRevision.id??m.revisionId}));}

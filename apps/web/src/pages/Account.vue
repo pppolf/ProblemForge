@@ -27,8 +27,10 @@ function revoke(all: boolean) { dialog.warning({ title: all ? '退出所有设�
   try { const result = await api('/auth/sessions/revoke', { method: 'POST', body: JSON.stringify({ all }) }); message.success(`已撤销 ${result.revoked} 个会话`); if (all) await signOut(); else await load(); } catch (e) { error.value = (e as Error).message; } finally { busy.value = false; }
 } }); }
 </script>
-<template><div class="page-heading"><div><h1>账户设置</h1><p>{{ session.user?.email }} · 管理出题工作台的登录设备。</p></div></div><NAlert v-if="error" type="error" class="spaced">{{ error }}</NAlert>
-  <div v-if="localAdmin" class="panel spaced" style="max-width:700px;padding:24px"><h2>独立超级管理员</h2><p>使用本地密码，无需绑定协会账号。修改密码后所有设备将退出登录。</p>
+<template>
+  <div class="page-heading"><div><span class="page-kicker">ACCOUNT &amp; SESSIONS</span><h1>账户设置</h1><p><span class="mono">{{ session.user?.email }}</span> · 管理出题工作台的安全凭据与活跃登录设备。</p></div></div>
+  <NAlert v-if="error" type="error" class="spaced">{{ error }}</NAlert>
+  <div v-if="localAdmin" class="panel spaced" style="max-width:720px;padding:22px 24px"><h2>独立超级管理员</h2><p class="muted">使用本地密码，无需绑定协会账号。修改密码后所有设备将退出登录。</p>
     <NForm @submit.prevent="changePassword">
       <NFormItem label="当前密码"><NInput v-model:value="currentPassword" type="password" autocomplete="current-password" :disabled="busy" show-password-on="click" /></NFormItem>
       <NFormItem label="新密码（12—256 个字符）"><NInput v-model:value="newPassword" type="password" autocomplete="new-password" :maxlength="256" :disabled="busy" show-password-on="click" /></NFormItem>
@@ -36,4 +38,6 @@ function revoke(all: boolean) { dialog.warning({ title: all ? '退出所有设�
       <NButton type="primary" attr-type="submit" :loading="busy" :disabled="!currentPassword || !newPassword || !confirmPassword">修改管理员密码</NButton>
     </NForm>
   </div>
-  <div v-else class="panel spaced" style="max-width:700px;padding:24px"><h2>协会账号</h2><p>账号资料和密码由协会官网统一管理。</p><a href="https://www.cwnupaa.com" target="_blank" rel="noopener noreferrer">前往协会官网管理账号</a></div><div class="panel" style="max-width:700px"><div class="panel-toolbar"><h2>有效会话（{{ sessions.length }}）</h2><NSpace><NButton :disabled="busy" @click="revoke(false)">退出其他设备</NButton><NButton :disabled="busy" @click="revoke(true)">退出所有设备</NButton></NSpace></div><table class="data-table"><thead><tr><th>登录时间</th><th>有效期至</th><th>标记</th></tr></thead><tbody><tr v-for="(s,i) in sessions" :key="i"><td>{{ new Date(s.createdAt).toLocaleString() }}</td><td>{{ new Date(s.expiresAt).toLocaleString() }}</td><td><NTag v-if="s.current" type="success">当前会话</NTag></td></tr></tbody></table></div></template>
+  <div v-else class="panel spaced" style="max-width:720px;padding:22px 24px"><h2>协会账号</h2><p class="muted">账号资料和密码由协会官网统一管理。</p><a href="https://www.cwnupaa.com" target="_blank" rel="noopener noreferrer" class="quick-link-pill">前往协会官网管理账号 ↗</a></div>
+  <div class="panel" style="max-width:720px"><div class="panel-toolbar"><h2>有效会话（{{ sessions.length }}）</h2><NSpace><NButton size="small" :disabled="busy" @click="revoke(false)">退出其他设备</NButton><NButton size="small" type="error" secondary :disabled="busy" @click="revoke(true)">退出所有设备</NButton></NSpace></div><table class="data-table"><thead><tr><th>登录时间</th><th>有效期至</th><th>标记</th></tr></thead><tbody><tr v-for="(s,i) in sessions" :key="i"><td class="mono-num">{{ new Date(s.createdAt).toLocaleString('zh-CN') }}</td><td class="mono-num">{{ new Date(s.expiresAt).toLocaleString('zh-CN') }}</td><td><NTag v-if="s.current" size="small" :bordered="false" type="success">当前会话</NTag></td></tr></tbody></table></div>
+</template>

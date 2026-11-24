@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { NAlert } from 'naive-ui';
 </script>
-<template><div class="page-heading"><div><h1>团队使用指引</h1><p>从私有草稿到验收冻结，再到整场出版；每个步骤都保留自己的版本和结果。</p></div><RouterLink :to="{path:'/problems',query:{q:'分组'}}">查找现有分组示例</RouterLink></div>
+<template><div class="page-heading"><div><span class="page-kicker">TEAM PLAYBOOK</span><h1>团队使用指引</h1><p>从私有草稿到隔离验收冻结，再到整场出版；每个步骤都保留独立版本与可追踪结果。</p></div><RouterLink :to="{path:'/problems',query:{q:'分组'}}" class="quick-link-pill">查找现有分组示例</RouterLink></div>
 <NAlert type="info" class="spaced">保存失败或冲突时，本地输入仍保留。先点击「下载本地草稿」，再重新加载服务端版本对照合并。切换题面、文档题解、Beamer 或语言不会删除另一份稿件。刷新前请保存或导出未保存内容。</NAlert>
 <div class="guide-grid"><section class="panel"><h2>出题人</h2><ol><li>在题目页创建或导入私有题目，填好名称、标签和负责人。</li><li>在「题面与双题解出版」选择语言、稿件及管理员发布的模板。三种稿件分别保存，停用格式仍保留正文。</li><li>在「程序、数据与验收」保存主标程、校验器及其他程序，准备测试、生成计划和分组；先保存配置再运行对应任务。</li><li>检查验收矩阵、失败日志与预期判定。修改程序或数据后旧结果可能过期，应重新验收。</li><li>可保存当前工作副本为修订，由负责人检查验收并直接冻结；加入比赛后自动跟随最新已保存内容。</li></ol></section>
 <section class="panel"><h2>审题人</h2><ol><li>进入「组织、修订与协作 → 修订与冻结」，明确选择本次审阅的修订。</li><li>查看差异、题面、题解、固定程序和验收报告，在该修订上留下评论。</li><li>检查预期错误解、边界数据、判题语义及题解一致性，在修订上留下修改建议。</li><li>内容改变后需保存新修订；判题依赖改变后需重新验收。</li></ol></section>

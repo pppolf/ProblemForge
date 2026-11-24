@@ -83,15 +83,15 @@ async function revoke(id: string) { await act(async () => { await api(`/releases
     <div class="p4-split">
       <aside class="p4-list"><NButton v-for="e in exports" :key="e.id" :type="selected?.id === e.id ? 'primary' : 'default'" @click="selected = e">{{ exportLabel(e) }}<br />{{ new Date(e.createdAt).toLocaleString('zh-CN') }}</NButton></aside>
       <section v-if="selected" class="p4-detail">
-        <div class="p4-toolbar"><h3>{{ exportLabel(selected) }}</h3><a class="download-link" :href="`/api/exports/${selected.id}/file`">{{ selected.format === 'NOVAJUDGE_CONTEST' ? '下载 NovaJudge 比赛题包' : isNovaProblem(selected) ? '下载 NovaJudge 题目包' : isHydroProblem(selected) ? '下载 Hydro 题目包' : isDataExport(selected) ? '下载测试数据 ZIP' : '下载私有题包' }}</a></div>
+        <div class="p4-toolbar"><h3>{{ exportLabel(selected) }}</h3><a class="quick-link-pill download-link" :href="`/api/exports/${selected.id}/file`">{{ selected.format === 'NOVAJUDGE_CONTEST' ? '下载 NovaJudge 比赛题包' : isNovaProblem(selected) ? '下载 NovaJudge 题目包' : isHydroProblem(selected) ? '下载 Hydro 题目包' : isDataExport(selected) ? '下载测试数据 ZIP' : '下载私有题包' }} ↓</a></div>
         <NAlert v-if="blocked" type="warning">此包有待处理的判题设置，请按下方报告调整后再上传使用。</NAlert>
-        <p v-if="selected.fileName" class="export-hash">{{ selected.fileName }}</p><p>{{ selected.bytes.toLocaleString() }} 字节 · SHA-256<br /><code class="export-hash">{{ selected.hash }}</code></p>
-        <div v-for="(r, i) in selected.report" :key="i" class="p4-comment"><NTag :type="r.status === 'BLOCKED' ? 'error' : r.status === 'WARNING' ? 'warning' : 'success'">{{ r.status === 'BLOCKED' ? '待处理' : r.status === 'WARNING' ? '注意' : '已映射' }}</NTag> {{ r.area }}<p>{{ r.message }}</p></div>
+        <p v-if="selected.fileName" class="export-hash mono">{{ selected.fileName }}</p><p class="muted"><span class="mono-num">{{ selected.bytes.toLocaleString() }}</span> 字节 · SHA-256<br /><code class="export-hash">{{ selected.hash }}</code></p>
+        <div v-for="(r, i) in selected.report" :key="i" class="p4-comment"><NTag size="small" :bordered="false" :type="r.status === 'BLOCKED' ? 'error' : r.status === 'WARNING' ? 'warning' : 'success'">{{ r.status === 'BLOCKED' ? '待处理' : r.status === 'WARNING' ? '注意' : '已映射' }}</NTag> <strong style="margin-left: 6px">{{ r.area }}</strong><p>{{ r.message }}</p></div>
         <NButton v-if="owner && !isDataExport(selected) && !isHydroProblem(selected) && !isNovaProblem(selected)" :disabled="blocked || busy" @click="publish">公开发布此用途</NButton>
       </section>
     </div>
     <h3>已发布题包</h3>
-    <div v-for="r in releases.filter(r => r.exportId)" :key="r.id" class="publication-row"><NTag>{{ purposes.find(p => p.value === r.purpose)?.label }}</NTag><span>{{ r.revokedAt ? '已撤回' : '已发布' }}</span><a v-if="!r.revokedAt" :href="`/api/released/${r.token}/file`">下载</a><NButton v-if="owner && !r.revokedAt" size="small" @click="revoke(r.id)">撤回</NButton></div>
+    <div v-for="r in releases.filter(r => r.exportId)" :key="r.id" class="publication-row"><span><NTag size="small" :bordered="false" type="info">{{ purposes.find(p => p.value === r.purpose)?.label }}</NTag> <NTag size="small" :bordered="false" :type="r.revokedAt ? 'default' : 'success'" style="margin-left: 6px">{{ r.revokedAt ? '已撤回' : '已发布' }}</NTag></span><div class="toolbar-left"><a v-if="!r.revokedAt" class="quick-link-pill" :href="`/api/released/${r.token}/file`">下载</a><NButton v-if="owner && !r.revokedAt" size="small" @click="revoke(r.id)">撤回</NButton></div></div>
   </div>
 </template>
 <style scoped>

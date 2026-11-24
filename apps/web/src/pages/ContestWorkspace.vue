@@ -11,7 +11,7 @@ import { snapshot, mergeSaved, downloadDraft } from '../draft-state';
 import { rememberedChoice, useUnsavedGuard } from '../editor-navigation';
 const route=useRoute(),message=useMessage(),dialog=useDialog(),contest=ref<any>(),data=ref<ContestDataValue>(),dirty=ref(false),busy=ref(false),tab=rememberedChoice('contest-tab','arrange',['arrange','materials','members','packages']),saveError=ref('');
 const problems=ref<any[]>([]),templates=ref<any[]>([]),problemId=ref<string|null>(null),syncError=ref('');
-const revisionId=ref('LATEST'),bundles=ref<any[]>([]),selectedBuild=ref<any>(),releases=ref<any[]>([]),buildTab=ref('preview'),subset=ref<string[]>([]),useSubset=ref(false),missing=ref<any[]>([]);
+const revisionId=ref('LATEST'),bundles=ref<any[]>([]),selectedBuild=ref<any>(),autoPreviewBuildId=ref(''),releases=ref<any[]>([]),buildTab=ref('preview'),subset=ref<string[]>([]),useSubset=ref(false),missing=ref<any[]>([]);
 const writable=computed(()=>['OWNER','EDITOR'].includes(contest.value?.role));
 const chosenFrozen=computed(()=>contest.value?.revisions.find((r:any)=>r.id===revisionId.value));
 const selectedItems=computed(()=>contest.value?.completeness.items??[]);
@@ -35,16 +35,22 @@ async function load(){contest.value=await api(`/contests/${route.params.id}`);da
 let refreshing=false,refreshTimer:ReturnType<typeof setInterval>|undefined;
 async function refreshSources(){const updated:any=await api(`/contests/${route.params.id}`);if(!contest.value)return;contest.value.completeness=updated.completeness;contest.value.revisions=updated.revisions;}
 async function refreshCurrent(){if(!contest.value||busy.value||refreshing||document.hidden)return;refreshing=true;try{await refreshSources();await results();syncError.value='';}catch(e){syncError.value=(e as Error).message;}finally{refreshing=false;}}
-onMounted(()=>{void act(async()=>{await load();problems.value=await api('/problems');templates.value=await api('/templates');});window.addEventListener('focus',refreshCurrent);refreshTimer=setInterval(refreshCurrent,10000);});
-onBeforeUnmount(()=>{window.removeEventListener('focus',refreshCurrent);clearInterval(refreshTimer);});
+function onContestKeydown(event: KeyboardEvent) {
+  if (tab.value === 'arrange' && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+    event.preventDefault();
+    if (writable.value && dirty.value && !introductionTooLong.value) void save();
+  }
+}
+onMounted(()=>{void act(async()=>{await load();problems.value=await api('/problems');templates.value=await api('/templates');});window.addEventListener('focus',refreshCurrent);window.addEventListener('keydown',onContestKeydown);refreshTimer=setInterval(refreshCurrent,10000);});
+onBeforeUnmount(()=>{window.removeEventListener('focus',refreshCurrent);window.removeEventListener('keydown',onContestKeydown);clearInterval(refreshTimer);});
 useTaskEvents(()=>results().catch(e=>message.error(e.message)),{contestId:String(route.params.id)});
 function add(){if(!problemId.value||!data.value)return;data.value.items.push({problemId:problemId.value,code:String.fromCharCode(65+data.value.items.length),lectureOrder:data.value.items.length+1,expectedDifficulty:''});changed();problemId.value=null;}
 function move(i:number,delta:number){const items=data.value!.items;[items[i],items[i+delta]]=[items[i+delta],items[i]];changed();}
 async function save(){if(busy.value||!data.value||introductionTooLong.value)return;busy.value=true;saveError.value='';const submitted=snapshot(data.value);try{const saved=await api(`/contests/${route.params.id}`,{method:'PUT',body:JSON.stringify({expectedVersion:contest.value.version,data:submitted})});data.value=mergeSaved(data.value,submitted,saved.data);dirty.value=JSON.stringify(data.value)!==JSON.stringify(saved.data);Object.assign(contest.value,saved);const updated=await api(`/contests/${route.params.id}`);contest.value.completeness=updated.completeness;contest.value.revisions=updated.revisions;message.success(dirty.value?'已保存提交时的编排；继续输入的修改仍未保存':'编排已保存；既有冻结清单保留');}catch(e){saveError.value=(e as Error).message;message.error(saveError.value);}finally{busy.value=false;}}
 async function freeze(){if(dirty.value||busy.value)return;await act(async()=>{const r=await api(`/contests/${route.params.id}/freeze`,{method:'POST',body:JSON.stringify({expectedVersion:contest.value.version})});revisionId.value='LATEST';await refreshSources();tab.value='materials';message.success(`已冻结比赛版本 #${r.number}`);});}
-async function build(selectedKinds:DocumentKind[]){if(dirty.value||busy.value)return;missing.value=[];await act(async()=>{const r=await api(`/contests/${route.params.id}/builds`,{method:'POST',body:JSON.stringify({...(revisionId.value==='LATEST'?{expectedVersion:contest.value.version}:{revisionId:revisionId.value}),kinds:selectedKinds,...(useSubset.value?{subset:subset.value}:{})})});await refreshSources();await results();await inspect(r.builds[0].id);buildTab.value='log';});}
-async function inspect(id:string){const b=await api(`/builds/${id}`);const row=bundles.value.flatMap(b=>b.builds).find(b=>b.id===id);selectedBuild.value={...b,stale:row?.stale??false};}
-async function taskAction(action:'cancel'|'retry'){await act(async()=>{const r=await api(`/builds/${selectedBuild.value.id}/${action}`,{method:'POST'});await results();if(action==='retry')await inspect(r.id);});}
+async function build(selectedKinds:DocumentKind[]){if(dirty.value||busy.value)return;missing.value=[];await act(async()=>{const r=await api(`/contests/${route.params.id}/builds`,{method:'POST',body:JSON.stringify({...(revisionId.value==='LATEST'?{expectedVersion:contest.value.version}:{revisionId:revisionId.value}),kinds:selectedKinds,...(useSubset.value?{subset:subset.value}:{})})});autoPreviewBuildId.value=r.builds[0].id;buildTab.value='log';await refreshSources();await results();await inspect(r.builds[0].id);});}
+async function inspect(id:string){const b=await api(`/builds/${id}`);const row=bundles.value.flatMap(b=>b.builds).find(b=>b.id===id);selectedBuild.value={...b,stale:row?.stale??false};if(autoPreviewBuildId.value===id){if(b.state==='SUCCEEDED'&&b.artifacts?.length){buildTab.value='preview';autoPreviewBuildId.value='';}else if(['FAILED','CANCELED'].includes(b.state)){buildTab.value='log';autoPreviewBuildId.value='';}}}
+async function taskAction(action:'cancel'|'retry'){await act(async()=>{const r=await api(`/builds/${selectedBuild.value.id}/${action}`,{method:'POST'});if(action==='retry')autoPreviewBuildId.value=r.id;await results();if(action==='retry')await inspect(r.id);});}
 function publish(){dialog.warning({title:`公开发布${kindLabels[selectedBuild.value.kind as DocumentKind]}`,content:'只发布选中的 PDF。若为显式子集，文件仅包含选中的题目；其他资料保留各自的发布状态。',positiveText:'发布此 PDF',negativeText:'返回',onPositiveClick:()=>act(async()=>{await api(`/contests/${route.params.id}/releases`,{method:'POST',body:JSON.stringify({buildId:selectedBuild.value.id})});await results();})});}
 async function revoke(id:string){await act(async()=>{await api(`/releases/${id}/revoke`,{method:'POST'});await results();});}
 function templateOptions(kind:DocumentKind){return templates.value.filter(t=>t.template.kind===kind&&t.contestCapable&&t.languages.includes(data.value!.language)).map(t=>({label:`${t.template.name} · v${t.number}`,value:t.id}));}

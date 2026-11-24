@@ -1,17 +1,19 @@
 <script setup lang="ts">
-import{ref,onMounted,computed}from'vue';import{useRouter}from'vue-router';
+import{ref,onMounted,computed,watch}from'vue';import{useRouter}from'vue-router';
 import{NButton,NInput,NSelect,NSwitch,NTag,NAlert,NFormItem,NTabs,NTab,NEmpty,useMessage,useDialog}from'naive-ui';
 import{api}from'../api';import MemberPanel from'./MemberPanel.vue';
 import PackagePanel from'./PackagePanel.vue';
 const props=defineProps<{problem:any;hasUnsaved:boolean;language?:string}>();const emit=defineEmits<{dirty:[boolean];metadata:[any];restored:[]}>();
-const message=useMessage(),dialog=useDialog(),router=useRouter(),tab=ref('overview');const meta=ref<any>({}),tagText=ref(''),directory=ref<any>({users:[]}),revisions=ref<any[]>([]),working=ref<any>(),selected=ref<any>(),diff=ref<any[]>([]),label=ref(''),comment=ref(''),anchor=ref(''),busy=ref(false);
+const message=useMessage(),dialog=useDialog(),router=useRouter(),tab=ref('overview');const meta=ref<any>({}),metaDirty=ref(false),tagText=ref(''),directory=ref<any>({users:[]}),revisions=ref<any[]>([]),working=ref<any>(),selected=ref<any>(),diff=ref<any[]>([]),label=ref(''),comment=ref(''),anchor=ref(''),busy=ref(false);
 const canEdit=computed(()=>['OWNER','EDITOR'].includes(props.problem.role)&&!props.problem.archived);
 const stateLabels:Record<string,string>={DRAFT:'草稿修订',FROZEN:'已冻结'};
-onMounted(async()=>{meta.value={expectedVersion:props.problem.version,title:props.problem.title,notes:props.problem.notes,responsibleId:props.problem.responsibleId,archived:props.problem.archived};tagText.value=props.problem.tags.join(', ');directory.value=await api('/directory');await refresh();});
-function changed(){emit('dirty',true);}
+function syncMetaFromProps(){meta.value={expectedVersion:props.problem.version,title:props.problem.title,notes:props.problem.notes,responsibleId:props.problem.responsibleId,archived:props.problem.archived};tagText.value=props.problem.tags.join(', ');metaDirty.value=false;}
+onMounted(async()=>{syncMetaFromProps();directory.value=await api('/directory');await refresh();});
+watch(()=>props.problem.version,()=>{if(!metaDirty.value)syncMetaFromProps();});
+function changed(){metaDirty.value=true;emit('dirty',true);}
 async function act(action:()=>Promise<void>){busy.value=true;try{await action();}catch(e){message.error((e as Error).message);}finally{busy.value=false;}}
 async function refresh(){try{working.value=await api(`/problems/${props.problem.id}/working-revision`);revisions.value=await api(`/problems/${props.problem.id}/revisions`);if(selected.value)await inspect(selected.value.id);}catch(e){message.error((e as Error).message);}}
-async function saveMeta(){await act(async()=>{const result=await api(`/problems/${props.problem.id}/meta`,{method:'PUT',body:JSON.stringify({...meta.value,tags:tagText.value.split(/[,，]+/).map(v=>v.trim()).filter(Boolean)})});meta.value.expectedVersion=result.version;emit('metadata',result);emit('dirty',false);await refresh();message.success('题目元信息已保存');});}
+async function saveMeta(){await act(async()=>{const result=await api(`/problems/${props.problem.id}/meta`,{method:'PUT',body:JSON.stringify({...meta.value,tags:tagText.value.split(/[,，]+/).map(v=>v.trim()).filter(Boolean)})});meta.value.expectedVersion=result.version;metaDirty.value=false;emit('metadata',result);emit('dirty',false);await refresh();message.success('题目元信息已保存');});}
 async function copy(){await act(async()=>{const p=await api(`/problems/${props.problem.id}/copy`,{method:'POST',body:JSON.stringify({title:props.problem.title+'（副本）'})});await router.push(`/problems/${p.id}`);});}
 async function createRevision(){await act(async()=>{const r=await api(`/problems/${props.problem.id}/revisions`,{method:'POST',body:JSON.stringify({expectedHash:working.value.hash,label:label.value})});label.value='';await refresh();await inspect(r.id);message.success('不可变修订已保存');});}
 async function inspect(id:string){selected.value=await api(`/revisions/${id}`);diff.value=await api(`/revisions/${id}/diff`);}

@@ -17,6 +17,6 @@ function retry() { if (navigation.failedPath) window.location.assign(navigation.
 
 <style scoped>
 .navigation-feedback { position: fixed; top: 16px; right: 24px; z-index: 2000; max-width: min(430px, calc(100vw - 32px)); }
-.navigation-loading { padding: 10px 16px; border: 1px solid var(--line); border-radius: 5px; background: white; color: var(--text-secondary); font-size: 13px; box-shadow: 0 2px 8px #25364b12; }
+.navigation-loading { padding: 9px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text-secondary); font-size: 13px; box-shadow: var(--shadow-md); }
 .navigation-actions { margin-top: 10px; }
 </style>

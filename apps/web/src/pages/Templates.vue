@@ -70,7 +70,26 @@ function changeStyle() { styleEdited.value = true; dirty.value = true; }
 const editable = computed(() => version.value && ['DRAFT', 'VALIDATED'].includes(version.value.state));
 const selectedTemplate = computed(() => templates.value.find(t => t.id === templateId.value));
 async function load() { loading.value = true; loadError.value = ''; try { templates.value = await api('/admin/templates'); if (version.value) { const updated = templates.value.flatMap(t => t.versions).find(v => v.id === version.value.id); if (updated && !dirty.value) version.value = updated; } } catch (e) { loadError.value = (e as Error).message; } finally { loading.value = false; } }
-function choose(t: any, v: any, internal=false) { if(workBusy.value&&!internal){message.info('请等待当前文件操作完成再切换版本');return;} if (dirty.value && !internal && !window.confirm('放弃尚未保存的模板修改？可先下载本地草稿。')) return; if(templateCategory.value !== 'ALL' && templateCategory.value !== t.kind) templateCategory.value = t.kind; templateId.value = t.id; version.value = v; files.value = { ...v.files }; styleConfig.value = snapshot(v.styleConfig ?? { marginMm: t.kind === 'STATEMENT' ? 20 : 24, cjkFont: t.kind === 'EDITORIAL_BEAMER' ? 'Noto Sans CJK SC' : 'Noto Serif CJK SC', palette: 'RED' }); styleEdited.value = false; dirty.value = false; saveError.value=''; lastVersion.value=v.id; resetPreview(); if (v.validationBuildId) { watchedBuildId.value = v.validationBuildId; void refreshBuild(); } }
+function applyChoose(t: any, v: any) {
+  if (templateCategory.value !== 'ALL' && templateCategory.value !== t.kind) templateCategory.value = t.kind;
+  templateId.value = t.id; version.value = v; files.value = { ...v.files };
+  styleConfig.value = snapshot(v.styleConfig ?? { marginMm: t.kind === 'STATEMENT' ? 20 : 24, cjkFont: t.kind === 'EDITORIAL_BEAMER' ? 'Noto Sans CJK SC' : 'Noto Serif CJK SC', palette: 'RED' });
+  styleEdited.value = false; dirty.value = false; saveError.value = ''; lastVersion.value = v.id; resetPreview();
+  if (v.validationBuildId) { watchedBuildId.value = v.validationBuildId; void refreshBuild(); }
+}
+function choose(t: any, v: any, internal = false) {
+  if (workBusy.value && !internal) { message.info('请等待当前文件操作完成再切换版本'); return; }
+  if (dirty.value && !internal) {
+    dialog.warning({
+      title: '放弃尚未保存的模板修改？',
+      content: '当前模板草稿还有未保存修改，切换版本后将丢失。可先点击「下载本地草稿」备份。',
+      positiveText: '放弃并切换', negativeText: '留在当前版本',
+      onPositiveClick: () => applyChoose(t, v),
+    });
+    return;
+  }
+  applyChoose(t, v);
+}
 async function inspect(id: string) {
   const selectedId = version.value?.id, request = ++previewRequest;
   const current = () => request === previewRequest && version.value?.id === selectedId && watchedBuildId.value === id;
@@ -115,7 +134,22 @@ async function validate() {
 }
 async function publish() { dialog.warning({ title: '发布管理员模板', content: '确认已检查此版本的真实 PDF 预览。发布后源码不可修改，已有题目绑定保持原版本。', positiveText: '发布此版本', negativeText: '返回', onPositiveClick: async () => { try { await api(`/admin/template-versions/${version.value.id}/publish`, { method: 'POST', body: JSON.stringify({ reviewedBuildId: build.value!.id }) }); await load(); message.success('模板已发布，可供新绑定选择'); } catch (e) { message.error((e as Error).message); } } }); }
 async function archive() { await api(`/admin/template-versions/${version.value.id}/archive`, { method: 'POST' }); await load(); }
-function revoke() { let reason = ''; dialog.warning({ title: '撤回模板版本', content: () => '撤回将阻止该版本的新构建。请输入原因：', positiveText: '撤回', negativeText: '返回', onPositiveClick: async () => { reason = window.prompt('撤回原因') ?? ''; if (!reason.trim()) return false; await api(`/admin/template-versions/${version.value.id}/revoke`, { method: 'POST', body: JSON.stringify({ reason }) }); await load(); } }); }
+const revokeOpen = ref(false), revokeReason = ref(''), revokeError = ref('');
+function revoke() {
+  if (workBusy.value || !version.value) return;
+  revokeReason.value = ''; revokeError.value = ''; revokeOpen.value = true;
+}
+async function submitRevoke() {
+  if (workBusy.value || !version.value || !revokeReason.value.trim()) return;
+  busy.value = true; revokeError.value = '';
+  try {
+    await api(`/admin/template-versions/${version.value.id}/revoke`, { method: 'POST', body: JSON.stringify({ reason: revokeReason.value.trim() }) });
+    revokeOpen.value = false;
+    await load();
+    message.success('模板版本已撤回');
+  } catch (e) { revokeError.value = (e as Error).message; }
+  finally { busy.value = false; }
+}
 async function upload(event: Event) {
   const input = event.target as HTMLInputElement, file = input.files?.[0]; input.value = '';
   if (!file || workBusy.value || !editable.value) return;
@@ -125,14 +159,26 @@ async function upload(event: Event) {
     const parsed = JSON.parse(await file.text()), imported = parsed.files ?? parsed.data?.files ?? parsed;
     checkTemplateFiles(imported);
     if (version.value?.id !== selectedId || !editable.value) return;
-    if (dirty.value && !window.confirm('用模板包替换当前未保存的文件？')) return;
-    files.value = imported; dirty.value = true; previewed.value = false;
-    message.info('模板包已载入工作区，保存草稿后生效');
+    const applyImported = () => {
+      if (version.value?.id !== selectedId || !editable.value) return;
+      files.value = imported; dirty.value = true; previewed.value = false;
+      message.info('模板包已载入工作区，保存草稿后生效');
+    };
+    if (dirty.value) {
+      dialog.warning({
+        title: '用模板包替换未保存的文件？',
+        content: '当前工作区有尚未保存的修改。导入 JSON 模板包将覆盖当前草稿内容。',
+        positiveText: '确认替换', negativeText: '取消',
+        onPositiveClick: applyImported,
+      });
+      return;
+    }
+    applyImported();
   } catch (e) { message.error((e as Error).message); }
   finally { busy.value = false; }
 }
 </script>
-<template><div class="page-heading"><div><h1>管理员模板中心</h1><p>题面、文档题解和 Beamer 模板独立版本化</p></div><div class="template-page-actions"><NButton :aria-expanded="directoryOpen" @click="directoryOpen = !directoryOpen">{{ directoryOpen ? '收起模板目录' : '模板目录' }}</NButton><NButton type="primary" :disabled="workBusy" @click="openCreate">新建模板</NButton></div></div><NAlert v-if="loadError" type="error" class="spaced">模板列表加载失败：{{ loadError }} <NButton size="small" :loading="loading" @click="load">重试</NButton></NAlert>
+<template><div class="page-heading"><div><span class="page-kicker">LATEX TEMPLATE CENTER</span><h1>管理员模板中心</h1><p>题面、文档题解与 Beamer 模板独立版本化管理，支持多文件 IDE 编辑、样稿验证与不可变发布。</p></div><div class="template-page-actions"><NButton :aria-expanded="directoryOpen" @click="directoryOpen = !directoryOpen">{{ directoryOpen ? '收起模板目录' : '展开模板目录' }}</NButton><NButton type="primary" :disabled="workBusy" @click="openCreate">新建模板</NButton></div></div><NAlert v-if="loadError" type="error" class="spaced">模板列表加载失败：{{ loadError }} <NButton size="small" :loading="loading" @click="load">重试</NButton></NAlert>
 <div v-if="directoryOpen" class="panel template-categories" role="group" aria-label="按模板类型筛选">
   <button v-for="category in categoryOptions" :key="category.value" type="button" :class="['template-category-button', { active: templateCategory === category.value }]" :aria-pressed="templateCategory === category.value" @click="templateCategory = category.value">
     <span>{{ category.label }}</span><span class="template-category-count">{{ category.count }}</span>
@@ -202,5 +248,13 @@ async function upload(event: Event) {
     <NFormItem :label="templateAction === 'rename' ? '模板名称' : '新模板名称'"><NInput v-model:value="actionName" :input-props="{ 'aria-label': templateAction === 'rename' ? '模板名称' : '新模板名称' }" :maxlength="120" show-count :disabled="busy" placeholder="请输入模板名称"/></NFormItem>
     <NAlert v-if="actionError" type="error" class="spaced">{{ actionError }}</NAlert>
     <div class="template-action-buttons"><NButton :disabled="busy" @click="closeAction">取消</NButton><NButton attr-type="submit" type="primary" :loading="busy" :disabled="!actionAllowed">{{ templateAction === 'rename' ? '保存名称' : '创建副本' }}</NButton></div>
+  </form>
+</NModal>
+<NModal :show="revokeOpen" preset="card" title="撤回模板版本" class="template-action-modal" :closable="!busy" :mask-closable="!busy" :close-on-esc="!busy" @update:show="v => { if (!busy) revokeOpen = v; }">
+  <p class="muted" style="margin-top: 0">撤回将立即阻止该版本的新构建，历史已生成的 PDF 保留。请填写撤回原因：</p>
+  <form @submit.prevent="submitRevoke">
+    <NFormItem label="撤回原因"><NInput v-model:value="revokeReason" type="textarea" :disabled="busy" :maxlength="240" show-count placeholder="例如：发现页眉排版缺陷，请改用新版模板" /></NFormItem>
+    <NAlert v-if="revokeError" type="error" class="spaced">{{ revokeError }}</NAlert>
+    <div class="template-action-buttons"><NButton :disabled="busy" @click="revokeOpen = false">取消</NButton><NButton attr-type="submit" type="error" :loading="busy" :disabled="!revokeReason.trim()">确认撤回</NButton></div>
   </form>
 </NModal></template>
