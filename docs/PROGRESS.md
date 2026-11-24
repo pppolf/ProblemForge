@@ -1215,3 +1215,8 @@ SandboxClient 的 HTTP 错误增加方法与端点，错误响应仅读取最多
 - **判题设置保存失败定位与修复：**主目录原 `pnpm dev` 中 API 与两个 Worker 以非 watch 的 `tsx` 运行，此前未重启导致旧 API 进程仍持有旧版 TypeBox `JudgeSettings` 契约，拒绝前端提交的 `COMMUNICATION` 字段。另在 `JudgeWorkspace.vue` 的 `saveSettings()` 提交前清理非当前执行模式的 `interaction` / `communication` 子对象并回填服务端返回值。确认零活跃任务后重启原主目录 `pnpm dev`（保持 `5180` / `3100` 及原库不变），API、Web、Judge Worker、TeX Worker 均已加载最新代码且健康在线。
 - **交互 / 通信题面正文格式模板调整：**将 `StatementFormatPicker.vue` 按钮与弹窗统一更名为「交互 / 通信格式」，从 `statement-formats.ts` 移除具体示例题「多项式机器（Easy Version）」，仅保留「通用交互题格式」与「通用通信题格式（first / second）」两套通用模板，并按用户要求去掉两套模板开头的 `\Description` 命令。
 - **定向验证：**`pnpm check web`、`pnpm build:web` 及两份题面模板的 `validateBody` 内容策略校验均通过；原 5180/3100 健康检查通过。本地提交，不 push。
+
+### 补充修正：Hydro 通信包 `argv[2]=/dev/null` 与脚本权限加固（2026-11-24）
+
+- **问题与修复：**Hydro `interactive` 模式会向 `interactor` 传入 `/dev/null` 作为 `argv[2]`，此前合成的 `interactor.cpp` 直接复用 `argv[2]` 读取 `tout` 会导致第 2 轮输入丢失；现改为强制将第 1 轮 `tout` 重定向至本地常规文件 `.pf_pass1_tout.bin` 后打包写入 `nextpass.in`，并在每轮发送长度帧后显式关闭 `stdout`。同时在 `phase-runner.py` 中对 `<= 60 KiB` 输入直接沿用内存 `os.pipe()`（仅大输入落盘 `.phase-stdin`）并输出 stderr 诊断；`writeArchive` 对 `.sh` 成员设置 `0o100755` 可执行权限位。
+- **验证与服务：**`pnpm check problem-format`、`scripts/communication.test.ts`（5/5）及真实 Linux 沙箱验证（将 Hydro 模拟 harness 的 `argv[2]` 改为 `/dev/null` 后 6 项 Hydro 用例全部通过）均绿灯；已重启本机 `pnpm dev` 加载最新导出逻辑。本地提交，不 push。

@@ -42,5 +42,5 @@ export async function writeArchive(files:Map<string,Buffer>,options:ArchiveOptio
   const zip=new Writer(),chunks:Buffer[]=[];let compressed=0;
   const output=new Promise<Buffer>((resolve,reject)=>{zip.outputStream.on('data',(chunk:Buffer)=>{compressed+=chunk.length;if(compressed>limits.compressed){(zip.outputStream as Readable).destroy(new PackageError(`导出压缩包超过 ${limits.compressed/1_000_000} MB`));return;}chunks.push(chunk);});zip.outputStream.on('error',reject);zip.on('error',reject);zip.outputStream.on('end',()=>resolve(Buffer.concat(chunks)));});
   for(const path of directories)zip.addEmptyDirectory(path+'/',{mtime:new Date('2000-01-01T00:00:00Z'),mode:0o40755});
-  for(const [path,bytes]of files)zip.addBuffer(bytes,path,{mtime:new Date('2000-01-01T00:00:00Z'),mode:0o100644});zip.end();return output;
+  for(const [path,bytes]of files)zip.addBuffer(bytes,path,{mtime:new Date('2000-01-01T00:00:00Z'),mode:path.endsWith('.sh')?0o100755:0o100644});zip.end();return output;
 }

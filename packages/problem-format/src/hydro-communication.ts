@@ -39,7 +39,19 @@ def compile_program():
     return 0
 
 
-def read_exact(stream, size, dest):
+def read_exact_bytes(stream, size):
+    chunks = []
+    remaining = size
+    while remaining > 0:
+        chunk = stream.read(min(remaining, 65536))
+        if not chunk:
+            return None
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
+
+
+def read_exact_to_file(stream, size, dest):
     remaining = size
     while remaining > 0:
         chunk = stream.read(min(remaining, 65536))
@@ -53,21 +65,34 @@ def read_exact(stream, size, dest):
 def run_stage():
     header = sys.stdin.buffer.readline(128)
     if not header.startswith(b"__PF_PHASE_LEN__ ") or not header.endswith(b"\\n"):
+        sys.stderr.write(f"phase-runner: bad header {header[:64]!r}\\n")
         return 1
     try:
         size = int(header[len(b"__PF_PHASE_LEN__ "):].strip())
     except ValueError:
+        sys.stderr.write("phase-runner: invalid frame length\\n")
         return 1
     if size < 0 or size > MAX_FRAME_BYTES:
+        sys.stderr.write(f"phase-runner: frame size out of range: {size}\\n")
         return 1
 
-    with open(".phase-stdin", "wb") as temp_in:
-        if not read_exact(sys.stdin.buffer, size, temp_in):
+    use_pipe = size <= 60000
+    payload_bytes = None
+    if use_pipe:
+        payload_bytes = read_exact_bytes(sys.stdin.buffer, size)
+        if payload_bytes is None:
+            sys.stderr.write("phase-runner: truncated frame\\n")
             return 1
+    else:
+        with open(".phase-stdin", "wb") as temp_in:
+            if not read_exact_to_file(sys.stdin.buffer, size, temp_in):
+                sys.stderr.write("phase-runner: truncated large frame\\n")
+                return 1
 
     targets = {entry["target"] for entry in languages.values()}
     bundles = [p for p in targets if os.path.isfile(p)]
     if len(bundles) != 1:
+        sys.stderr.write(f"phase-runner: expected 1 build bundle, found {bundles!r}\\n")
         return 1
     with open(bundles[0], "rb") as bundle:
         key = bundle.readline(100).rstrip(b"\\n").decode("ascii")
@@ -80,9 +105,17 @@ def run_stage():
     if bundles[0] != payload:
         os.unlink(bundles[0])
 
-    fd = os.open(".phase-stdin", os.O_RDONLY)
-    os.dup2(fd, 0)
-    os.close(fd)
+    if use_pipe:
+        read_fd, write_fd = os.pipe()
+        if payload_bytes:
+            os.write(write_fd, payload_bytes)
+        os.close(write_fd)
+        os.dup2(read_fd, 0)
+        os.close(read_fd)
+    else:
+        fd = os.open(".phase-stdin", os.O_RDONLY)
+        os.dup2(fd, 0)
+        os.close(fd)
     argv = lang["execute"] + sys.argv[2:]
     os.execvp(argv[0], argv)
 
@@ -296,6 +329,8 @@ static void flush_pass1_to_contestant() {
     std::string payload;
     if (!read_file_bytes(".pf_pass1_out.bin", payload)) payload.clear();
     (void)send_phase_frame(real_stdout_fd, payload);
+    ::close(real_stdout_fd);
+    real_stdout_fd = -1;
 }
 
 static ssize_t pass1_ouf_read(void*, char* buf, size_t size) {
@@ -361,7 +396,8 @@ int main(int argc, char* argv[]) {
             std::fprintf(stderr, "FAIL cannot read original test input\\n");
             return 3;
         }
-        pf_bridge::tout_path = argv[2];
+        // Hydro may pass /dev/null as argv[2] (tout); capture tout into a local regular file instead.
+        pf_bridge::tout_path = ".pf_pass1_tout.bin";
         pf_bridge::real_stdout_fd = ::dup(STDOUT_FILENO);
         pf_bridge::real_stdin_fd = ::dup(STDIN_FILENO);
         int tmp_fd = ::open(".pf_pass1_out.bin", O_CREAT | O_TRUNC | O_WRONLY, 0600);
@@ -375,7 +411,12 @@ int main(int argc, char* argv[]) {
         }
         ::close(tmp_fd);
         ::on_exit(pf_bridge::on_pass1_exit, nullptr);
-        return pf_pass1::pf_main(argc, argv);
+        std::vector<char> tout_arg(pf_bridge::tout_path.begin(), pf_bridge::tout_path.end());
+        tout_arg.push_back('\\0');
+        std::vector<char*> p1_argv(argv, argv + argc);
+        p1_argv[2] = tout_arg.data();
+        p1_argv.push_back(nullptr);
+        return pf_pass1::pf_main(argc, p1_argv.data());
     }
     if (pass != "2") {
         std::fprintf(stderr, "FAIL expected HYDRO_MULTI_PASS=1 or 2\\n");
@@ -410,6 +451,7 @@ int main(int argc, char* argv[]) {
         std::fprintf(stderr, "FAIL cannot send pass-2 input to contestant\\n");
         return 3;
     }
+    ::close(STDOUT_FILENO);
     std::string pass2_out;
     char buf[65536];
     for (;;) {
