@@ -79,8 +79,9 @@ export async function judgeRoutes(app: Api) {
   app.put('/api/problems/:id/judge-settings', { preHandler: authenticate, schema: { params: Id, body: JudgeSettingsInput } }, async req => {
     await problemAccess(req.user, req.params.id, true);
     const s = req.body.settings;
-    if (s.interactionMode === 'INTERACTIVE' && s.ioMode !== 'STDIO') throw new HttpError(422, '交互执行必须使用标准管道 I/O');
+    if ((s.interactionMode === 'INTERACTIVE' || s.interactionMode === 'COMMUNICATION') && s.ioMode !== 'STDIO') throw new HttpError(422, '交互或通信执行必须使用标准管道 I/O');
     if (s.interaction && s.interaction.idleTimeMs > s.interaction.wallTimeMs) throw new HttpError(422, '空闲时限不能大于总墙钟时限');
+    if (s.communication && s.communication.idleTimeMs > s.communication.wallTimeMs) throw new HttpError(422, '通信空闲时限不能大于总墙钟时限');
     const reserved = ['source.cpp', 'source.c', 'source.py', 'Main.java', 'program', 'program.jar', 'stdout', 'stderr', 'testlib.h', 'checker-input', 'checker-answer', 'checker-output'];
     if (s.ioMode === 'FILES' && (s.inputFile === s.outputFile || reserved.includes(s.inputFile) || reserved.includes(s.outputFile))) throw new HttpError(422, '文件 I/O 需要不同文件名，且不能覆盖执行器的保留文件');
     await db.$transaction(async tx => {

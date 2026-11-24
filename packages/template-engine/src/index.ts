@@ -9,7 +9,7 @@ import { CONTEST_BEAMER_PREAMBLE, contestBeamerFiles, contestBeamerTitle, diffic
 
 export const POLICY_VERSION = 'pf-content-7';
 export const TEX_PROFILE = 'xelatex-2022-bookworm-v1';
-export const SAMPLE_RENDERER_VERSION = 'pf-samples-6';
+export const SAMPLE_RENDERER_VERSION = 'pf-samples-7';
 export type TemplateFiles = Record<string, string>;
 export async function loadTemplateDirectory(directory: string, prefix = ''): Promise<TemplateFiles> {
   const files: TemplateFiles = {};
@@ -194,7 +194,7 @@ export function printableSample(bytes: Buffer) {
   let value: string; try { value = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { throw new Error('题面样例必须是可显示的 UTF-8 文本，原始测试数据未改变'); }
   if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value)) throw new Error('题面样例包含不能显示的控制字节，原始测试数据未改变');
 }
-export type SamplePaths = { inputPath: string; answerPath: string };
+export type SamplePaths = { inputPath: string; answerPath: string; firstOutputPath?: string; secondInputPath?: string };
 export const STATEMENT_RENDERER_VERSION = 'pf-statement-2';
 export type StatementSettings = { timeLimitMs: number; memoryLimitMb: number; inputFile: string; outputFile: string };
 export function statementSettings(settings: JudgeSettingsValue = defaultJudgeSettings): StatementSettings {
@@ -301,7 +301,12 @@ export function render(files: TemplateFiles, kind: DocumentKind, body: string, m
   if (mode === 'booklet') { if (!result['booklet.tex']) throw new Error('模板未提供题册入口'); result['main.tex'] = result['booklet.tex']; if(result['item.tex'])result['problem.tex']=result['item.tex']; }
   result['content.tex'] = body;
   if (samples.length) {
-    if (kind !== 'STATEMENT' || samples.length > 10 || samples.some(s => !/^samples\/sample-[1-9][0-9]*\.in$/.test(s.inputPath) || !/^samples\/sample-[1-9][0-9]*\.ans$/.test(s.answerPath))) throw new Error('样例文件必须使用平台固定的题面命名空间');
+    const validPath = (s: SamplePaths) => /^samples\/sample-[1-9][0-9]*\.in$/.test(s.inputPath)
+      && /^samples\/sample-[1-9][0-9]*\.ans$/.test(s.answerPath)
+      && (!s.firstOutputPath || /^samples\/sample-[1-9][0-9]*\.p1out$/.test(s.firstOutputPath))
+      && (!s.secondInputPath || /^samples\/sample-[1-9][0-9]*\.p2in$/.test(s.secondInputPath))
+      && Boolean(s.firstOutputPath) === Boolean(s.secondInputPath);
+    if (kind !== 'STATEMENT' || samples.length > 10 || samples.some(s => !validPath(s))) throw new Error('样例文件必须使用平台固定的题面命名空间');
     // Select the template's side-by-side or stacked table from actual font
     // measurements at compile time. Raw bytes remain in literal sample files.
     result['main.tex'] = SAMPLE_LAYOUT_PREAMBLE + result['main.tex'];

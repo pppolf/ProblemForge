@@ -1,8 +1,8 @@
 import {createHash}from'node:crypto';
 import {Type,type TSchema}from'@sinclair/typebox';
 import {Value}from'@sinclair/typebox/value';
-import {isJudgingData,MAX_TEST_BYTES}from'@problemforge/contracts';
-import {programLanguages,ProgramInput,GeneratorPlanInput,ToolSelfTestInput,ProfileConfig,JudgeSettings,TestGroupsInput,StressConfigInput,DocumentInput,Language,defaultJudgeSettings,generatorPlanCommands,generatorPlanProgramIds,type ProblemManifest,type StoredBlob}from'@problemforge/contracts';
+import {isDisplayOnlySampleMode,isJudgingData,MAX_TEST_BYTES}from'@problemforge/contracts';
+import {programLanguages,ProgramInput,GeneratorPlanInput,ToolSelfTestInput,ProfileConfig,JudgeSettings,TestGroupsInput,StressConfigInput,DocumentInput,Language,CommunicationSample,defaultJudgeSettings,generatorPlanCommands,generatorPlanProgramIds,type ProblemManifest,type StoredBlob}from'@problemforge/contracts';
 import {PackageError,safePath}from'./archive.ts';import type{Exporter,Purpose,Issue,ImportResult}from'./types.ts';
 export const digest=(bytes:Buffer|string)=>createHash('sha256').update(bytes).digest('hex');
 const strict={additionalProperties:false}, id=Type.String({minLength:1,maxLength:80}),hash=Type.String({pattern:'^[a-f0-9]{64}$'}),version=Type.Integer({minimum:1});
@@ -11,7 +11,7 @@ const nullable=(s:TSchema)=>Type.Union([s,Type.Null()]);
 // Preserve the schema's limits and verify milli-point precision explicitly below.
 function importSchema(value:any):any{if(Array.isArray(value))return value.map(importSchema);if(value&&typeof value==='object'){const copy={...value};for(const key of Object.keys(copy))copy[key]=importSchema(copy[key]);if(copy.multipleOf===0.001)delete copy.multipleOf;return copy;}return value;}
 const blob=Type.Object({key:Type.String({maxLength:200}),hash,bytes:Type.Integer({minimum:0,maximum:MAX_TEST_BYTES})},strict);
-const test=Type.Object({id,revisionId:id,version,number:Type.Integer({minimum:1,maximum:100000}),groupName:Type.String({pattern:'^[A-Za-z0-9_-]{1,40}$'}),isSample:Type.Boolean(),enabled:Type.Boolean(),notes:Type.String({maxLength:1000}),input:blob,answer:nullable(blob),provenance:Type.Null()},strict);
+const test=Type.Object({id,revisionId:id,version,number:Type.Integer({minimum:1,maximum:100000}),groupName:Type.String({pattern:'^[A-Za-z0-9_-]{1,40}$'}),isSample:Type.Boolean(),enabled:Type.Boolean(),notes:Type.String({maxLength:1000}),input:blob,answer:nullable(blob),provenance:Type.Null(),communication:Type.Optional(nullable(CommunicationSample))},strict);
 const manifestSchema=Type.Object({schemaVersion:Type.Literal(1),problemId:id,meta:Type.Object({title:Type.String({minLength:1,maxLength:160}),tags:Type.Array(Type.String({maxLength:40}),{maxItems:30}),notes:Type.String({maxLength:10000}),responsibleId:Type.Null()},strict),
  documents:Type.Array(Type.Object({id,revisionId:id,version,language:Language,kind:Type.Union(['STATEMENT','EDITORIAL_DOCUMENT','EDITORIAL_BEAMER'].map(v=>Type.Literal(v))),enabled:Type.Boolean(),body:DocumentInput.properties.body,metadata:DocumentInput.properties.metadata,sampleRevisionIds:Type.Array(id,{maxItems:10,uniqueItems:true}),template:nullable(Type.Object({id,templateId:id,number:version,hash,name:Type.String({maxLength:120})},strict))},strict),{maxItems:60}),
  programs:Type.Array(Type.Object({...importSchema(Type.Omit(ProgramInput,['profileId'])).properties,id,revisionId:id,version,sourceHash:hash,profile:Type.Object({id,name:Type.String({maxLength:80}),language:Type.Union(programLanguages.map(v=>Type.Literal(v))),version,hash,config:ProfileConfig},strict)},strict),{maxItems:50}),
@@ -49,9 +49,10 @@ export function selectManifest(source:ProblemManifest,purpose:Purpose):ProblemMa
 }
 export const nativeExporter:Exporter={id:'NATIVE',async export(source,purpose,read){
  const m=selectManifest(source,purpose),files=new Map<string,Buffer>(),report:Issue[]=[{area:'native',status:'MAPPED',message:`ProblemForge v1；模板仅引用 ID/版本/哈希。${purpose==='FULL'?'完整包导入为私有工作副本，必须重新绑定缺失模板并验收；本地任务定位信息与原成员不迁移。':'此用途包供分发；只有完整包可恢复为工作副本。'}`}];
- if(purpose==='DATA'&&source.judgeSettings.interactionMode==='INTERACTIVE'){
-  report.push({area:'samples',status:'MAPPED',message:'交互样例仅用于题面展示，已排除出判题数据包；原生完整包仍保留全部样例。'});
-  if(m.groups?.groups.some(g=>g.members.some(member=>!m.tests.some(t=>t.id===member.testId&&t.revisionId===member.revisionId))))report.push({area:'groups',status:'BLOCKED',message:'数据组包含交互样例或其他未导出数据，请更新组成员后重新导出。'});
+ if(purpose==='DATA'&&isDisplayOnlySampleMode(source.judgeSettings.interactionMode)){
+  const kindLabel=source.judgeSettings.interactionMode==='COMMUNICATION'?'通信':'交互';
+  report.push({area:'samples',status:'MAPPED',message:`${kindLabel}样例仅用于题面展示，已排除出判题数据包；原生完整包仍保留全部样例。`});
+  if(m.groups?.groups.some(g=>g.members.some(member=>!m.tests.some(t=>t.id===member.testId&&t.revisionId===member.revisionId))))report.push({area:'groups',status:'BLOCKED',message:`数据组包含${kindLabel}样例或其他未导出数据，请更新组成员后重新导出。`});
  }
  for(const b of blobs(m)){const bytes=await read(b.key);if(bytes.length!==b.bytes||digest(bytes)!==b.hash)throw new PackageError('私有资源与固定修订哈希不匹配');b.key=`blobs/${b.hash}`;files.set(b.key,bytes);}
  files.set('problemforge.json',Buffer.from(JSON.stringify({format:'problemforge',version:1,purpose,manifest:m},null,2)));return{files,report};

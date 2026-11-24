@@ -5,6 +5,7 @@ import { SandboxClient, InfrastructureError, GO_JUDGE_VERSION, type SandboxComma
 import { JUDGE_POLICY, JUDGE_TOOLCHAIN, TESTLIB_HASH, checkerVerdict, executionVerdict, validatorVerdict, testlibRoles, type BlobRef, type ProgramSnapshot } from '@problemforge/judge-core';
 import { isCppLanguage, MAX_TEST_BYTES, type JudgeSettingsValue } from '@problemforge/contracts';
 import { runInteraction } from './interaction.ts';
+import { runCommunication } from './communication.ts';
 import { compilePlan, runtimeArgs } from './languages.ts';
 import { SandboxFiles, type SandboxFileScope } from './sandbox-files.ts';
 
@@ -168,6 +169,9 @@ export class Executor {
   }
   async interactive(contestant: Compiled, interactor: Compiled, input: Buffer, answer: Buffer | null, settings: JudgeSettingsValue, caseRef: string, main = false) {
     return this.withFiles(files => runInteraction(this, files, contestant, interactor, input, answer, settings, caseRef, main));
+  }
+  async communication(contestant: Compiled, interactor: Compiled, input: Buffer, answer: Buffer | null, settings: JudgeSettingsValue, caseRef: string, main = false) {
+    return runCommunication(this, contestant, interactor, input, answer, settings, caseRef, main);
   }
   async cleanup() { await this.files.cleanup(); }
 }

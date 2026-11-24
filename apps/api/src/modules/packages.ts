@@ -23,7 +23,7 @@ async function exportManifest(manifest:ProblemManifest,purpose:string,format:str
    if(!t.answer&&c.answerKey)t.answer={key:c.answerKey,hash:c.answerHash!,bytes:c.answerBytes!};}
   report.push({area:'answers',status:'MAPPED',message:`数据和答案固定来自修订绑定的成功验收 ${runId}；没有重新运行程序或改写工作数据。`});
  }
- if(purpose==='DATA'&&m.judgeSettings.interactionMode==='BATCH'&&m.tests.some(t=>t.enabled&&!t.answer))report.push({area:'answers',status:'BLOCKED',message:'部分启用测试没有固定答案，需收集答案并重新冻结后正式发布。'});
+ if(purpose==='DATA'&&m.judgeSettings.interactionMode!=='INTERACTIVE'&&m.tests.some(t=>isJudgingData(m.judgeSettings,t)&&!t.answer))report.push({area:'answers',status:'BLOCKED',message:'部分启用测试没有固定答案，需收集答案并重新冻结后正式发布。'});
  return{manifest:m,report};
 }
 function imageValid(bytes:Buffer,mediaType:string){if(bytes.length>1_000_000)return false;if(mediaType==='image/png')return bytes.length>=33&&bytes.subarray(0,8).toString('hex')==='89504e470d0a1a0a'&&bytes.subarray(12,16).toString()==='IHDR'&&bytes.readUInt32BE(16)>0&&bytes.readUInt32BE(20)>0&&bytes.readUInt32BE(16)*bytes.readUInt32BE(20)<=16_000_000;return bytes.length>=4&&bytes[0]===255&&bytes[1]===216&&bytes[2]===255&&bytes.subarray(-2).toString('hex')==='ffd9';}

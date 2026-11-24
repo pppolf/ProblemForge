@@ -55,7 +55,7 @@ export async function exportHydroProblem(
   for (const revisionId of statement.sampleRevisionIds) {
     const sample = manifest.samples.find(s => s.revisionId === revisionId);
     if (!sample || !sample.answer) throw new PackageError('题面绑定的样例版本或示例输出缺失，请重新绑定完整样例');
-    samples.push({ input: await sampleText(sample.input), output: await sampleText(sample.answer) });
+    samples.push({ input: await sampleText(sample.input), output: await sampleText(sample.answer), ...(sample.communication ? { communication: sample.communication } : {}) });
   }
   // Hydro stores additional files in one flat directory and resolves file:// links.
   const assetName = (path: string) => `asset-${digest(path).slice(0, 24)}.${path.split('.').at(-1)}`;

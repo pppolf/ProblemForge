@@ -1186,3 +1186,26 @@ SandboxClient 的 HTTP 错误增加方法与端点，错误响应仅读取最多
 **实际验证：**`deploy.sh update` 零报错完成 `git-c6e793238e6c69705245f42495020caea75626ac` 发布：TeX 沙箱镜像因输入未变直接复用，Judge 沙箱重建为 OpenJDK `17.0.21.1+2-1~deb12u1` 镜像，保存一致备份 `/opt/problemforge/shared/backups/20261124095841674`（5.79 GiB），数据库无待执行迁移，PM2（2 API + 1 TeX + 1 Judge）及四容器均恢复健康。`http://127.0.0.1:5181/api/health`、`https://problems.cwnupaa.com/api/health` 均返回 HTTP 200 `status=ok`，首页返回 HTTP/2 200；内核日志无 OOM 记录，同机其余 14 个非本项目容器零重启。
 
 **资源提醒与未验证：**更新后内存可用 `1.4 GiB`（较更新前更宽裕），但因保留了 `5.79 GiB` 自动备份与上一版本用于回滚，`/` 磁盘剩余降至 `9.8 GiB`（92%）；未清理非本项目 Docker 镜像（`docker system df` 显示约 `17.45 GB` 可回收），后续再次更新前建议先清理无关旧镜像或扩容磁盘，并评估配置适量 Swap。本次未在云端浏览器实测登录及在线触发真实评测任务。
+
+## 两轮通信题（first / second）完整出题流程（2026-11-24）
+
+**实现：**
+1. **统一两轮通信模型与契约（零数据库迁移）：**按用户提供的 NovaJudge（Polygon Run-Twice）与 Hydro 真实通信题包规范，在 `packages/contracts` 与 `packages/judge-core` 新增 `interactionMode: 'COMMUNICATION'`、`CommunicationSettings`（`outputLimitBytes` 默认 `1048576` 及 Interactor 资源/墙钟/空闲/记录限制）、`COMMUNICATION_POLICY` 与 `CommunicationSample`（四段展示样例：`firstInput` 存 `input`、`secondOutput` 存 `answer`、`firstOutput` / `secondInput` 存 `TestCaseRevision.configuration.communication`）。通信样例纳入 `isDisplayOnlySampleMode`，仅用于题面展示与导出，不参与正式评测与分组。
+2. **独立 Linux 沙箱两轮通信执行器（`workers/judge/src/communication.ts`）：**所有作者程序均经独立 Linux `go-judge` 沙箱执行，无宿主机回退。第 1 轮（`first`）通过 `go-judge` 直接代理管道连接选手进程与 `Interactor`（加轻量级独立 `watchdog` 监听 `INTERACTOR_EXIT`），保证选手第 1 轮退出后 EOF 立即送达 `Interactor` 的 `ouf.seekEof()`；`Interactor` 校验通信协议后通过 `tout` 产出第 2 轮输入，若第 1 轮判错（如 PE/WA/OLE/TLE）立即终止并归因第 1 轮。第 2 轮（`second`）在全新隔离进程中以 `tout` 为标准输入运行同一份选手编译产物，**两轮各自独享 CPU 时限与内存限制**；最终输出交内置比较器（`EXACT`/`TOKENS`/`FLOAT`）或自定义 `testlib` `Checker` 判分，主标程第 2 轮输出作为测试点 `.ans` 收集。API `/api/invocations/:id/forwarded` 新增第 2 轮中转输入下载。
+3. **PDF 题面四段通信样例排版（`packages/template-engine`、`builds.ts`、`contest-builds.ts`、`workers/tex`）：**升级样例渲染版本至 `pf-samples-7`，新增 `\pfcommsample` 排版原语（窄版双列 `tabular` 防孤立表头，宽版自动折行四格），原始样例字节通过沙箱文件读取，无 TeX 注入；单题与比赛题册共用，不影响既有普通题排版。
+4. **NovaJudge / Hydro / 原生 / Polygon 导出（`packages/problem-format`）：**
+   - **NovaJudge**：导出 `type: "communication"`、`judgeConfig` 与 `data/problem.yml`（含 `polygon: { run_count: 2, interactor_runs: [1], sample_cases: [] }`、`communication.output_limit`、`interactor.cpp`、`checker.cpp`——支持自定义 Checker 或内置比较器自动生成），以及 `problem.json` 四段 `samples[].communication` 结构。
+   - **Hydro**：导出 `type: interactive` + `multi_pass: 2` + `subtasks` + `user_extra_files`（`compile.sh`、`execute.sh`、`phase-runner.py`、`phase-languages.json`），其中 `packages/problem-format/src/hydro-communication.ts` 自动将本地 `Interactor` +（自定义或内置）`Checker` 单文件合成为零子进程的 Hydro `interactor.cpp`（基于 glibc `fopencookie` + `on_exit`），配套通用长度帧 `__PF_PHASE_LEN__` `phase-runner.py` 写入临时文件提供真实 EOF，突破原 2 行 48 字节限制；`problem.md` 自动生成两轮 `inputN/outputN` 代码块。
+   - **原生 v1 与 Polygon**：原生完整包保留通信配置与四段通信样例往返一致；Polygon 离线子集明确提示 Run-Twice 阻塞项。
+5. **工作台 UI 与模板（`apps/web`、`templates/content/communication-statement.tex`）：**新增 `CommunicationSettingsPanel.vue`、四段通信样例编辑表单、数据表通信样例标签、报告页两轮摘要与中转输入（`tout`）/第 1 轮通信记录下载；新增「两轮通信题结构（first / second）」题面模板，以及 C++/C/Java/Python 3 通信解法、`Interactor`、`Checker` 代码模板。
+
+**实际验证：**
+- **定向类型与构建检查：**`pnpm check contracts judge-core template-engine problem-format api web judge-worker tex-worker` 全 8 包通过；`pnpm build:web` 生产构建通过。
+- **定向单元测试：**`pnpm test:quick` 11/11 通过（默认清单未扩大）；显式运行 `scripts/communication.test.ts`、`scripts/interactive-samples.test.ts`、`scripts/hydro-exports-api.test.ts`、`packages/template-engine/src/*.test.ts` 共 28/28 全部通过。
+- **真实 Linux 沙箱三段端到端验证（`.local/communication-verify/verify-live.ts`，经 `127.0.0.1:15051` / `15050` 容器执行，不改动业务数据库）：**
+  1. ProblemForge 两轮通信执行器：真实验证 C++17 AC + Checker AC、Python 3 AC + Checker AC、第 1 轮传错消息交 Checker 判 WA、第 1 轮协议违例立即归因 PE 跳过第 2 轮、每轮独享时限（`350ms` 下单轮各耗 `~221ms` 合计 `~442ms` 仍判 AC）、第 2 轮死循环归因第 2 轮 TLE。
+  2. Hydro 自动合成 `multi_pass: 2` 单文件 `interactor.cpp` + 通用 `phase-runner.py`：在 Linux 沙箱真实 `g++ -O2 -std=c++17` 编译并通过双轮管道运行，覆盖自定义 Checker（AC / WA / 第 1 轮 PE）、内置 `TOKENS`（AC / WA）以及 1000 行大数组 `while (cin >> x)` 真实 EOF 通信（AC）。
+  3. Linux TeX 沙箱真实编译 `communication-statement.tex` + 窄/宽两组四段通信样例为 `62,377` 字节 PDF，逐页目视检查排版无孤立表头、无裁切溢出。
+
+**未验证与阻塞：**
+- 未向外部真实 Hydro / NovaJudge 线上站点上传导入测试（Hydro 与 NovaJudge 格式均对照用户提供的两份真实题包并在本地 Linux 沙箱完成了编译与双轮运行验证）；未做浏览器内真实新建通信题与队列验收全点击流程，未运行全量 P0—P7 历史套件或云端部署。无已知代码或环境阻塞；完成本地 Git 提交，不 push。

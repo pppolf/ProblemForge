@@ -6,4 +6,5 @@ export * from './xml.ts';
 export * from './test-data.ts';
 export * from './markdown.ts';
 export * from './hydro.ts';
+export * from './hydro-communication.ts';
 export * from './novajudge.ts';

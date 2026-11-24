@@ -109,11 +109,11 @@ export async function testRunRoutes(app: Api) {
     if (!key) throw new HttpError(404, '该任务数据/答案不存在');
     return reply.type('application/octet-stream').header('Content-Disposition', `attachment; filename="${c!.number}.${req.params.file === 'input' ? 'in' : 'ans'}"`).send(await storage.get(key));
   });
-  app.get('/api/invocations/:id/:file', { preHandler: authenticate, schema: { params: Type.Object({ id: Type.String(), file: Type.Union([Type.Literal('stdout'), Type.Literal('stderr'), Type.Literal('output'), Type.Literal('transcript')]) }) } }, async (req, reply) => {
+  app.get('/api/invocations/:id/:file', { preHandler: authenticate, schema: { params: Type.Object({ id: Type.String(), file: Type.Union([Type.Literal('stdout'), Type.Literal('stderr'), Type.Literal('output'), Type.Literal('transcript'), Type.Literal('forwarded')]) }) } }, async (req, reply) => {
     const invocation = await db.invocation.findUnique({ where: { id: req.params.id }, include: { run: true } });
     if (!invocation) throw new HttpError(404, '执行记录不存在'); await problemAccess(req.user, invocation.run.problemId);
-    const detail = invocation.detail as { output?: { key: string } | null; judgedOutput?: { key: string } | null; transcript?: { key: string } };
-    const key = req.params.file === 'transcript' ? detail.transcript?.key : req.params.file === 'output' ? (detail.judgedOutput ?? detail.output)?.key : req.params.file === 'stdout' ? invocation.stdoutKey : invocation.stderrKey;
+    const detail = invocation.detail as { output?: { key: string } | null; judgedOutput?: { key: string } | null; transcript?: { key: string }; forwardedInput?: { key: string } | null };
+    const key = req.params.file === 'transcript' ? detail.transcript?.key : req.params.file === 'forwarded' ? detail.forwardedInput?.key : req.params.file === 'output' ? (detail.judgedOutput ?? detail.output)?.key : req.params.file === 'stdout' ? invocation.stdoutKey : invocation.stderrKey;
     if (!key) throw new HttpError(404, '输出不存在');
     return reply.type('application/octet-stream').header('Content-Disposition', `attachment; filename="${invocation.id}.${req.params.file}.txt"`).send(await storage.get(key));
   });

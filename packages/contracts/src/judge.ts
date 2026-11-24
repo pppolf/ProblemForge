@@ -23,20 +23,29 @@ export const InteractionSettings = Type.Object({
   idleTimeMs: Type.Integer({ minimum: 100, maximum: 10000 }), transcriptBytes: Type.Integer({ minimum: 1024, maximum: 262144 }),
 }, strict);
 export const defaultInteractionSettings: Static<typeof InteractionSettings> = { verdictMode: 'DIRECT', interactorTimeMs: 2000, interactorMemoryMb: 256, wallTimeMs: 10000, idleTimeMs: 1000, transcriptBytes: 65536 };
+export const CommunicationSettings = Type.Object({
+  outputLimitBytes: Type.Integer({ minimum: 1024, maximum: 64_000_000 }), interactorTimeMs: Type.Integer({ minimum: 50, maximum: 10000 }),
+  interactorMemoryMb: Type.Integer({ minimum: 32, maximum: 1024 }), wallTimeMs: Type.Integer({ minimum: 500, maximum: 30000 }),
+  idleTimeMs: Type.Integer({ minimum: 100, maximum: 10000 }), transcriptBytes: Type.Integer({ minimum: 1024, maximum: 262144 }),
+}, strict);
+export const defaultCommunicationSettings: Static<typeof CommunicationSettings> = { outputLimitBytes: 1_048_576, interactorTimeMs: 2000, interactorMemoryMb: 256, wallTimeMs: 10000, idleTimeMs: 1000, transcriptBytes: 65536 };
 export const judgePurposeLabels: Record<JudgePurpose, string> = { COMPILE: '编译', GENERATE: '生成输入', VALIDATE: '校验输入', ANSWERS: '生成答案', SELF_TEST: '工具自测', ACCEPTANCE: '完整验收', STRESS: '有预算对拍', REPLAY: '反例复现' };
 export const JudgeSettings = Type.Object({
-  interactionMode: literalUnion(['BATCH', 'INTERACTIVE']), checkerMode: literalUnion(['EXACT', 'TOKENS', 'FLOAT', 'CUSTOM']),
+  interactionMode: literalUnion(['BATCH', 'INTERACTIVE', 'COMMUNICATION']), checkerMode: literalUnion(['EXACT', 'TOKENS', 'FLOAT', 'CUSTOM']),
   scoringMode: literalUnion(['ACM', 'PARTIAL']), ioMode: literalUnion(['STDIO', 'FILES']),
   inputFile: Type.String({ pattern: '^[A-Za-z][A-Za-z0-9_.-]{0,63}$' }), outputFile: Type.String({ pattern: '^[A-Za-z][A-Za-z0-9_.-]{0,63}$' }),
   timeLimitMs: Type.Integer({ minimum: 50, maximum: 10000 }), memoryLimitMb: Type.Integer({ minimum: 32, maximum: 1024 }),
   outputLimitBytes: Type.Integer({ minimum: 1024, maximum: 4_194_304 }),
   absoluteTolerance: Type.Number({ minimum: 0, maximum: 1 }), relativeTolerance: Type.Number({ minimum: 0, maximum: 1 }),
   interaction: Type.Optional(InteractionSettings),
+  communication: Type.Optional(CommunicationSettings),
 }, strict);
 export type JudgeSettingsValue = Static<typeof JudgeSettings>;
-// Interactive examples describe a conversation, not an interactor's hidden input.
+// Interactive and two-pass communication examples describe a conversation or two-stage
+// protocol for statement display, not an interactor's hidden test input.
+export const isDisplayOnlySampleMode = (mode?: string) => mode === 'INTERACTIVE' || mode === 'COMMUNICATION';
 export const isJudgingData = (settings: Pick<JudgeSettingsValue, 'interactionMode'>, data: { isSample: boolean; enabled?: boolean }) =>
-  data.enabled !== false && !(settings.interactionMode === 'INTERACTIVE' && data.isSample);
+  data.enabled !== false && !(isDisplayOnlySampleMode(settings.interactionMode) && data.isSample);
 export const JudgeSettingsInput = Type.Object({ expectedVersion: Type.Integer({ minimum: 1 }), settings: JudgeSettings }, strict);
 export const defaultJudgeSettings: JudgeSettingsValue = {
   interactionMode: 'BATCH', checkerMode: 'TOKENS', scoringMode: 'ACM', ioMode: 'STDIO', inputFile: 'input.txt', outputFile: 'output.txt',
@@ -70,10 +79,16 @@ export const MAX_ARCHIVE_BYTES = 128_000_000;
 export const MAX_ARCHIVE_EXPANDED_BYTES = 256_000_000;
 export const MAX_ARCHIVE_BASE64_LENGTH = Math.ceil(MAX_ARCHIVE_BYTES / 3) * 4;
 export const RawBase64 = Type.String({ maxLength: MAX_TEST_BASE64_LENGTH, pattern: '^[A-Za-z0-9+/]*={0,2}$' });
+export const CommunicationSample = Type.Object({
+  firstOutput: Type.String({ maxLength: 65536 }),
+  secondInput: Type.String({ maxLength: 65536 }),
+}, strict);
+export type CommunicationSampleValue = Static<typeof CommunicationSample>;
 const testProperties = {
   number: Type.Integer({ minimum: 1, maximum: 100000 }), groupName: Type.String({ pattern: '^[A-Za-z0-9_-]{1,40}$' }),
   isSample: Type.Boolean(), enabled: Type.Boolean(), notes: Type.String({ maxLength: 1000 }), inputBase64: RawBase64,
   answerBase64: Type.Union([RawBase64, Type.Null()]),
+  communication: Type.Optional(Type.Union([CommunicationSample, Type.Null()])),
 };
 export const TestCaseInput = Type.Object(testProperties, strict);
 export const TestCaseUpdateInput = Type.Object({ ...testProperties, expectedVersion: Type.Integer({ minimum: 1 }) }, strict);

@@ -1,7 +1,7 @@
 import type { DocumentKind } from './index.ts';
-import type { ProgramSave, ProgramLanguage, ProfileConfigValue, JudgeSettingsValue, TestGroupsValue, StressConfigValue, GeneratorPlanSave, ToolSelfTestSave } from './judge.ts';
+import type { ProgramSave, ProgramLanguage, ProfileConfigValue, JudgeSettingsValue, TestGroupsValue, StressConfigValue, GeneratorPlanSave, ToolSelfTestSave, CommunicationSampleValue } from './judge.ts';
 export type StoredBlob = { key:string;hash:string;bytes:number };
-export type ManifestTest = {id:string;revisionId:string;version:number;number:number;groupName:string;isSample:boolean;enabled:boolean;notes:string;input:StoredBlob;answer:StoredBlob|null;provenance:unknown};
+export type ManifestTest = {id:string;revisionId:string;version:number;number:number;groupName:string;isSample:boolean;enabled:boolean;notes:string;input:StoredBlob;answer:StoredBlob|null;provenance:unknown;communication?:CommunicationSampleValue|null};
 export type ManifestDocument = {id:string;revisionId:string;version:number;language:string;kind:DocumentKind;enabled:boolean;body:string;metadata:{title:string;author:string};sampleRevisionIds:string[];template:{id:string;templateId:string;number:number;hash:string;name:string}|null};
 export type ManifestProgram = Omit<ProgramSave,'profileId'> & {id:string;revisionId:string;version:number;sourceHash:string;profile:{id:string;name:string;language:ProgramLanguage;version:number;hash:string;config:ProfileConfigValue}};
 export type ProblemManifest = {

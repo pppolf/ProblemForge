@@ -25,7 +25,7 @@ export async function contestBuildRoutes(app:Api){
       const template=snapshot.templates[kind];if(!template)throw new HttpError(422,`冻结清单没有绑定 ${kind} 模板`);
       const tv=await db.templateVersion.findUnique({where:{id:template.id}});if(!tv||tv.state==='REVOKED')throw new HttpError(409,'冻结模板已撤回，不能发起新构建');
       const order=kind==='EDITORIAL_BEAMER'?[...selected].sort((a,b)=>a.lectureOrder-b.lectureOrder):selected;
-      const assets:({path:string}&StoredBlob)[]=[],samples:{revisionId:string;inputPath:string;answerPath:string;input:StoredBlob;answer:StoredBlob}[]=[];
+      const assets:({path:string}&StoredBlob)[]=[],samples:{revisionId:string;inputPath:string;answerPath:string;input:StoredBlob;answer:StoredBlob;firstOutputPath?:string;secondInputPath?:string;firstOutputText?:string;secondInputText?:string}[]=[];
       const entries:ContestRenderInput['entries']=[];
       if(kind==='EDITORIAL_BEAMER')assets.push(...(snapshot.introductionAssets??[]).map(a=>({path:`introduction/${a.path}`,...a.blob})));
       for(const item of order){
@@ -34,7 +34,10 @@ export async function contestBuildRoutes(app:Api){
         const used=p.assets.filter(a=>d.body.includes(a.path));assets.push(...used.map(a=>({path:`${namespace}/${a.path}`,...a.blob})));
         const paths=[];
         for(const [i,id]of d.sampleRevisionIds.entries()){const sample=p.samples.find(s=>s.revisionId===id);if(!sample?.answer)throw new HttpError(422,'冻结样例的输入/答案清单不完整');
-          const inputPath=`samples/sample-${i+1}.in`,answerPath=`samples/sample-${i+1}.ans`;paths.push({inputPath,answerPath});samples.push({revisionId:id,inputPath:`${namespace}/${inputPath}`,answerPath:`${namespace}/${answerPath}`,input:sample.input,answer:sample.answer});
+          const inputPath=`samples/sample-${i+1}.in`,answerPath=`samples/sample-${i+1}.ans`;
+          const comm=sample.communication?{firstOutputPath:`samples/sample-${i+1}.p1out`,secondInputPath:`samples/sample-${i+1}.p2in`}:undefined;
+          paths.push({inputPath,answerPath,...comm});
+          samples.push({revisionId:id,inputPath:`${namespace}/${inputPath}`,answerPath:`${namespace}/${answerPath}`,input:sample.input,answer:sample.answer,...(comm&&sample.communication?{firstOutputPath:`${namespace}/${comm.firstOutputPath}`,secondInputPath:`${namespace}/${comm.secondInputPath}`,firstOutputText:sample.communication.firstOutput,secondInputText:sample.communication.secondInput}:{})});
         }
         entries.push({namespace,code:item.code,body:d.body,metadata:d.metadata,...(kind==='EDITORIAL_BEAMER'?{expectedDifficulty:item.expectedDifficulty??'',tags:p.meta.tags}:{}),assetPaths:used.map(a=>a.path),samples:paths,timeLimitMs:p.judgeSettings.timeLimitMs,memoryLimitMb:p.judgeSettings.memoryLimitMb,inputFile:p.judgeSettings.ioMode==='STDIO'?'standard input':p.judgeSettings.inputFile,outputFile:p.judgeSettings.ioMode==='STDIO'?'standard output':p.judgeSettings.outputFile});
       }

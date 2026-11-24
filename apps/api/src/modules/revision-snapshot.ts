@@ -11,8 +11,8 @@ export async function problemSnapshot(tx:Prisma.TransactionClient,problemId:stri
     assets:{orderBy:{id:'asc'}},generatorPlans:{orderBy:{id:'asc'}},selfTests:{orderBy:{id:'asc'}},testGroupConfig:true,stressConfig:true,
   }});
   const test=(id:string,r:NonNullable<typeof p.tests[number]['currentRevision']>):ManifestTest=>{
-    const conf=r.configuration as unknown as Pick<ManifestTest,'number'|'groupName'|'isSample'|'enabled'|'notes'>;
-    return {id,revisionId:r.id,version:r.version,...conf,input:{key:r.inputKey,hash:r.inputHash,bytes:r.inputBytes},answer:r.answerKey?{key:r.answerKey,hash:r.answerHash!,bytes:r.answerBytes!}:null,provenance:r.provenance};
+    const conf=r.configuration as unknown as Pick<ManifestTest,'number'|'groupName'|'isSample'|'enabled'|'notes'|'communication'>;
+    return {id,revisionId:r.id,version:r.version,number:conf.number,groupName:conf.groupName,isSample:conf.isSample,enabled:conf.enabled,notes:conf.notes,...(conf.isSample&&conf.communication?{communication:conf.communication}:{}),input:{key:r.inputKey,hash:r.inputHash,bytes:r.inputBytes},answer:r.answerKey?{key:r.answerKey,hash:r.answerHash!,bytes:r.answerBytes!}:null,provenance:r.provenance};
   };
   const sampleIds=[...new Set(p.documents.flatMap(d=>d.currentRevision?.sampleRevisionIds??[]))];
   const samples=await tx.testCaseRevision.findMany({where:{id:{in:sampleIds},testCase:{problemId}},orderBy:{id:'asc'}});

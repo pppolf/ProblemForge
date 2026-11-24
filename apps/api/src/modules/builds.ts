@@ -64,9 +64,29 @@ export async function buildRoutes(app: Api) {
     const samples = [];
     for (const [i, revisionId] of doc.currentRevision.sampleRevisionIds.entries()) {
       const sample = await db.testCaseRevision.findUnique({ where: { id: revisionId }, include: { testCase: true } });
-      if (!sample || sample.testCase.problemId !== doc.problemId || !sample.answerKey || !(sample.configuration as { isSample: boolean }).isSample) throw new HttpError(422, '题面样例的数据版本不完整或不属于本题');
-      try { printableSample(await storage.get(sample.inputKey)); printableSample(await storage.get(sample.answerKey)); } catch (e) { throw new HttpError(422, (e as Error).message); }
-      samples.push({ revisionId, inputPath: `samples/sample-${i + 1}.in`, answerPath: `samples/sample-${i + 1}.ans`, input: { key: sample.inputKey, hash: sample.inputHash, bytes: sample.inputBytes }, answer: { key: sample.answerKey, hash: sample.answerHash!, bytes: sample.answerBytes! } });
+      const conf = sample?.configuration as { isSample?: boolean; communication?: { firstOutput: string; secondInput: string } | null } | undefined;
+      if (!sample || sample.testCase.problemId !== doc.problemId || !sample.answerKey || !conf?.isSample) throw new HttpError(422, '题面样例的数据版本不完整或不属于本题');
+      try {
+        printableSample(await storage.get(sample.inputKey));
+        printableSample(await storage.get(sample.answerKey));
+        if (conf.communication) {
+          printableSample(Buffer.from(conf.communication.firstOutput, 'utf8'));
+          printableSample(Buffer.from(conf.communication.secondInput, 'utf8'));
+        }
+      } catch (e) { throw new HttpError(422, (e as Error).message); }
+      samples.push({
+        revisionId,
+        inputPath: `samples/sample-${i + 1}.in`,
+        answerPath: `samples/sample-${i + 1}.ans`,
+        input: { key: sample.inputKey, hash: sample.inputHash, bytes: sample.inputBytes },
+        answer: { key: sample.answerKey, hash: sample.answerHash!, bytes: sample.answerBytes! },
+        ...(conf.communication ? {
+          firstOutputPath: `samples/sample-${i + 1}.p1out`,
+          secondInputPath: `samples/sample-${i + 1}.p2in`,
+          firstOutputText: conf.communication.firstOutput,
+          secondInputText: conf.communication.secondInput,
+        } : {}),
+      });
     }
     const input = { kind: doc.kind, language: doc.language, body: doc.currentRevision.body, metadata: doc.currentRevision.metadata,
       files: doc.templateVersion.files as TemplateFiles, templateHash: doc.templateVersion.hash, contentHash: doc.currentRevision.hash,

@@ -82,9 +82,48 @@ export const SAMPLE_LAYOUT_PREAMBLE = String.raw`\RequirePackage{fvextra}
     \edef\pf@samplerows{\unexpanded\expandafter{\pf@samplerows}\noexpand\pf@samplerow{#1}{#2}}%
   \fi%
 }
+\newcommand{\pfcommsample}[4]{%
+  \pf@flushsamples%
+  \global\pfsamplewidefalse%
+  \pf@measuresample{#1}{\exmpwidinf}%
+  \pf@measuresample{#2}{\exmpwidouf}%
+  \pf@measuresample{#3}{\exmpwidinf}%
+  \pf@measuresample{#4}{\exmpwidouf}%
+  \ifpfsamplewide%
+    \par\noindent\begingroup\ttfamily\frenchspacing%
+    \begin{tabular}{|c|}%
+    \hline%
+    \multicolumn{1}{|c|}{\bfseries\texttt{first: \InputFileName}}\\\hline%
+    \pf@widesampleblock{#1}\\\hline%
+    \multicolumn{1}{|c|}{\bfseries\texttt{first: \OutputFileName}}\\\hline%
+    \pf@widesampleblock{#2}\\\hline%
+    \multicolumn{1}{|c|}{\bfseries\texttt{second: \InputFileName}}\\\hline%
+    \pf@widesampleblock{#3}\\\hline%
+    \multicolumn{1}{|c|}{\bfseries\texttt{second: \OutputFileName}}\\\hline%
+    \pf@widesampleblock{#4}\\\hline%
+    \end{tabular}%
+    \par\endgroup\medskip%
+  \else%
+    \par\noindent\begingroup\ttfamily\frenchspacing%
+    \begin{tabular}{|l|l|}%
+    \hline%
+    \multicolumn{1}{|c|}{\bfseries\texttt{first: \InputFileName}}&%
+    \multicolumn{1}{|c|}{\bfseries\texttt{first: \OutputFileName}}\\\hline%
+    \pf@samplerow{#1}{#2}%
+    \multicolumn{1}{|c|}{\bfseries\texttt{second: \InputFileName}}&%
+    \multicolumn{1}{|c|}{\bfseries\texttt{second: \OutputFileName}}\\\hline%
+    \pf@samplerow{#3}{#4}%
+    \end{tabular}%
+    \par\endgroup\medskip%
+  \fi%
+}
 \makeatother
 `;
 
-export function renderSamplePairs(samples: { inputPath: string; answerPath: string }[]) {
-  return '\\Examples\n\\begin{pfsamples}\n' + samples.map(s => `\\pfsamplepair{${s.inputPath}}{${s.answerPath}}`).join('\n') + '\n\\end{pfsamples}\n';
+export function renderSamplePairs(samples: { inputPath: string; answerPath: string; firstOutputPath?: string; secondInputPath?: string }[]) {
+  return '\\Examples\n\\begin{pfsamples}\n' + samples.map(s => (
+    s.firstOutputPath && s.secondInputPath
+      ? `\\pfcommsample{${s.inputPath}}{${s.firstOutputPath}}{${s.secondInputPath}}{${s.answerPath}}`
+      : `\\pfsamplepair{${s.inputPath}}{${s.answerPath}}`
+  )).join('\n') + '\n\\end{pfsamples}\n';
 }

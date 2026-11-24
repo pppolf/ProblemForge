@@ -29,7 +29,7 @@ export async function restoreManifest(tx:Prisma.TransactionClient,problemId:stri
     await tx.program.update({where:{id:old.id},data:{enabled:false,version:{increment:1},currentRevisionId:r.id}});
   }
   const saveTest=async(t:ManifestTest,old?:{id:string;version:number})=>{
-    const id=await appendTest(tx,problemId,{number:t.number,groupName:t.groupName,isSample:t.isSample,enabled:t.enabled,notes:t.notes},t.input,t.answer,{restoredFrom:t.revisionId,source:t.provenance??null} as Prisma.InputJsonValue,old);
+    const id=await appendTest(tx,problemId,{number:t.number,groupName:t.groupName,isSample:t.isSample,enabled:t.enabled,notes:t.notes,...(t.isSample&&t.communication?{communication:t.communication}:{})},t.input,t.answer,{restoredFrom:t.revisionId,source:t.provenance??null} as Prisma.InputJsonValue,old);
     const row=await tx.testCase.findUniqueOrThrow({where:{id}});testIds.set(t.id,id);revisionIds.set(t.revisionId,row.currentRevisionId!);return row;
   };
   for(const t of m.tests){

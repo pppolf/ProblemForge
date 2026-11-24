@@ -1,8 +1,8 @@
 import { db, Prisma } from '@problemforge/database';
-import { defaultJudgeSettings, defaultInteractionSettings, isJudgingData, generatorPlanCommands, generatorPlanProgramIds, programLanguages, isCppLanguage, type JudgePurpose, type JudgeSettingsValue, type GeneratorPlanSave, type StressConfigValue, type TestGroupsValue } from '@problemforge/contracts';
+import { defaultJudgeSettings, defaultInteractionSettings, isDisplayOnlySampleMode, isJudgingData, generatorPlanCommands, generatorPlanProgramIds, programLanguages, isCppLanguage, type JudgePurpose, type JudgeSettingsValue, type GeneratorPlanSave, type StressConfigValue, type TestGroupsValue } from '@problemforge/contracts';
 import { hashObject, HttpError } from '@problemforge/domain';
 import { GO_JUDGE_VERSION } from '@problemforge/judge-adapter';
-import { JUDGE_POLICY, JUDGING_DATA_POLICY, GENERATOR_DEDUP_POLICY, JUDGE_TOOLCHAIN, INTERACTION_POLICY, groupOrder, GroupError, solutionRoles, testlibRoles, type JudgeSnapshot, type ProgramSnapshot, type CaseSnapshot, type SelfTestSnapshot, type ProfileSnapshot } from '@problemforge/judge-core';
+import { JUDGE_POLICY, JUDGING_DATA_POLICY, COMMUNICATION_POLICY, GENERATOR_DEDUP_POLICY, JUDGE_TOOLCHAIN, INTERACTION_POLICY, groupOrder, GroupError, solutionRoles, testlibRoles, type JudgeSnapshot, type ProgramSnapshot, type CaseSnapshot, type SelfTestSnapshot, type ProfileSnapshot } from '@problemforge/judge-core';
 
 export async function judgeSnapshot(tx: Prisma.TransactionClient, problemId: string, purpose: JudgePurpose, programId?: string, budgetMs = 300000): Promise<JudgeSnapshot> {
   const problem = await tx.problem.findUniqueOrThrow({ where: { id: problemId } });
@@ -29,7 +29,7 @@ export async function judgeSnapshot(tx: Prisma.TransactionClient, problemId: str
     if (p.role === 'GENERATOR') return plans.some(plan => generatorPlanProgramIds(plan.data as GeneratorPlanSave).includes(p.id));
     if (!p.enabled) return false;
     if (['VALIDATOR', 'EXTRA_VALIDATOR'].includes(p.role)) return ['VALIDATE', 'ANSWERS', 'ACCEPTANCE'].includes(purpose) && (p.validatorScope !== 'GROUPS' || extraIds.has(p.id));
-    if (p.role === 'INTERACTOR') return settings.interactionMode === 'INTERACTIVE' && ['ANSWERS', 'ACCEPTANCE'].includes(purpose);
+    if (p.role === 'INTERACTOR') return (settings.interactionMode === 'INTERACTIVE' || settings.interactionMode === 'COMMUNICATION') && ['ANSWERS', 'ACCEPTANCE'].includes(purpose);
     if (p.role === 'CHECKER') return ['SELF_TEST', 'ANSWERS', 'ACCEPTANCE'].includes(purpose) && settings.checkerMode === 'CUSTOM' && !directInteraction;
     if (p.role === 'MAIN_SOLUTION') return ['ANSWERS', 'ACCEPTANCE'].includes(purpose);
     return purpose === 'ACCEPTANCE' && solutionRoles.has(p.role);
@@ -49,15 +49,16 @@ export async function judgeSnapshot(tx: Prisma.TransactionClient, problemId: str
   const scopedSettings: Partial<JudgeSettingsValue> = {};
   if (['ANSWERS', 'ACCEPTANCE', 'STRESS', 'REPLAY'].includes(purpose)) Object.assign(scopedSettings, settings);
   else if (purpose === 'SELF_TEST') Object.assign(scopedSettings, { checkerMode: settings.checkerMode, absoluteTolerance: settings.absoluteTolerance, relativeTolerance: settings.relativeTolerance });
-  const interactiveData = settings.interactionMode === 'INTERACTIVE' && ['GENERATE', 'VALIDATE', 'ANSWERS', 'ACCEPTANCE'].includes(purpose);
-  if (interactiveData) scopedSettings.interactionMode = 'INTERACTIVE';
+  const displayOnlyData = isDisplayOnlySampleMode(settings.interactionMode) && ['GENERATE', 'VALIDATE', 'ANSWERS', 'ACCEPTANCE'].includes(purpose);
+  if (displayOnlyData) scopedSettings.interactionMode = settings.interactionMode;
   return {
     problemId, purpose, ...(programId ? { programId } : {}), budgetMs: stressData?.budgetMs ?? budgetMs, policy: plans.length || stressData ? GENERATOR_DEDUP_POLICY : JUDGE_POLICY, toolchain: JUDGE_TOOLCHAIN, sandboxVersion: GO_JUDGE_VERSION,
     ...(stress ? { stress: { version: stress.version, hash: stress.hash, data: stressData! } } : {}),
     ...(groupConfig && !stressData ? { groups: { version: groupConfig.version, hash: groupConfig.hash, data: groupData! } } : {}),
     ...(stressGroups ? { stressGroups } : {}),
-    ...(interactiveData ? { dataPolicy: JUDGING_DATA_POLICY } : {}),
-    ...(settings.interactionMode === 'INTERACTIVE' && ['ANSWERS', 'ACCEPTANCE'].includes(purpose) ? { interactionPolicy: INTERACTION_POLICY } : {}),
+    ...(displayOnlyData ? { dataPolicy: JUDGING_DATA_POLICY } : {}),
+    ...((settings.interactionMode === 'INTERACTIVE' || settings.interactionMode === 'COMMUNICATION') && ['ANSWERS', 'ACCEPTANCE'].includes(purpose) ? { interactionPolicy: INTERACTION_POLICY } : {}),
+    ...(settings.interactionMode === 'COMMUNICATION' && ['ANSWERS', 'ACCEPTANCE'].includes(purpose) ? { communicationPolicy: COMMUNICATION_POLICY } : {}),
     programs: programSnapshots, tests: caseSnapshots, settings: scopedSettings,
     plans: plans.map(p => ({ ...p.data as GeneratorPlanSave, id: p.id, version: p.version, hash: p.hash })),
     selfTests: selfTests.map(t => ({ ...t.data as object, id: t.id, version: t.version, hash: t.hash })) as SelfTestSnapshot[],
@@ -76,7 +77,7 @@ export function validateJudgeSnapshot(input: JudgeSnapshot) {
     for (const id of input.stressGroups?.flatMap(g=>g.extraValidatorIds) ?? []) if (!input.programs.some(p=>p.id===id&&p.enabled&&p.role==='EXTRA_VALIDATOR'&&p.validatorScope==='GROUPS')) throw new HttpError(422, '对拍选择的组级额外 Validator 已改变');
     const role = (id: string, roles: string[]) => input.programs.some(p => p.id === id && p.enabled && roles.includes(p.role));
     if (!role(s.generatorId, ['GENERATOR']) || !role(s.referenceId, [...solutionRoles]) || !role(s.candidateId, [...solutionRoles]) || s.referenceId === s.candidateId) throw new HttpError(422, '对拍需要本题启用的生成器及两个不同解法');
-    if (input.settings.interactionMode !== 'BATCH') throw new HttpError(422, '对拍配置用于批处理题；交互题请使用交互验收');
+    if (input.settings.interactionMode !== 'BATCH') throw new HttpError(422, '对拍配置用于批处理题；交互或通信题请使用完整验收');
     if (input.settings.checkerMode === 'CUSTOM' ? !s.checkerId || !role(s.checkerId, ['CHECKER']) : s.checkerId !== null) throw new HttpError(422, '请选择本题 Checker，内置比较器请留空');
     if (input.programs.filter(p => p.enabled && p.role === 'VALIDATOR').length !== 1) throw new HttpError(422, '对拍必须恰好启用一个主 Validator');
   }
@@ -86,11 +87,11 @@ export function validateJudgeSnapshot(input: JudgeSnapshot) {
   if (['ANSWERS', 'ACCEPTANCE'].includes(input.purpose)) {
     if (input.settings.scoringMode === 'PARTIAL' && !input.groups?.data.groups.some(g=>g.points>0)) throw new HttpError(422, '部分分需要有正分数的数据组');
     if (input.settings.scoringMode === 'ACM' && input.programs.some(p=>p.expectedScore)) throw new HttpError(422, '分数预期适用于部分分模式，请显式选择部分分或移除分数声明');
-    if (input.settings.interactionMode === 'INTERACTIVE' && (input.settings.ioMode !== 'STDIO' || input.programs.filter(p => p.role === 'INTERACTOR' && p.enabled).length !== 1)) throw new HttpError(422, '交互执行使用标准管道且必须恰好启用一个 Interactor');
+    if ((input.settings.interactionMode === 'INTERACTIVE' || input.settings.interactionMode === 'COMMUNICATION') && (input.settings.ioMode !== 'STDIO' || input.programs.filter(p => p.role === 'INTERACTOR' && p.enabled).length !== 1)) throw new HttpError(422, input.settings.interactionMode === 'COMMUNICATION' ? '两轮通信执行使用标准管道且必须恰好启用一个 Interactor' : '交互执行使用标准管道且必须恰好启用一个 Interactor');
     if (input.programs.filter(p => p.role === 'MAIN_SOLUTION' && p.enabled).length !== 1) throw new HttpError(422, '必须恰好启用一个主标程');
   }
   if (['VALIDATE', 'ANSWERS', 'ACCEPTANCE'].includes(input.purpose)) {
-    if (!input.tests.length && !input.plans.length) throw new HttpError(422, input.settings.interactionMode === 'INTERACTIVE' ? '交互样例仅用于题面展示；请添加至少一组启用的非样例测试数据或生成计划' : '至少需要一组启用的数据或生成计划');
+    if (!input.tests.length && !input.plans.length) throw new HttpError(422, isDisplayOnlySampleMode(input.settings.interactionMode) ? `${input.settings.interactionMode === 'COMMUNICATION' ? '通信' : '交互'}样例仅用于题面展示；请添加至少一组启用的非样例测试数据或生成计划` : '至少需要一组启用的数据或生成计划');
     if (input.programs.filter(p => p.role === 'VALIDATOR' && p.enabled).length !== 1) throw new HttpError(422, '必须恰好启用一个主 Validator');
     if (input.tests.length + input.plans.reduce((n, p) => n + p.count, 0) > 200) throw new HttpError(422, '一次任务最多 200 组数据');
   }
@@ -109,7 +110,7 @@ export function validateJudgeSnapshot(input: JudgeSnapshot) {
     const groups = input.groups.data.groups;
     try { groupOrder(groups); } catch (e) { if (e instanceof GroupError) throw new HttpError(422,e.message); throw e; }
     const members = groups.flatMap(g=>g.members);
-    if (input.plans.length || members.length !== input.tests.length || input.tests.some(t=>!members.some(m=>m.testId===t.id&&m.revisionId===t.revisionId))) throw new HttpError(422, '数据组必须固定全部参与判题数据的当前版本（交互样例不参与）；生成数据请先收集并停用生成计划，再显式更新组成员');
+    if (input.plans.length || members.length !== input.tests.length || input.tests.some(t=>!members.some(m=>m.testId===t.id&&m.revisionId===t.revisionId))) throw new HttpError(422, '数据组必须固定全部参与判题数据的当前版本（交互/通信样例不参与）；生成数据请先收集并停用生成计划，再显式更新组成员');
     for (const id of groups.flatMap(g=>g.extraValidatorIds)) if (!input.programs.some(p=>p.id===id&&p.enabled&&p.role==='EXTRA_VALIDATOR'&&p.validatorScope==='GROUPS')) throw new HttpError(422, '组级额外 Validator 已停用或角色/范围已改变');
     for (const p of input.programs) if (p.expectedScore?.groups.some(e=>!groups.some(g=>g.id===e.groupId))) throw new HttpError(422, `${p.name} 的分数预期引用已移除的数据组`);
   }

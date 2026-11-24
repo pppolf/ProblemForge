@@ -8,7 +8,7 @@ import { SandboxClient, InfrastructureError, GO_JUDGE_VERSION, type SandboxComma
 
 const sandbox = new SandboxClient(config.sandboxUrl, config.sandboxToken);
 const storage = new ManagedStorage(config.storageRoot);
-type Input = { kind: DocumentKind; body: string; mode?: 'single' | 'booklet' | 'contest';contest?:ContestRenderInput;contestRendererVersion?:string; metadata: { title: string; author: string }; files: TemplateFiles; templateHash: string; policy: string; toolchain: string; sandboxVersion: string; sampleRendererVersion?: string; statementSettings?: StatementSettings; statementRendererVersion?: string; assets?: { path: string; key: string; hash: string; bytes: number }[]; samples?: { revisionId: string; inputPath: string; answerPath: string; input: { key: string; hash: string; bytes: number }; answer: { key: string; hash: string; bytes: number } }[] };
+type Input = { kind: DocumentKind; body: string; mode?: 'single' | 'booklet' | 'contest';contest?:ContestRenderInput;contestRendererVersion?:string; metadata: { title: string; author: string }; files: TemplateFiles; templateHash: string; policy: string; toolchain: string; sandboxVersion: string; sampleRendererVersion?: string; statementSettings?: StatementSettings; statementRendererVersion?: string; assets?: { path: string; key: string; hash: string; bytes: number }[]; samples?: { revisionId: string; inputPath: string; answerPath: string; input: { key: string; hash: string; bytes: number }; answer: { key: string; hash: string; bytes: number }; firstOutputPath?: string; secondInputPath?: string; firstOutputText?: string; secondInputText?: string }[] };
 const stopHeartbeat=await workerHeartbeat('tex');
 const active=new Set<AbortController>();
 const worker = new Worker('tex', async job => {
@@ -67,12 +67,22 @@ const worker = new Worker('tex', async job => {
       const fileId = await sandbox.upload(asset.path.split('/').at(-1)!, bytes);
       cacheIds.push(fileId); copyIn[asset.path] = { fileId };
     }
-    for (const sample of input.samples ?? []) for (const [path, ref] of [[sample.inputPath, sample.input], [sample.answerPath, sample.answer]] as const) {
-      const bytes = await storage.get(ref.key);
-      if (bytes.length !== ref.bytes || sha256(bytes) !== ref.hash) throw new Error('样例数据快照哈希不匹配');
-      printableSample(bytes);
-      const fileId = await sandbox.upload(path.split('/').at(-1)!, bytes);
-      cacheIds.push(fileId); copyIn[path] = { fileId };
+    for (const sample of input.samples ?? []) {
+      for (const [path, ref] of [[sample.inputPath, sample.input], [sample.answerPath, sample.answer]] as const) {
+        const bytes = await storage.get(ref.key);
+        if (bytes.length !== ref.bytes || sha256(bytes) !== ref.hash) throw new Error('样例数据快照哈希不匹配');
+        printableSample(bytes);
+        const fileId = await sandbox.upload(path.split('/').at(-1)!, bytes);
+        cacheIds.push(fileId); copyIn[path] = { fileId };
+      }
+      if (sample.firstOutputPath && sample.secondInputPath) {
+        for (const [path, text] of [[sample.firstOutputPath, sample.firstOutputText ?? ''], [sample.secondInputPath, sample.secondInputText ?? '']] as const) {
+          const bytes = Buffer.from(text, 'utf8');
+          printableSample(bytes);
+          const fileId = await sandbox.upload(path.split('/').at(-1)!, bytes);
+          cacheIds.push(fileId); copyIn[path] = { fileId };
+        }
+      }
     }
     const cmd: SandboxCommand = {
       args: ['/usr/bin/latexmk', '-norc', '-xelatex', '-no-shell-escape', '-halt-on-error', '-interaction=nonstopmode', '-file-line-error', 'main.tex'],

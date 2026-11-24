@@ -20,20 +20,28 @@ export async function lockProblem(tx: Prisma.TransactionClient, id: string) {
 export async function touchProblem(tx: Prisma.TransactionClient, id: string) { await tx.problem.update({ where: { id }, data: { updatedAt: new Date() } }); }
 export async function appendTest(tx: Prisma.TransactionClient, problemId: string, data: Omit<TestCaseSave, 'inputBase64' | 'answerBase64'>, input: BlobRef, answer: BlobRef | null, provenance: Prisma.InputJsonValue, existing?: { id: string; version: number }) {
   if (input.bytes > MAX_TEST_BYTES || (answer?.bytes ?? 0) > MAX_TEST_BYTES) throw new HttpError(422, `单份输入或答案最大 ${MAX_TEST_BYTES / 1_000_000} MB`);
+  const { communication, ...caseData } = data;
+  if (caseData.isSample && communication) {
+    for (const text of [communication.firstOutput, communication.secondInput]) {
+      if (Buffer.byteLength(text, 'utf8') > 65536) throw new HttpError(422, '通信样例单段文本最多 64 KiB');
+      if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(text)) throw new HttpError(422, '通信样例文本不能包含不可显示的控制字节');
+    }
+  }
+  const configuration = caseData.isSample && communication ? { ...caseData, communication } : caseData;
   let testId: string, version: number;
   if (existing) {
-    const updated = await tx.testCase.updateMany({ where: { id: existing.id, problemId, deletedAt: null, version: existing.version }, data: { number: data.number, groupName: data.groupName, isSample: data.isSample, enabled: data.enabled, notes: data.notes, version: { increment: 1 } } });
+    const updated = await tx.testCase.updateMany({ where: { id: existing.id, problemId, deletedAt: null, version: existing.version }, data: { number: caseData.number, groupName: caseData.groupName, isSample: caseData.isSample, enabled: caseData.enabled, notes: caseData.notes, version: { increment: 1 } } });
     if (!updated.count) throw new HttpError(409, '测试数据版本冲突，本地内容未被覆盖', 'VERSION_CONFLICT');
     testId = existing.id; version = existing.version + 1;
   } else {
     if (await tx.testCase.count({ where: { problemId, deletedAt: null } }) >= 500) throw new HttpError(422, '本题最多保存 500 组测试数据');
-    const created = await tx.testCase.create({ data: { problemId, ...data } });
+    const created = await tx.testCase.create({ data: { problemId, ...caseData } });
     testId = created.id; version = 1;
   }
   const revision = await tx.testCaseRevision.create({ data: {
     testCaseId: testId, version, inputKey: input.key, inputHash: input.hash, inputBytes: input.bytes,
     answerKey: answer?.key, answerHash: answer?.hash, answerBytes: answer?.bytes,
-    provenance, configuration: data,
+    provenance, configuration: configuration as Prisma.InputJsonValue,
   } });
   await tx.testCase.update({ where: { id: testId }, data: { currentRevisionId: revision.id } });
   await touchProblem(tx, problemId);

@@ -56,7 +56,7 @@ export async function exportNovaJudgeProblem(
   for (const revisionId of statement.sampleRevisionIds) {
     const sample = manifest.samples.find(s => s.revisionId === revisionId);
     if (!sample?.answer) throw new PackageError('题面绑定的样例版本或示例输出缺失，请重新绑定完整样例');
-    samples.push({ input: await sampleText(sample.input), output: await sampleText(sample.answer) });
+    samples.push({ input: await sampleText(sample.input), output: await sampleText(sample.answer), ...(sample.communication ? { communication: sample.communication } : {}) });
   }
   const converted = latexToMarkdown(statement.body, { language, samples, statement: true, structuredStatement: true, assetUrl: path => `/api/problems/${archiveId}/${path}` });
   report.push({ area: '题面', status: 'MAPPED', message: `${language} 题面 v${statement.version} 已转换为 sections / samples / hint，保留 Markdown 与数学公式；${converted.samples.length} 组展示样例保留原始空白和顺序。` });
@@ -69,18 +69,32 @@ export async function exportNovaJudgeProblem(
   if (converted.assets.length) report.push({ area: '图片', status: 'MAPPED', message: `${converted.assets.length} 张引用图片已放入本题 assets/，导入时随包内题号重写正文和提示中的图片链接。` });
   if (manifest.meta.tags.length) report.push({ area: '标签', status: 'WARNING', message: `NovaJudge 当前题包导入协议不读取标签；本地 ${manifest.meta.tags.length} 个标签未包含在此包中。` });
   const data = await exportTestData(manifest, 'NOVAJUDGE', read, support, { novaJudgeNativeComparison: options.comparison !== 'PRESERVE' });
-  const config = JSON.parse(data.files.get('problem.yml')!.toString()) as { type: 'default' | 'spj' | 'interactive'; cases: { input: string; output?: string }[]; checker?: string; interactor?: string };
-  const { type, ...judgeConfig } = config;
+  const config = JSON.parse(data.files.get('problem.yml')!.toString()) as {
+    type: 'default' | 'spj' | 'interactive' | 'communication';
+    cases: { input: string; output?: string }[];
+    checker?: string;
+    interactor?: string;
+    polygon?: { run_count: number; interactor_runs: number[]; sample_cases: number[] };
+    communication?: { output_limit: number };
+  };
+  const { type, ...restConfig } = config;
+  const judgeConfig = type === 'communication' ? config : restConfig;
   if (type === 'interactive') for (const testcase of judgeConfig.cases) testcase.output = '/dev/null';
+  const exportedSamples = converted.samples.map(s => (
+    s.communication
+      ? { input: s.input, output: '', communication: { firstOutput: s.communication.firstOutput, secondInput: s.communication.secondInput, secondOutput: s.output } }
+      : { input: s.input, output: s.output }
+  ));
   put('problem.json', Buffer.from(JSON.stringify({
     id: archiveId, title: manifest.meta.title, type, defaultTimeLimit: manifest.judgeSettings.timeLimitMs,
     defaultMemoryLimit: manifest.judgeSettings.memoryLimitMb, sections: converted.sections,
-    samples: converted.samples, hint: converted.hint, judgeConfig,
+    samples: exportedSamples, hint: converted.hint, judgeConfig,
   }, null, 2) + '\n'));
   for (const [path, bytes] of data.files) if (path !== 'problem.yml') put(`data/${path}`, bytes);
   put('data/problem.yml', Buffer.from(stringifyYaml(judgeConfig)));
   report.push(...data.report.filter(r => !['上传位置', '时间与内存'].includes(r.area)).map(r => r.area === '测试数据' ? { ...r, message: r.message.replace('ZIP 根目录', 'data/ 目录').replace('、题面、题解和参考解', '、题解和参考解') } : r));
-  report.push({ area: '题型与限制', status: 'MAPPED', message: `导出为 ${type === 'default' ? '传统题（default）' : type === 'spj' ? 'SPJ（spj）' : '交互题（interactive）'}；problem.json 已写入 ${manifest.judgeSettings.timeLimitMs} ms / ${manifest.judgeSettings.memoryLimitMb} MiB。` });
+  const typeLabel = type === 'default' ? '传统题（default）' : type === 'spj' ? 'SPJ（spj）' : type === 'communication' ? '通信题（communication）' : '交互题（interactive）';
+  report.push({ area: '题型与限制', status: 'MAPPED', message: `导出为 ${typeLabel}；problem.json 已写入 ${manifest.judgeSettings.timeLimitMs} ms / ${manifest.judgeSettings.memoryLimitMb} MiB。` });
   if (type !== 'default') report.push({ area: '工具编译', status: 'WARNING', message: 'Checker / Interactor 保留固定源码；NovaJudge 使用目标站的 C++ 编译配置和 testlib.h，随包依赖供核对，需在导入后验收。' });
   report.push({ area: '导入位置', status: 'MAPPED', message: `在 NovaJudge 管理后台的“导入题目”上传整个 ZIP。包内 ID ${archiveId} 仅供图片路径重写，导入时由目标站分配新题号；题解、参考解和私有备注不导出。` });
   return { files, report };

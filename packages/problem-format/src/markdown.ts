@@ -28,7 +28,7 @@ const inlineCode = (text: string) => {
 const environmentName = (node: Ast.Environment) => typeof node.env === 'string' ? node.env : printRaw(node.env);
 
 // Read structure only: no TeX compilation, template execution or external resources.
-export type MarkdownSample = { input: string; output: string };
+export type MarkdownSample = { input: string; output: string; communication?: { firstOutput: string; secondInput: string } };
 export function latexToMarkdown(body: string, options: { language?: string; samples?: MarkdownSample[]; statement?: boolean; structuredStatement?: boolean; assetUrl?: (path: string) => string } = {}) {
   if (body.length > 500_000 || body.includes('\0')) throw new PackageError('LaTeX 正文超出转换限制');
   let root: Ast.Root;
@@ -44,9 +44,14 @@ export function latexToMarkdown(body: string, options: { language?: string; samp
   const label = (zh: string, en: string) => english ? en : zh;
   let sampleNumber = 0;
   const statementSamples: MarkdownSample[] = [];
-  const sample = ({ input, output }: MarkdownSample) => {
-    statementSamples.push({ input, output });
+  const sample = ({ input, output, communication }: MarkdownSample) => {
+    statementSamples.push({ input, output, ...(communication ? { communication } : {}) });
     if (options.structuredStatement) return '';
+    if (communication) {
+      const firstNo = ++sampleNumber;
+      const secondNo = ++sampleNumber;
+      return `${fencedCode(input, `input${firstNo}`)}\n\n${fencedCode(communication.firstOutput, `output${firstNo}`)}\n\n${fencedCode(communication.secondInput, `input${secondNo}`)}\n\n${fencedCode(output, `output${secondNo}`)}`;
+    }
     const number = ++sampleNumber;
     return `${fencedCode(input, `input${number}`)}\n\n${fencedCode(output, `output${number}`)}`;
   };

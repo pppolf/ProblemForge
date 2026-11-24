@@ -9,8 +9,9 @@ const tab = ref('matrix'), selectedInvocation = ref(''), selectedCases = ref<str
 const programs = computed(() => props.run.input?.programs?.filter((p: any) => props.run.report?.matrix?.some((c: any) => c.programId === p.id)) ?? []);
 const invocations = computed(() => props.run.invocations ?? []);
 const interactive = computed(() => props.run.input?.settings?.interactionMode === 'INTERACTIVE' && ['ANSWERS', 'ACCEPTANCE'].includes(props.run.purpose));
+const communication = computed(() => props.run.input?.settings?.interactionMode === 'COMMUNICATION' && ['ANSWERS', 'ACCEPTANCE'].includes(props.run.purpose));
 const directInteraction = computed(() => interactive.value && (props.run.input.settings.interaction?.verdictMode ?? defaultInteractionSettings.verdictMode) === 'DIRECT');
-const answerLabel = computed(() => interactive.value ? directInteraction.value ? 'Interactor 附加输出' : '比较用输出（tout）' : '答案');
+const answerLabel = computed(() => interactive.value ? directInteraction.value ? 'Interactor 附加输出' : '比较用输出（tout）' : communication.value ? '答案（第 2 轮输出）' : '答案');
 const dataCases = computed(() => {
   const mainInvocations = new Map<string, any>(invocations.value.filter((i: any) => i.phase === 'MAIN_SOLUTION').map((i: any) => [i.caseRef, i]));
   return (props.run.cases ?? []).map((c: any) => ({ ...c, mainInvocation: mainInvocations.get(c.ref) }));
@@ -49,6 +50,12 @@ function cell(programId: string, ref: string) { return props.run.report?.matrix?
 function inspect(id: string) { selectedInvocation.value = id; tab.value = 'log'; }
 function choose(id: string, value: boolean) { selectedCases.value = value ? [...selectedCases.value, id] : selectedCases.value.filter(c => c !== id); }
 function stdoutLabel(invocation: any) {
+  if (communication.value) {
+    if (invocation.phase === 'COMMUNICATION_PASS1') return '第 1 轮输出（first）';
+    if (invocation.phase === 'MAIN_SOLUTION') return '主标程第 2 轮输出';
+    if (invocation.phase === 'SOLUTION') return '选手第 2 轮输出';
+    if (invocation.phase === 'INTERACTOR') return 'Interactor 通信输出';
+  }
   if (interactive.value) {
     if (invocation.phase === 'MAIN_SOLUTION') return '主标程输出';
     if (invocation.phase === 'SOLUTION') return '选手输出';
@@ -78,10 +85,13 @@ function stdoutLabel(invocation: any) {
       <template v-if="directInteraction">本任务由 Interactor 直接判定。附加输出文件（tout）允许为 0 字节；主标程的询问和最终回答请查看「主标程输出」或「通信记录」。</template>
       <template v-else>本任务将 Interactor 写入的输出（tout）交给 Checker 比较；主标程的交互通信单独保存在「主标程输出」和「通信记录」中。</template>
     </NAlert>
+    <NAlert v-if="communication" type="info" :show-icon="false">
+      本任务为两轮通信验收（first / second）：第 1 轮由 Interactor 校验并经 tout 生成第 2 轮输入，第 2 轮在全新隔离进程中运行并由 Checker / 比较器终判。两轮各自独享时间与内存限制，矩阵显示两轮峰值。
+    </NAlert>
     <NTabs v-model:value="tab" type="line">
       <NTab name="matrix">验收矩阵</NTab>
       <NTab v-if="run.report?.scores?.length" name="scores">组分与总分</NTab>
-      <NTab name="data">{{ interactive ? '输入与交互记录' : '输入与答案' }}</NTab>
+      <NTab name="data">{{ interactive ? '输入与交互记录' : communication ? '输入、中转与答案' : '输入与答案' }}</NTab>
       <NTab name="selftests">自测与编译</NTab>
       <NTab name="log">执行日志</NTab>
     </NTabs>
@@ -173,6 +183,10 @@ function stdoutLabel(invocation: any) {
                   <small v-if="c.mainInvocation.stdoutHash"><a :href="`/api/invocations/${c.mainInvocation.id}/stdout`">主标程输出 · {{ c.mainInvocation.stdoutBytes }} bytes</a></small>
                   <small v-if="c.mainInvocation.detail?.transcript"><a :href="`/api/invocations/${c.mainInvocation.id}/transcript`">通信记录 · JSONL</a></small>
                 </template>
+                <template v-if="communication && c.mainInvocation">
+                  <small v-if="c.mainInvocation.detail?.forwardedInput"><a :href="`/api/invocations/${c.mainInvocation.id}/forwarded`">第 2 轮中转输入（tout）· {{ c.mainInvocation.detail.forwardedInput.bytes }} bytes</a></small>
+                  <small v-if="c.mainInvocation.detail?.transcript"><a :href="`/api/invocations/${c.mainInvocation.id}/transcript`">第 1 轮通信记录 · JSONL</a></small>
+                </template>
               </td>
             </tr>
           </tbody>
@@ -205,7 +219,8 @@ function stdoutLabel(invocation: any) {
         <span class="verdict-pill" :class="verdictClass(selected.verdict)">{{ selected.verdict }}</span>
         <span v-if="selected.status === 'Cached'">已复用编译缓存 · 本次未重新编译</span>
         <span v-else>沙箱 {{ selected.status }} / exit={{ selected.exitStatus }} · {{ selected.timeMs.toFixed(2) }} ms · {{ (selected.memoryBytes / 1048576).toFixed(2) }} MiB</span>
-        <a v-if="selected.detail?.transcript" :href="`/api/invocations/${selected.id}/transcript`">有界通信记录 · JSONL</a>
+        <a v-if="selected.detail?.transcript" :href="`/api/invocations/${selected.id}/transcript`">{{ communication ? '第 1 轮通信记录 · JSONL' : '有界通信记录 · JSONL' }}</a>
+        <a v-if="selected.detail?.forwardedInput" :href="`/api/invocations/${selected.id}/forwarded`">第 2 轮中转输入（tout）· {{ selected.detail.forwardedInput.bytes }} bytes</a>
         <a v-if="selected.status !== 'Cached'" :href="`/api/invocations/${selected.id}/stdout`">{{ stdoutLabel(selected) }} · {{ selected.stdoutBytes }} bytes</a>
         <a v-if="selected.status !== 'Cached'" :href="`/api/invocations/${selected.id}/stderr`">stderr · {{ selected.stderrBytes }} bytes</a>
         <a v-if="['MAIN_SOLUTION', 'SOLUTION'].includes(selected.phase) && (selected.detail?.output || selected.detail?.judgedOutput)" :href="`/api/invocations/${selected.id}/output`">{{ interactive ? answerLabel : '判题输出' }} · {{ (selected.detail.judgedOutput ?? selected.detail.output).bytes }} bytes</a>

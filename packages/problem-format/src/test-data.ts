@@ -1,6 +1,7 @@
-import { isCppLanguage, isJudgingData, type ProblemManifest, type StoredBlob, type TestDataTargetValue } from '@problemforge/contracts';
+import { defaultCommunicationSettings, isCppLanguage, isJudgingData, type ProblemManifest, type StoredBlob, type TestDataTargetValue } from '@problemforge/contracts';
 import { stringify as stringifyYaml } from 'yaml';
 import { PackageError, limits } from './archive.ts';
+import { HYDRO_COMPILE_SH, HYDRO_EXECUTE_SH, HYDRO_PHASE_LANGUAGES_JSON, HYDRO_PHASE_RUNNER_PY, buildHydroCommunicationInteractor } from './hydro-communication.ts';
 import { digest } from './native.ts';
 import type { Issue, PackageResult } from './types.ts';
 
@@ -85,10 +86,12 @@ export async function exportTestData(
   const files = new Map<string, Buffer>(), report: Issue[] = [], settings = manifest.judgeSettings;
   const tests = manifest.tests.filter(t => isJudgingData(settings, t)).sort((a, b) => a.number - b.number);
   const interactive = settings.interactionMode === 'INTERACTIVE';
-  const nativeComparison = target === 'NOVAJUDGE' && options.novaJudgeNativeComparison && !interactive && ['EXACT', 'TOKENS'].includes(settings.checkerMode);
+  const communication = settings.interactionMode === 'COMMUNICATION';
+  const displayOnlySamples = interactive || communication;
+  const nativeComparison = target === 'NOVAJUDGE' && options.novaJudgeNativeComparison && !interactive && !communication && ['EXACT', 'TOKENS'].includes(settings.checkerMode);
   const extension = target === 'HYDRO' ? 'cc' : 'cpp';
   const checkerName = `checker.${extension}`, interactorName = `interactor.${extension}`;
-  if (!tests.length) throw new PackageError(interactive ? '交互样例仅用于题面展示；请先添加或收集启用的非样例测试数据' : '没有可导出的启用测试数据，请先生成并收集输入');
+  if (!tests.length) throw new PackageError(displayOnlySamples ? `${communication ? '通信' : '交互'}样例仅用于题面展示；请先添加或收集启用的非样例测试数据` : '没有可导出的启用测试数据，请先生成并收集输入');
   if (tests.some(t => !Number.isInteger(t.number) || t.number < 1 || t.number > 100000)) throw new PackageError('测试数据编号无效');
   if (new Set(tests.map(t => t.number)).size !== tests.length) throw new PackageError('测试数据编号重复，请先调整编号，避免覆盖文件');
   const missing = tests.filter(t => !t.answer);
@@ -111,45 +114,90 @@ export async function exportTestData(
     put(`${t.number}.in`, await checked(t.input));
     if (!interactive) put(`${t.number}.ans`, await checked(t.answer!));
   }
-  report.push({ area: '测试数据', status: 'MAPPED', message: `${tests.length} 组启用数据按原编号放在 ZIP 根目录（${interactive ? '仅 *.in，不导出 .ans' : '*.in / *.ans'}），保留原始字节；${interactive ? '交互样例仅用于题面展示，已排除' : '包含启用样例'}，不含停用数据、题面、题解和参考解。` });
+  report.push({ area: '测试数据', status: 'MAPPED', message: `${tests.length} 组启用数据按原编号放在 ZIP 根目录（${interactive ? '仅 *.in，不导出 .ans' : '*.in / *.ans'}），保留原始字节；${displayOnlySamples ? `${communication ? '通信' : '交互'}样例仅用于题面展示，已排除` : '包含启用样例'}，不含停用数据、题面、题解和参考解。` });
   if (nonUtf8) report.push({ area: '数据编码', status: 'BLOCKED', message: '本题含非法 UTF-8 字节。ZIP 已保留原字节，但 NovaJudge 当前按 UTF-8 读取数据，请先调整数据编码或目标判题器。' });
 
   let usesTestlib = false;
-  const tool = (role: 'CHECKER' | 'INTERACTOR', name: string) => {
+  const pickCppTool = (role: 'CHECKER' | 'INTERACTOR', label: string) => {
     const choices = manifest.programs.filter(p => p.enabled && p.role === role);
     if (choices.length !== 1) throw new PackageError(`需要且只能启用一个 ${role === 'CHECKER' ? 'Checker' : 'Interactor'} 才能导出`);
     const p = choices[0];
     if (!isCppLanguage(p.profile.language)) throw new PackageError('Checker / Interactor 必须使用 C++');
-    if (digest(p.source) !== p.sourceHash) throw new PackageError(`${name} 源码哈希校验失败`);
+    if (digest(p.source) !== p.sourceHash) throw new PackageError(`${label} 源码哈希校验失败`);
+    return p;
+  };
+  const tool = (role: 'CHECKER' | 'INTERACTOR', name: string) => {
+    const p = pickCppTool(role, name);
     put(name, Buffer.from(p.source)); usesTestlib = true;
     report.push({ area: name, status: 'MAPPED', message: `已保留 ${p.name} 的固定源码（${p.profile.language}）。` });
     if (target === 'HYDRO') report.push({ area: '工具编译', status: 'WARNING', message: `${name} ${role === 'INTERACTOR' ? '使用 lang: auto，由 Hydro 按 .cc 扩展名选择编译配置' : '使用 Hydro 的 cc 编译配置'}；上传后请确认该配置支持 ${p.profile.language.replace('CPP', 'C++')}，自定义编译参数需在目标站设置。` });
   };
-  if ((!interactive && !nativeComparison) || (interactive && settings.interaction?.verdictMode === 'CHECKER')) {
-    if (settings.checkerMode === 'CUSTOM') tool('CHECKER', checkerName);
-    else {
-      put(checkerName, Buffer.from(comparisonChecker(settings)));
-      report.push({ area: '答案比较', status: 'MAPPED', message: `已生成 ${settings.checkerMode} 比较器，保留当前空白、末尾内容及浮点误差规则。` });
+  if (communication) {
+    const interactor = pickCppTool('INTERACTOR', 'interactor.cpp');
+    const customChecker = settings.checkerMode === 'CUSTOM' ? pickCppTool('CHECKER', 'checker.cpp') : null;
+    usesTestlib = true;
+    if (target === 'NOVAJUDGE') {
+      put('interactor.cpp', Buffer.from(interactor.source));
+      report.push({ area: 'interactor.cpp', status: 'MAPPED', message: `已保留第 1 轮中转 Interactor「${interactor.name}」的固定源码（${interactor.profile.language}）。` });
+      if (customChecker) {
+        put('checker.cpp', Buffer.from(customChecker.source));
+        report.push({ area: 'checker.cpp', status: 'MAPPED', message: `已保留终判 Checker「${customChecker.name}」的固定源码（${customChecker.profile.language}）。` });
+      } else {
+        put('checker.cpp', Buffer.from(comparisonChecker(settings)));
+        report.push({ area: 'checker.cpp', status: 'MAPPED', message: `已自动生成 ${settings.checkerMode} 比较器作为通信终判 checker.cpp，与主标程第 2 轮输出（*.ans）比对。` });
+      }
+      report.push({ area: '通信配置', status: 'MAPPED', message: `按 NovaJudge 两轮通信模型导出：run_count=2、interactor_runs=[1]、output_limit=${(settings.communication?.outputLimitBytes ?? defaultCommunicationSettings.outputLimitBytes).toLocaleString('zh-CN')} 字节。` });
+    } else {
+      const hydroInteractor = buildHydroCommunicationInteractor(interactor.source, customChecker?.source ?? null, settings);
+      put('interactor.cpp', Buffer.from(hydroInteractor));
+      put('compile.sh', Buffer.from(HYDRO_COMPILE_SH));
+      put('execute.sh', Buffer.from(HYDRO_EXECUTE_SH));
+      put('phase-runner.py', Buffer.from(HYDRO_PHASE_RUNNER_PY));
+      put('phase-languages.json', Buffer.from(HYDRO_PHASE_LANGUAGES_JSON));
+      report.push({ area: 'interactor.cpp', status: 'MAPPED', message: `已将本地 Interactor「${interactor.name}」与${customChecker ? `自定义 Checker「${customChecker.name}」` : `内置 ${settings.checkerMode} 比较器`}自动合成为 Hydro multi_pass: 2 交互器（单进程零子进程）。` });
+      report.push({ area: '通信包装脚本', status: 'MAPPED', message: '已生成通用长度帧 phase-runner.py、compile.sh、execute.sh 和 phase-languages.json，支持任意多行/大数据输入并向每轮选手进程提供真实 EOF。' });
+      report.push({ area: '工具编译', status: 'WARNING', message: 'Hydro 将按 multi_pass: 2 交互模式编译 interactor.cpp；上传后请确认目标站 C++ 编译配置与 phase-languages.json 语言命令匹配，并实际提交标程验收。' });
     }
-  }
-  if (nativeComparison) report.push({ area: '答案比较', status: 'WARNING', message: `按传统题格式使用 NovaJudge 默认比较：统一换行、忽略行末空格和全文首尾空白，与本地 ${settings.checkerMode} 规则不同。需要保持本地判定时，请选择“保留本地比较规则”，导出为带比较器的 SPJ。` });
-  if (interactive) {
-    tool('INTERACTOR', interactorName);
-    if (settings.interaction?.verdictMode === 'CHECKER') report.push({ area: '交互判定', status: 'BLOCKED', message: '当前题目要求交互结束后再运行 Checker；这两个目标格式的交互流程不能自动映射此行为，需先合并判定逻辑到 Interactor。源码均已打包供调整。' });
-    if (target === 'NOVAJUDGE') report.push({ area: '交互协议', status: 'WARNING', message: 'NovaJudge 仅向交互器传入 input 和 output 路径，不传参考答案；若交互器读取 ans / argv[3]，须调整后再上传。' });
-    report.push({ area: '交互限制', status: 'WARNING', message: '交互器的独立时间、内存、空闲和转录上限需在目标判题环境核对，不能通过此数据包完全还原。' });
+  } else {
+    if ((!interactive && !nativeComparison) || (interactive && settings.interaction?.verdictMode === 'CHECKER')) {
+      if (settings.checkerMode === 'CUSTOM') tool('CHECKER', checkerName);
+      else {
+        put(checkerName, Buffer.from(comparisonChecker(settings)));
+        report.push({ area: '答案比较', status: 'MAPPED', message: `已生成 ${settings.checkerMode} 比较器，保留当前空白、末尾内容及浮点误差规则。` });
+      }
+    }
+    if (nativeComparison) report.push({ area: '答案比较', status: 'WARNING', message: `按传统题格式使用 NovaJudge 默认比较：统一换行、忽略行末空格和全文首尾空白，与本地 ${settings.checkerMode} 规则不同。需要保持本地判定时，请选择“保留本地比较规则”，导出为带比较器的 SPJ。` });
+    if (interactive) {
+      tool('INTERACTOR', interactorName);
+      if (settings.interaction?.verdictMode === 'CHECKER') report.push({ area: '交互判定', status: 'BLOCKED', message: '当前题目要求交互结束后再运行 Checker；这两个目标格式的交互流程不能自动映射此行为，需先合并判定逻辑到 Interactor。源码均已打包供调整。' });
+      if (target === 'NOVAJUDGE') report.push({ area: '交互协议', status: 'WARNING', message: 'NovaJudge 仅向交互器传入 input 和 output 路径，不传参考答案；若交互器读取 ans / argv[3]，须调整后再上传。' });
+      report.push({ area: '交互限制', status: 'WARNING', message: '交互器的独立时间、内存、空闲和转录上限需在目标判题环境核对，不能通过此数据包完全还原。' });
+    }
   }
   if (usesTestlib) { put('testlib.h', support.testlib); put('testlib.LICENSE', support.license); }
   const cases = tests.map(t => ({ input: `${t.number}.in`, ...(!interactive ? { output: `${t.number}.ans` } : {}) }));
-  const config: Record<string, unknown> = target === 'HYDRO'
-    ? {
-      type: interactive ? 'interactive' : 'default', time: `${settings.timeLimitMs}ms`, memory: `${settings.memoryLimitMb}m`,
-      ...(interactive ? {
-        interactor: { file: interactorName, lang: 'auto' },
-        subtasks: [{ score: 100, id: 1, type: 'sum', cases: tests.map(t => ({ input: `${t.number}.in`, output: '/dev/null' })) }],
-      } : { checker_type: 'testlib', checker: { file: checkerName, lang: 'cc' }, cases }),
-    }
-    : { type: interactive ? 'interactive' : nativeComparison ? 'default' : 'spj', ...(interactive ? { interactor: interactorName } : nativeComparison ? {} : { checker: checkerName }), cases };
+  const config: Record<string, unknown> = communication
+    ? (target === 'HYDRO'
+      ? {
+        type: 'interactive', time: `${settings.timeLimitMs}ms`, memory: `${settings.memoryLimitMb}m`,
+        interactor: 'interactor.cpp', multi_pass: 2,
+        subtasks: [{ score: 100, id: 1, type: 'min', cases }],
+        user_extra_files: ['compile.sh', 'execute.sh', 'phase-runner.py', 'phase-languages.json'],
+      }
+      : {
+        type: 'communication', checker: 'checker.cpp', cases, interactor: 'interactor.cpp',
+        polygon: { run_count: 2, interactor_runs: [1], sample_cases: [] },
+        communication: { output_limit: settings.communication?.outputLimitBytes ?? defaultCommunicationSettings.outputLimitBytes },
+      })
+    : (target === 'HYDRO'
+      ? {
+        type: interactive ? 'interactive' : 'default', time: `${settings.timeLimitMs}ms`, memory: `${settings.memoryLimitMb}m`,
+        ...(interactive ? {
+          interactor: { file: interactorName, lang: 'auto' },
+          subtasks: [{ score: 100, id: 1, type: 'sum', cases: tests.map(t => ({ input: `${t.number}.in`, output: '/dev/null' })) }],
+        } : { checker_type: 'testlib', checker: { file: checkerName, lang: 'cc' }, cases }),
+      }
+      : { type: interactive ? 'interactive' : nativeComparison ? 'default' : 'spj', ...(interactive ? { interactor: interactorName } : nativeComparison ? {} : { checker: checkerName }), cases });
   if (settings.ioMode === 'FILES') report.push({ area: '文件输入输出', status: 'BLOCKED', message: `当前使用 ${settings.inputFile} / ${settings.outputFile}；此导出只自动配置标准输入输出，需先调整目标题目的文件 I/O 设置。` });
   if (settings.scoringMode === 'PARTIAL') report.push({ area: '分组评分', status: 'BLOCKED', message: '当前题目采用分组、权重或依赖评分，不能直接作为普通逐点测试上传；需在目标站配置对应评分规则。此包保留全部数据和工具。' });
   report.push({ area: '输出限制', status: 'WARNING', message: `原输出上限为 ${settings.outputLimitBytes.toLocaleString('zh-CN')} 字节，上传后请在目标判题环境核对。` });

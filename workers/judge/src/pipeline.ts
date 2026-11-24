@@ -1,8 +1,8 @@
 import { db, Prisma } from '@problemforge/database';
 import { hashObject, sha256 } from '@problemforge/domain';
 import { GO_JUDGE_VERSION } from '@problemforge/judge-adapter';
-import { JUDGE_POLICY, JUDGING_DATA_POLICY, GENERATOR_DEDUP_POLICY, JUDGE_TOOLCHAIN, INTERACTION_POLICY, scoreGroups, scoreExpectation, type ScoreReport, checkExpectation, compareOutput, solutionRoles, type JudgeSnapshot, type ProgramSnapshot, type BlobRef } from '@problemforge/judge-core';
-import { defaultJudgeSettings, isJudgingData, generatorPlanCommands, type JudgeSettingsValue } from '@problemforge/contracts';
+import { JUDGE_POLICY, JUDGING_DATA_POLICY, COMMUNICATION_POLICY, GENERATOR_DEDUP_POLICY, JUDGE_TOOLCHAIN, INTERACTION_POLICY, scoreGroups, scoreExpectation, type ScoreReport, checkExpectation, compareOutput, solutionRoles, type JudgeSnapshot, type ProgramSnapshot, type BlobRef } from '@problemforge/judge-core';
+import { defaultJudgeSettings, isDisplayOnlySampleMode, isJudgingData, generatorPlanCommands, type JudgeSettingsValue } from '@problemforge/contracts';
 import { Executor, JudgeFailure, type Captured, type Compiled } from './executor.ts';
 import { stressPipeline } from './stress.ts';
 
@@ -22,11 +22,12 @@ export async function pipeline(runId: string, input: JudgeSnapshot, executor: Ex
   const policy = input.plans.length || input.stress ? GENERATOR_DEDUP_POLICY : JUDGE_POLICY;
   if (input.policy !== policy || input.toolchain !== JUDGE_TOOLCHAIN || input.sandboxVersion !== GO_JUDGE_VERSION) throw new JudgeFailure('TOOLCHAIN_MISMATCH', '任务策略/工具链已改变，请创建新任务');
   if (settings.interactionMode === 'INTERACTIVE' && ['ANSWERS', 'ACCEPTANCE'].includes(input.purpose) && input.interactionPolicy !== INTERACTION_POLICY) throw new JudgeFailure('INTERACTION_POLICY_MISMATCH', '交互策略已改变，请创建新任务');
-  if (settings.interactionMode === 'INTERACTIVE' && ['GENERATE', 'VALIDATE', 'ANSWERS', 'ACCEPTANCE'].includes(input.purpose)) {
-    if (input.dataPolicy !== JUDGING_DATA_POLICY) throw new JudgeFailure('JUDGING_DATA_POLICY_MISMATCH', '交互样例现仅用于展示，请按当前版本创建新任务');
+  if (settings.interactionMode === 'COMMUNICATION' && ['ANSWERS', 'ACCEPTANCE'].includes(input.purpose) && (input.interactionPolicy !== INTERACTION_POLICY || input.communicationPolicy !== COMMUNICATION_POLICY)) throw new JudgeFailure('COMMUNICATION_POLICY_MISMATCH', '通信策略已改变，请创建新任务');
+  if (isDisplayOnlySampleMode(settings.interactionMode) && ['GENERATE', 'VALIDATE', 'ANSWERS', 'ACCEPTANCE'].includes(input.purpose)) {
+    if (input.dataPolicy !== JUDGING_DATA_POLICY) throw new JudgeFailure('JUDGING_DATA_POLICY_MISMATCH', '交互/通信样例仅用于展示，请按当前版本创建新任务');
     // Filter before deduplication, progress accounting, blob reads or execution.
     input = { ...input, tests: input.tests.filter(t => isJudgingData(settings, t)), plans: input.plans.filter(p => input.purpose === 'GENERATE' || isJudgingData(settings, p)) };
-    if (input.purpose !== 'GENERATE' && !input.tests.length && !input.plans.length) throw new JudgeFailure('NO_JUDGING_DATA', '交互样例仅用于展示；请添加启用的非样例测试数据或生成计划');
+    if (input.purpose !== 'GENERATE' && !input.tests.length && !input.plans.length) throw new JudgeFailure('NO_JUDGING_DATA', `${settings.interactionMode === 'COMMUNICATION' ? '通信' : '交互'}样例仅用于展示；请添加启用的非样例测试数据或生成计划`);
   }
   for (const p of input.programs) if (sha256(p.source) !== p.sourceHash || hashObject({ language: p.profile.language, config: p.profile.config }) !== p.profile.hash) throw new JudgeFailure('SOURCE_HASH_MISMATCH', '源码或编译 profile 快照哈希不匹配');
   const compiled = new Map<string, Compiled>(), failedCompile = new Map<string, Captured>();
@@ -37,9 +38,10 @@ export async function pipeline(runId: string, input: JudgeSnapshot, executor: Ex
   const interactor = input.programs.find(p => p.role === 'INTERACTOR' && p.enabled);
   const directInteraction = settings.interactionMode === 'INTERACTIVE' && (settings.interaction?.verdictMode ?? 'DIRECT') === 'DIRECT';
   const solutions = input.programs.filter(p => p.enabled && solutionRoles.has(p.role));
+  const execSteps = settings.interactionMode === 'COMMUNICATION' ? 3 : 1;
   let caseSteps = ['VALIDATE', 'ANSWERS', 'ACCEPTANCE'].includes(input.purpose) ? validators.length : 0;
-  if (['ANSWERS', 'ACCEPTANCE'].includes(input.purpose)) caseSteps += 1 + (settings.checkerMode === 'CUSTOM' ? 1 : 0);
-  if (input.purpose === 'ACCEPTANCE') caseSteps += (solutions.length - 1) * (1 + (settings.checkerMode === 'CUSTOM' ? 1 : 0));
+  if (['ANSWERS', 'ACCEPTANCE'].includes(input.purpose)) caseSteps += execSteps + (settings.checkerMode === 'CUSTOM' && !directInteraction ? 1 : 0);
+  if (input.purpose === 'ACCEPTANCE') caseSteps += (solutions.length - 1) * (execSteps + (settings.checkerMode === 'CUSTOM' && !directInteraction ? 1 : 0));
   let total = input.programs.length + (input.purpose === 'GENERATE' ? 0 : input.tests.length) + input.plans.reduce((n, p) => n + p.count + 1, 0) + casesCount * caseSteps;
   total += input.selfTests.length;
   if (input.stress) total = input.programs.length + (input.replay ? 1 : input.stress.data.iterations) * (validators.length + 3 + (settings.checkerMode === 'CUSTOM' ? 2 : 0)) + (input.replay?.regenerate ? 1 : 0);
@@ -145,9 +147,11 @@ export async function pipeline(runId: string, input: JudgeSnapshot, executor: Ex
   };
   const checker = settings.checkerMode === 'CUSTOM' && checkerProgram ? compiled.get(checkerProgram.id) : undefined;
   if (['ANSWERS', 'ACCEPTANCE'].includes(input.purpose)) for (const c of caseData) {
-    const execution = settings.interactionMode === 'INTERACTIVE'
-      ? await executor.interactive(compiled.get(main!.id)!, compiled.get(interactor!.id)!, c.input, c.suppliedAnswer, settings, c.ref, true)
-      : await executor.solution(compiled.get(main!.id)!, c.input, settings, c.ref, true);
+    const execution = settings.interactionMode === 'COMMUNICATION'
+      ? await executor.communication(compiled.get(main!.id)!, compiled.get(interactor!.id)!, c.input, c.suppliedAnswer, settings, c.ref, true)
+      : settings.interactionMode === 'INTERACTIVE'
+        ? await executor.interactive(compiled.get(main!.id)!, compiled.get(interactor!.id)!, c.input, c.suppliedAnswer, settings, c.ref, true)
+        : await executor.solution(compiled.get(main!.id)!, c.input, settings, c.ref, true);
     if (execution.verdict !== 'AC' || !execution.outputRef) throw new JudgeFailure('MAIN_EXECUTION_FAILED', `主标程对 #${c.number}: ${execution.verdict}\n${execution.diagnostic}`);
     c.mainRun = execution; c.answer = execution.output!;
     const judged = directInteraction ? { verdict: 'AC', diagnostic: execution.diagnostic } : await check(c.input, c.suppliedAnswer ?? c.answer, c.answer, { caseRef: c.ref }, checker);
@@ -185,13 +189,16 @@ export async function pipeline(runId: string, input: JudgeSnapshot, executor: Ex
       if (p.role === 'MAIN_SOLUTION') { report.matrix.push(cell(p, c, c.mainRun!, 'AC', '主标程输出已通过 Checker')); continue; }
       const ce = failedCompile.get(p.id);
       if (ce) { report.matrix.push({ ...cell(p, c, ce, 'CE', ce.diagnostic), timeMs: 0, memoryBytes: 0 }); continue; }
-      const execution = settings.interactionMode === 'INTERACTIVE'
-        ? await executor.interactive(compiled.get(p.id)!, compiled.get(interactor!.id)!, c.input, c.answer ?? null, settings, c.ref)
-        : await executor.solution(compiled.get(p.id)!, c.input, settings, c.ref);
+      const execution = settings.interactionMode === 'COMMUNICATION'
+        ? await executor.communication(compiled.get(p.id)!, compiled.get(interactor!.id)!, c.input, c.answer ?? null, settings, c.ref)
+        : settings.interactionMode === 'INTERACTIVE'
+          ? await executor.interactive(compiled.get(p.id)!, compiled.get(interactor!.id)!, c.input, c.answer ?? null, settings, c.ref)
+          : await executor.solution(compiled.get(p.id)!, c.input, settings, c.ref);
       let verdict = execution.verdict, diagnostic = execution.diagnostic;
       if (verdict === 'AC' && !directInteraction) {
         const checked = await check(c.input, c.answer!, execution.output!, { caseRef: c.ref }, checker);
-        verdict = checked.verdict; diagnostic = checked.diagnostic;
+        verdict = checked.verdict;
+        diagnostic = settings.interactionMode === 'COMMUNICATION' ? [checked.diagnostic, execution.diagnostic].filter(Boolean).join('\n') : checked.diagnostic;
         const previous = await db.invocation.findUniqueOrThrow({ where: { id: execution.id } });
         await db.invocation.update({ where: { id: execution.id }, data: { verdict, diagnostic, detail: { ...previous.detail as object, checkerMode: settings.checkerMode, checkerInvocationId: checked.checkerInvocationId, judgedOutput: execution.outputRef } } });
       }

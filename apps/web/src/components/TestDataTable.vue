@@ -2,7 +2,8 @@
 import { computed, ref, watch } from 'vue';
 import { NButton, NCheckbox, NEmpty, NTag } from 'naive-ui';
 
-const props = defineProps<{ tests: any[]; writable: boolean; busy: boolean; interactive?: boolean }>();
+const props = defineProps<{ tests: any[]; writable: boolean; busy: boolean; interactive?: boolean; communication?: boolean }>();
+const displayOnlySample = computed(() => Boolean(props.interactive || props.communication));
 const emit = defineEmits<{ edit: [test: any]; delete: [tests: any[]]; refresh: [] }>();
 const selectedIds = ref<string[]>([]);
 const selected = computed(() => props.tests.filter(test => selectedIds.value.includes(test.id)));
@@ -32,13 +33,14 @@ function select(id: string, checked: boolean) {
         <td>
           <strong class="mono-num">#{{ test.number }}</strong>
           <NTag size="small" :bordered="false" style="margin-left: 6px">{{ test.groupName }}</NTag>
-          <NTag v-if="test.isSample" size="small" :bordered="false" type="info" style="margin-left: 4px">{{ interactive ? '交互样例' : '题面样例' }}</NTag>
+          <NTag v-if="test.isSample" size="small" :bordered="false" type="info" style="margin-left: 4px">{{ communication ? '通信样例' : interactive ? '交互样例' : '题面样例' }}</NTag>
           <NTag v-if="!test.enabled" size="small" :bordered="false" type="warning" style="margin-left: 4px">已停用</NTag>
-          <small v-if="test.isSample && interactive">仅展示，不参与判题</small>
+          <small v-if="test.isSample && displayOnlySample">仅展示，不参与判题</small>
         </td>
         <td>
-          <a :href="`/api/test-revisions/${test.currentRevision.id}/input`" class="mono-num">输入 · {{ test.currentRevision.inputBytes }} B</a>
-          <small><a v-if="test.currentRevision.answerHash" :href="`/api/test-revisions/${test.currentRevision.id}/answer`" class="mono-num">{{ interactive && test.isSample ? '示例输出' : '答案' }} · {{ test.currentRevision.answerBytes }} B</a><span v-else>{{ interactive && test.isSample ? '尚未填写示例输出' : '尚无答案，运行主标程后显式收集' }}</span></small>
+          <a :href="`/api/test-revisions/${test.currentRevision.id}/input`" class="mono-num">{{ communication && test.isSample ? '第 1 轮输入' : '输入' }} · {{ test.currentRevision.inputBytes }} B</a>
+          <small v-if="communication && test.isSample && test.currentRevision.configuration?.communication">含第 1 轮输出（{{ test.currentRevision.configuration.communication.firstOutput.length }} 字）与第 2 轮输入（{{ test.currentRevision.configuration.communication.secondInput.length }} 字）</small>
+          <small><a v-if="test.currentRevision.answerHash" :href="`/api/test-revisions/${test.currentRevision.id}/answer`" class="mono-num">{{ communication && test.isSample ? '第 2 轮输出' : interactive && test.isSample ? '示例输出' : '答案' }} · {{ test.currentRevision.answerBytes }} B</a><span v-else>{{ displayOnlySample && test.isSample ? '尚未填写示例输出' : '尚无答案，运行主标程后显式收集' }}</span></small>
         </td>
         <td>
           <span class="mono-id">v{{ test.version }} · {{ test.currentRevision.inputHash.slice(0, 12) }}</span>

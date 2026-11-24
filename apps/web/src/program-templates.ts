@@ -18,7 +18,7 @@ export const programRoleGuides: Record<ProgramRole, string> = {
   VALIDATOR: 'Validator 检查测试输入是否合法，包括数值范围、空格、换行和文件结尾。使用 C++ 编译配置，平台已提供 testlib.h。',
   EXTRA_VALIDATOR: '额外 Validator 可针对小规模子任务增加约束。在「校验适用范围」选择全部数据或指定数据组；下面的数组示例可按该组要求缩小 n 的范围。',
   CHECKER: 'Checker 判断选手输出。testlib 中 inf 是测试输入，ouf 是选手输出，ans 是参考答案；用 _ok / _wa / _pe 返回通过、错误或格式错误。保存后在「判题配置」选择「自定义 testlib Checker」。',
-  INTERACTOR: 'Interactor 与选手程序双向通信：inf 读取隐藏输入，ouf 读取选手回复，标准输出发送消息。每次发送后必须刷新，并用 quitf 明确结束判定。',
+  INTERACTOR: 'Interactor 负责与选手双向通信（交互题）或在两轮通信题第 1 轮中转协议：inf 读取隐藏输入，ouf 读取选手回复，标准输出发送消息，通信题通过 tout 写出第 2 轮输入，并用 quitf 明确结束判定。',
 };
 
 export const programTemplates: ProgramTemplate[] = [
@@ -192,6 +192,131 @@ int main(int argc, char* argv[]) {
     quitf(_ok, "valid construction");
 }
 ` },
+  },
+  {
+    id: 'interactor-communication', title: '两轮通信 Interactor · first → tout(second)', suggestedName: 'interactor_comm', roles: ['INTERACTOR'],
+    description: '标准两轮通信第 1 轮中转器：读取原始输入 (a, b)，向第 1 轮发送 first + a，校验选手通信消息 x，再将 second + x + b 写入 tout 交给第 2 轮。',
+    tips: ['在「判题配置」选择「两轮通信（first / second）」。', 'cout 写给选手第 1 轮，必须 flush；ouf 读选手第 1 轮输出并校验协议合法性（如长度、字符集或数值范围）。', 'tout 写入的完整内容将作为第 2 轮选手的标准输入；最终答案由第 2 轮输出交 Checker 或内置比较器判定。'],
+    exampleLabel: '两轮流转', example: '原始输入：7 5\n第 1 轮发出：first\\n7\n选手回传：7\ntout（第 2 轮输入）：second\\n7 5',
+    sources: { CPP17: String.raw`#include "testlib.h"
+#include <iostream>
+using namespace std;
+
+int main(int argc, char* argv[]) {
+    registerInteraction(argc, argv);
+    long long a = inf.readLong(0LL, 1000000000LL, "a");
+    long long b = inf.readLong(0LL, 1000000000LL, "b");
+
+    // 发送给第 1 轮选手程序（first）
+    cout << "first\n" << a << endl;
+
+    // 读取并校验选手第 1 轮的通信消息
+    long long message = ouf.readLong(0LL, 1000000000LL, "message");
+    if (!ouf.seekEof()) quitf(_pe, "The first invocation must output exactly one integer");
+
+    // 写入 tout，作为第 2 轮选手程序的完整标准输入（second）
+    tout << "second\n" << message << ' ' << b << '\n';
+    tout.flush();
+    quitf(_ok, "Message forwarded to the second invocation");
+}
+` },
+  },
+  {
+    id: 'checker-communication', title: '两轮通信 Checker · 终判第二轮输出', suggestedName: 'checker_comm', roles: ['CHECKER'],
+    description: '与「两轮通信 Interactor」配套：读取原始输入 (a, b) 与选手第 2 轮输出，验证最终答案是否为 a+b。',
+    tips: ['inf 为原始测试点输入，ouf 为选手第 2 轮标准输出，ans 为主标程第 2 轮生成的参考答案。', '若只需直接比对第 2 轮输出与主标程答案，也可在判题配置中直接使用内置 TOKENS / EXACT 比较器，无需编写 Checker。'],
+    exampleLabel: '判分示例', example: '原始输入：7 5；第 2 轮输出：12 → AC；11 → WA',
+    sources: { CPP17: String.raw`#include "testlib.h"
+
+int main(int argc, char* argv[]) {
+    registerTestlibCmd(argc, argv);
+    long long a = inf.readLong(0LL, 1000000000LL, "a");
+    long long b = inf.readLong(0LL, 1000000000LL, "b");
+    long long expected = a + b;
+    long long found = ouf.readLong(0LL, 2000000000LL, "sum");
+    if (!ouf.seekEof()) quitf(_pe, "The second invocation must output exactly one integer");
+    if (found != expected) quitf(_wa, "Expected %lld, found %lld", expected, found);
+    quitf(_ok, "Correct sum %lld", found);
+}
+` },
+  },
+  {
+    id: 'solution-communication', title: '两轮通信解法 · first / second', suggestedName: 'solution_comm', roles: solutions,
+    description: '标准两轮通信题选手程序框架：先读入轮次标识 first 或 second，分别进入编码端与解码端逻辑，输出后直接退出。',
+    tips: ['两轮是完全独立的进程，内存和全局变量不会保留，只能通过第 1 轮的输出传递信息。', '每轮只处理对应分支，输出后直接返回，不要在 first 分支里继续等待 second。'],
+    exampleLabel: '运行示例', example: '第 1 轮输入：first\\n7 → 输出：7\n第 2 轮输入：second\\n7 5 → 输出：12',
+    sources: {
+      CPP17: String.raw`#include <iostream>
+#include <string>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    string stage;
+    if (!(cin >> stage)) return 0;
+    if (stage == "first") {
+        long long a;
+        cin >> a;
+        // 编码并输出通信消息
+        cout << a << '\n';
+    } else if (stage == "second") {
+        long long x, b;
+        cin >> x >> b;
+        // 解码并输出最终答案
+        cout << x + b << '\n';
+    }
+    return 0;
+}
+`,
+      C17: String.raw`#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+    char stage[16];
+    if (scanf("%15s", stage) != 1) return 0;
+    if (strcmp(stage, "first") == 0) {
+        long long a;
+        if (scanf("%lld", &a) == 1) printf("%lld\n", a);
+    } else if (strcmp(stage, "second") == 0) {
+        long long x, b;
+        if (scanf("%lld%lld", &x, &b) == 2) printf("%lld\n", x + b);
+    }
+    return 0;
+}
+`,
+      JAVA17: String.raw`import java.util.Scanner;
+
+public class Main {
+    public static void main(String[] args) {
+        Scanner in = new Scanner(System.in);
+        if (!in.hasNext()) return;
+        String stage = in.next();
+        if ("first".equals(stage)) {
+            long a = in.nextLong();
+            System.out.println(a);
+        } else if ("second".equals(stage)) {
+            long x = in.nextLong(), b = in.nextLong();
+            System.out.println(x + b);
+        }
+    }
+}
+`,
+      PYTHON3: String.raw`import sys
+
+def main():
+    stage = sys.stdin.readline().strip()
+    if stage == 'first':
+        a = int(sys.stdin.readline().strip())
+        print(a, flush=True)
+    elif stage == 'second':
+        x, b = map(int, sys.stdin.readline().split())
+        print(x + b, flush=True)
+
+if __name__ == '__main__':
+    main()
+`,
+    },
   },
   {
     id: 'interactor-double', title: 'Interactor · 一问一答', suggestedName: 'interact_double', roles: ['INTERACTOR'],
