@@ -1238,3 +1238,12 @@ SandboxClient 的 HTTP 错误增加方法与端点，错误响应仅读取最多
 - **问题根因：**用户在线上 Hydro 站点实测导入 `743` 提交标程后报 `WA (Manager exited with code 6)`（`SIGABRT`）。只读排查评测记录与 `manager.cpp` 后定位：合成的 `manager.cpp` 中 `std::vector<char> a0(std::string("interactor").begin(), std::string("interactor").end())` 等 5 处构造分别对两个独立临时 `std::string` 取 `begin()`/`end()` 迭代器，构成跨容器迭代器未定义行为；线上 Hydro 默认 `cc` 编译选项为 GCC 14.3.0 `-std=c++23`（无 `-O2`），栈上两个临时对象差值为负导致 `std::vector` 抛出未捕获的 `std::length_error` 进而触发 `std::terminate()` / `SIGABRT`（退出码 6）。
 - **修复：**在 `packages/problem-format/src/hydro-communication.ts` 中新增 `pf_mgr::to_cstr(const std::string&)` 从单一命名字符串构造 `argv` 缓冲区，并为 `main()` 外层增加顶层 `try / catch (const std::exception&)` 兜底输出诊断信息。
 - **验证与服务：**在本地 Linux `go-judge` 沙箱中以 `-O0 -Wall -std=c++23 -D_GLIBCXX_DEBUG`（libstdc++ 严格迭代器校验模式）、`-O2 -Wall -std=c++14`、`-O0 -Wall -std=c++11` 三组编译选项全部运行 AC；重跑 `pnpm check problem-format api`、`pnpm test:quick`（11/11）、`scripts/communication.test.ts`（5/5）及 `.local/communication-verify/verify-live.ts`（14/14）全部通过；已重启本机 `pnpm dev` 加载最新导出代码。尚未在真实线上 Hydro 站点再次上传验收；本地提交，不 push。
+
+## 用户授权推送通信题功能并更新云服务器（2026-11-24）
+
+用户在线上 Hydro 站点确认导出包验收通过后，明确授权“把你修改的出题平台推送到github，并且更新我的服务器”。
+
+- **代码推送：**核对暂存与提交范围不含 `.env`、`.local/`、`storage/` 或凭据后，将 `master` 快进推送至 `origin/master`（`c6e7932..ac56a13`，共 6 个提交，含两轮通信题完整出题流程、题面格式模板精简、Hydro 原生 `type: communication` 导出与 `manager.cpp` UB 修复）。
+- **云服务器只读预检与更新：**更新前只读核对 `/root/ProblemForge`、端口归属（`5181/25432/26379/25050/25051` 全部由 ProblemForge 独占）、磁盘（`/` 余 `38 GiB`，67%）与内存（可用 `1.2 GiB`，无 Swap）。仅暂停 ProblemForge 自身 4 个 PM2 进程释放构建内存后，执行 `cd /root/ProblemForge && git pull --ff-only origin master && bash deploy.sh update`；全程未触碰同机其他项目服务或容器。
+- **实际验证：**`deploy.sh update` 零报错完成 `git-ac56a1314ae24ff99c7d3120e5523d9cc7b7db70` 部署，生成备份 `/opt/problemforge/shared/backups/20261124145215674`，保留最近两份完整备份与历史回滚版本；复查 `http://127.0.0.1:5181/api/health`、`https://problems.cwnupaa.com/api/health` 均返回 `status=ok`，`https://problems.cwnupaa.com/` 返回 `HTTP/2 200`，4 个 ProblemForge PM2 进程（2 API + 1 TeX + 1 Judge）与 4 个容器均正常在线，内核日志无 OOM，更新后可用内存 `1.5 GiB`、`/` 余 `32 GiB`（73%）。
+- **未验证：**本次未在云端浏览器实测登录及在线触发通信题真实评测或导出流程。本交接记录提交于本地，未另行推送。
