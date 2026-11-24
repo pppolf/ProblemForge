@@ -12,7 +12,7 @@ RUN --mount=type=cache,id=problemforge-judge-apt-archives,target=/var/cache/apt,
     python3=3.11.2-1+b1 python3-minimal=3.11.2-1+b1 libpython3-stdlib=3.11.2-1+b1 \
     python3.11=3.11.2-6+deb12u8 python3.11-minimal=3.11.2-6+deb12u8 \
     libpython3.11-minimal=3.11.2-6+deb12u8 libpython3.11-stdlib=3.11.2-6+deb12u8 \
-    openjdk-17-jdk-headless=17.0.20.1+1-1~deb12u1 openjdk-17-jre-headless=17.0.20.1+1-1~deb12u1 \
+    openjdk-17-jdk-headless=17.0.21.1+2-1~deb12u1 openjdk-17-jre-headless=17.0.21.1+2-1~deb12u1 \
     && dpkg-query -W > /opt/toolchain-packages.txt
 COPY --chmod=755 infra/java17-compile.sh /usr/local/bin/pf-javac17
 COPY infra/judge-mount.yaml /opt/judge-mount.yaml
