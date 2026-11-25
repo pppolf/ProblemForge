@@ -9,6 +9,7 @@ import CommandPalette from './components/CommandPalette.vue';
 import AppIcon from './components/AppIcon.vue';
 import ThemePicker from './components/ThemePicker.vue';
 import { naiveTheme, themeOverrides } from './theme';
+import { SHORTCUT_SEARCH } from './shortcuts';
 
 const router = useRouter();
 const logoutError = ref('');
@@ -110,12 +111,12 @@ async function logout() {
                 type="button"
                 class="cmd-trigger-btn"
                 aria-label="打开快捷命令面板"
-                title="快捷跳转与搜索 (⌘K / Ctrl+K)"
+                :title="`快捷跳转与搜索 (${SHORTCUT_SEARCH})`"
                 @click="commandOpen = true"
               >
                 <AppIcon name="search" :size="14" />
                 <span>快速跳转</span>
-                <kbd>⌘K</kbd>
+                <kbd>{{ SHORTCUT_SEARCH }}</kbd>
               </button>
               <ThemePicker />
               <div class="user-pill">

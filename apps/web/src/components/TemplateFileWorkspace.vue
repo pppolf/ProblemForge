@@ -3,6 +3,7 @@ import { computed, h, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { NAlert, NButton, NEmpty, NFormItem, NInput, NModal, NTree, useDialog, useMessage, type TreeOption } from 'naive-ui';
 import SourceEditor from './SourceEditor.vue';
 import { fileBasename, fileFolder, importTemplateFiles, isTemplateImage, moveTemplateFile, readTemplateUploads, removeTemplateFile, requiredTemplateFiles, templateFileAccept, templateFileChanges, templateFileTree, templateImageType, type TemplateFiles } from '../template-files';
+import { SHORTCUT_SAVE } from '../shortcuts';
 
 const props = defineProps<{ files: TemplateFiles; originalFiles: TemplateFiles; readonly: boolean; busy: boolean; previewOpen: boolean }>();
 const emit = defineEmits<{ 'update:files': [files: TemplateFiles]; 'update:previewOpen': [value: boolean]; save: []; pending: [value: boolean] }>();
@@ -190,7 +191,7 @@ function resetFile() {
       <NEmpty v-else class="empty" description="从资源管理器打开文件" />
     </section>
     <section v-if="previewOpen" class="workspace-build-preview" aria-label="模板构建结果"><slot name="preview" /></section>
-    <div class="workspace-statusbar"><span>{{ Object.keys(files).length }} 个文件<span v-if="changed.size"> · {{ changed.size }} 项未保存</span></span><span>{{ readonly ? '只读' : '可编辑 · Ctrl / ⌘ + S 保存' }}</span></div>
+    <div class="workspace-statusbar"><span>{{ Object.keys(files).length }} 个文件<span v-if="changed.size"> · {{ changed.size }} 项未保存</span></span><span>{{ readonly ? '只读' : `可编辑 · ${SHORTCUT_SAVE} 保存` }}</span></div>
     <div v-if="dragDepth > 0 && !locked" class="workspace-drop-target">放开以上传文件</div>
   </div>
   <NModal v-model:show="pathModal" preset="card" :title="pathAction === 'new' ? '新建文件' : '重命名文件'" class="workspace-file-modal">

@@ -1261,3 +1261,8 @@ SandboxClient 的 HTTP 错误增加方法与端点，错误响应仅读取最多
   - `pnpm check web`（`vue-tsc --noEmit`）、`pnpm build:web`（`vite build`）与 `pnpm test:quick`（11/11）全部通过。
   - 在本机 `http://localhost:5180` 浏览器实测顶栏主题弹窗渲染、切换「暖纸护眼」「暮灰微暗」「北欧霜蓝」、切换「翡翠」强调色、输入自定义十六进制 `#0d9488` 及「恢复默认」，`data-theme`、`--accent`、`--on-accent` 均即时生效且控制台 0 报错。
 - **未验证与阻塞：**尚未实测 Monaco 编辑器在全部 6 套主题下的视觉对比及移动端窄屏布局，也未推送至 GitHub 或部署到云服务器。本地提交，不 push。
+
+### 补充优化：跨平台快捷键提示自适应（2026-11-25）
+
+- **改动：**新增 `apps/web/src/shortcuts.ts`，依据 `navigator.userAgentData?.platform` / `navigator.platform` / `navigator.userAgent` 自动区分平台（macOS 显示 `⌘K` / `⌘S` / `⌘+Enter`，Windows / Linux 显示 `Ctrl+K` / `Ctrl+S` / `Ctrl+Enter`），并统一替换 `App.vue`、`CommandPalette.vue`、`Workspace.vue`、`JudgeWorkspace.vue` 与 `TemplateFileWorkspace.vue` 中所有硬编码的 `⌘` 提示；底层事件监听本已全部兼容 `metaKey || ctrlKey`。
+- **验证：**`rg -n "⌘" apps/web/src` 确认仅保留于 `shortcuts.ts`；`pnpm check web` 与 `pnpm build:web` 均通过。尚未在真实 Windows 浏览器实测显示；本地提交，不 push。

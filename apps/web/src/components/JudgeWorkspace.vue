@@ -21,6 +21,7 @@ import { programStarters, programEditorLanguages } from '../program-languages';
 import ProgramTemplateGuide from './ProgramTemplateGuide.vue';
 import { templateSource, needsTemplateReplacementConfirmation, type ProgramTemplate } from '../program-templates';
 import { isCppLanguage, type ProgramLanguage } from '@problemforge/contracts';
+import { SHORTCUT_SAVE } from '../shortcuts';
 const props = defineProps<{ problemId: string; writable: boolean }>();
 const emit = defineEmits<{ dirty: [value: boolean]; dataChanged: []; settingsSaved: [] }>();
 const message = useMessage(), dialog = useDialog();
@@ -302,7 +303,7 @@ async function importZip(event: Event) {
     <section v-if="programDraft" class="program-editor">
       <div class="document-toolbar">
         <div class="toolbar-left">
-          <span class="save-state">{{ programDirty ? '未保存 · ⌘S' : programDraft.version ? `已保存 v${programDraft.version}` : '新建草稿' }}</span>
+          <span class="save-state">{{ programDirty ? `未保存 · ${SHORTCUT_SAVE}` : programDraft.version ? `已保存 v${programDraft.version}` : '新建草稿' }}</span>
           <NButton size="small" quaternary :aria-expanded="programMetaOpen" @click="programMetaOpen = !programMetaOpen">{{ programMetaOpen ? '收起程序配置' : '展开程序配置' }}</NButton>
         </div>
         <div class="toolbar-right">

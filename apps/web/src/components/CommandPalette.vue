@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import { NModal } from 'naive-ui';
 import { api, session } from '../api';
 import { THEME_PRESETS, setThemeMode, themeMode } from '../theme';
+import { SHORTCUT_SEARCH } from '../shortcuts';
 import AppIcon from './AppIcon.vue';
 
 const props = defineProps<{ show: boolean }>();
@@ -189,7 +190,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey));
       <div class="cmd-footer">
         <span><kbd class="cmd-kbd">↑↓</kbd> 选择</span>
         <span><kbd class="cmd-kbd">↵</kbd> 打开</span>
-        <span><kbd class="cmd-kbd">⌘K</kbd> 随时唤起</span>
+        <span><kbd class="cmd-kbd">{{ SHORTCUT_SEARCH }}</kbd> 随时唤起</span>
       </div>
     </div>
   </NModal>

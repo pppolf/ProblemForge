@@ -14,6 +14,7 @@ import StatementFormatPicker from '../components/StatementFormatPicker.vue';
 import type { StatementFormatApplication } from '../statement-formats';
 import { snapshot, mergeSaved, downloadDraft } from '../draft-state';
 import { rememberedChoice, useUnsavedGuard, readNavigation, writeNavigation } from '../editor-navigation';
+import { SHORTCUT_BUILD, SHORTCUT_SAVE } from '../shortcuts';
 
 const loadJudge = () => import('../components/JudgeWorkspace.vue');
 const loadManagement = () => import('../components/ProblemManagement.vue');
@@ -385,10 +386,10 @@ async function submitRename() {
               <NButton size="small" quaternary :aria-expanded="metaOpen" @click="metaOpen = !metaOpen">{{ metaOpen ? '收起文稿信息' : '展开文稿信息' }}</NButton>
             </div>
             <div class="toolbar-right">
-              <span class="save-state" role="status" aria-live="polite">{{ current.saving ? '保存中…' : current.saveError ? '保存失败' : current.dirty ? '未保存 · ⌘S' : `已保存 v${current.version}` }}</span>
+              <span class="save-state" role="status" aria-live="polite">{{ current.saving ? '保存中…' : current.saveError ? '保存失败' : current.dirty ? `未保存 · ${SHORTCUT_SAVE}` : `已保存 v${current.version}` }}</span>
               <NButton size="small" quaternary @click="exportDocument">下载草稿</NButton>
-              <NButton size="small" :disabled="!documentWritable" :loading="current.saving" @click="save">保存</NButton>
-              <NButton size="small" type="primary" :disabled="!documentWritable || !current.enabled" :loading="building" title="保存并构建 PDF (⌘/Ctrl + Enter)" @click="build">构建 PDF</NButton>
+              <NButton size="small" :disabled="!documentWritable" :loading="current.saving" :title="`保存当前稿件 (${SHORTCUT_SAVE})`" @click="save">保存</NButton>
+              <NButton size="small" type="primary" :disabled="!documentWritable || !current.enabled" :loading="building" :title="`保存并构建 PDF (${SHORTCUT_BUILD})`" @click="build">构建 PDF</NButton>
             </div>
           </div>
 
@@ -422,7 +423,7 @@ async function submitRename() {
                     <button v-for="s in snippets" :key="s.label" type="button" class="snippet-chip" @click="insertSnippet(s.text)">{{ s.label }}</button>
                   </template>
                 </div>
-                <span class="muted mono-num">v{{ current.version }} · ⌘S 保存</span>
+                <span class="muted mono-num">v{{ current.version }} · {{ SHORTCUT_SAVE }} 保存</span>
               </div>
               <SourceEditor :key="current.id" v-model="current.currentRevision.body" :readonly="!documentWritable" :insert-request="insertRequest" @update:model-value="dirty" />
             </section>
