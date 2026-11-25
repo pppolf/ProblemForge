@@ -7,7 +7,10 @@
     <script>
       try {
         var t = localStorage.getItem('pf-theme');
-        if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+        if (t === 'light' || t === 'paper' || t === 'sage' || t === 'slate' || t === 'nord' || t === 'dark') {
+          document.documentElement.setAttribute('data-theme', t);
+          document.documentElement.style.colorScheme = (t === 'dark' || t === 'slate' || t === 'nord') ? 'dark' : 'light';
+        }
       } catch (e) {}
     </script>
   </head>

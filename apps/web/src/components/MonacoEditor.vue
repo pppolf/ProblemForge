@@ -5,7 +5,7 @@ import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import 'monaco-editor/esm/vs/basic-languages/cpp/cpp.contribution';
 import 'monaco-editor/esm/vs/basic-languages/python/python.contribution';
 import 'monaco-editor/esm/vs/basic-languages/java/java.contribution';
-import { themeMode } from '../theme';
+import { currentThemePreset, resolvedAccent } from '../theme';
 
 const props = withDefaults(
   defineProps<{
@@ -23,49 +23,43 @@ let updating = false;
 
 self.MonacoEnvironment = { getWorker: () => new EditorWorker() };
 
-monaco.editor.defineTheme('problemforge-light', {
-  base: 'vs', inherit: true,
-  rules: [
-    { token: 'comment', foreground: '64748b', fontStyle: 'italic' },
-    { token: 'keyword', foreground: '4f46e5', fontStyle: 'bold' },
-    { token: 'keyword.section', foreground: '2563eb', fontStyle: 'bold' },
-    { token: 'type', foreground: '7c3aed', fontStyle: 'bold' },
-    { token: 'string', foreground: '059669' },
-    { token: 'string.math', foreground: 'b45309' },
-    { token: 'number', foreground: 'd97706' },
-    { token: 'delimiter', foreground: '475569' },
-  ],
-  colors: {
-    'editor.background': '#ffffff', 'editor.foreground': '#0f172a',
-    'editorLineNumber.foreground': '#94a3b8', 'editorLineNumber.activeForeground': '#334155',
-    'editorCursor.foreground': '#4f46e5', 'editor.selectionBackground': '#e0e7ff',
-    'editor.inactiveSelectionBackground': '#eef2ff', 'editor.lineHighlightBackground': '#f8fafc',
-    'editorIndentGuide.background1': '#eef2f6', 'editorIndentGuide.activeBackground1': '#c7d2fe',
-    'editorWidget.border': '#e2e8f0', 'focusBorder': '#4f46e5',
-  },
-});
-
-monaco.editor.defineTheme('problemforge-dark', {
-  base: 'vs-dark', inherit: true,
-  rules: [
-    { token: 'comment', foreground: '64748b', fontStyle: 'italic' },
-    { token: 'keyword', foreground: '818cf8', fontStyle: 'bold' },
-    { token: 'keyword.section', foreground: '60a5fa', fontStyle: 'bold' },
-    { token: 'type', foreground: 'c084fc', fontStyle: 'bold' },
-    { token: 'string', foreground: '34d399' },
-    { token: 'string.math', foreground: 'fbbf24' },
-    { token: 'number', foreground: 'fb923c' },
-    { token: 'delimiter', foreground: '94a3b8' },
-  ],
-  colors: {
-    'editor.background': '#111622', 'editor.foreground': '#e2e8f0',
-    'editorLineNumber.foreground': '#475569', 'editorLineNumber.activeForeground': '#cbd5e1',
-    'editorCursor.foreground': '#818cf8', 'editor.selectionBackground': '#312e81',
-    'editor.inactiveSelectionBackground': '#1e1b4b', 'editor.lineHighlightBackground': '#161d2e',
-    'editorIndentGuide.background1': '#1e293b', 'editorIndentGuide.activeBackground1': '#4338ca',
-    'editorWidget.background': '#131926', 'editorWidget.border': '#222b3d', 'focusBorder': '#6366f1',
-  },
-});
+function syncMonacoTheme(): string {
+  const preset = currentThemePreset.value;
+  const accent = resolvedAccent.value;
+  const m = preset.monaco;
+  const keywordHex = accent.base.replace('#', '');
+  const themeName = `problemforge-${preset.id}`;
+  monaco.editor.defineTheme(themeName, {
+    base: m.base,
+    inherit: true,
+    rules: [
+      { token: 'comment', foreground: m.comment, fontStyle: 'italic' },
+      { token: 'keyword', foreground: keywordHex, fontStyle: 'bold' },
+      { token: 'keyword.section', foreground: m.keywordSection, fontStyle: 'bold' },
+      { token: 'type', foreground: m.type, fontStyle: 'bold' },
+      { token: 'string', foreground: m.string },
+      { token: 'string.math', foreground: m.math },
+      { token: 'number', foreground: m.number },
+      { token: 'delimiter', foreground: m.delimiter },
+    ],
+    colors: {
+      'editor.background': m.bg,
+      'editor.foreground': m.fg,
+      'editorLineNumber.foreground': m.lineNumber,
+      'editorLineNumber.activeForeground': m.lineNumberActive,
+      'editorCursor.foreground': accent.base,
+      'editor.selectionBackground': accent.monacoSelection,
+      'editor.inactiveSelectionBackground': accent.monacoInactiveSelection,
+      'editor.lineHighlightBackground': m.lineHighlight,
+      'editorIndentGuide.background1': m.indentGuide,
+      'editorIndentGuide.activeBackground1': accent.monacoIndentActive,
+      'editorWidget.background': m.widgetBg,
+      'editorWidget.border': m.widgetBorder,
+      'focusBorder': accent.base,
+    },
+  });
+  return themeName;
+}
 
 if (!monaco.languages.getLanguages().some(l => l.id === 'latex')) {
   monaco.languages.register({ id: 'latex' });
@@ -104,13 +98,12 @@ if (!monaco.languages.getLanguages().some(l => l.id === 'latex')) {
   });
 }
 
-const monacoThemeName = () => (themeMode.value === 'dark' ? 'problemforge-dark' : 'problemforge-light');
-
 onMounted(() => {
+  const initialTheme = syncMonacoTheme();
   editor = monaco.editor.create(container.value!, {
     value: props.modelValue,
     language: props.language,
-    theme: monacoThemeName(),
+    theme: initialTheme,
     readOnly: props.readonly,
     automaticLayout: true,
     minimap: { enabled: false },
@@ -129,8 +122,8 @@ onMounted(() => {
   });
 });
 
-watch(themeMode, () => {
-  monaco.editor.setTheme(monacoThemeName());
+watch([currentThemePreset, resolvedAccent], () => {
+  monaco.editor.setTheme(syncMonacoTheme());
 });
 watch(() => props.modelValue, value => {
   if (editor && value !== editor.getValue()) {

@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { NButton, NAlert, NTag, NSpace, NForm, NFormItem, NInput, useDialog, useMessage } from 'naive-ui';
 import { api, session } from '../api';
+import ThemePicker from '../components/ThemePicker.vue';
 const error = ref(''), busy = ref(false);
 const localAdmin = computed(() => session.user?.authProvider === 'local-admin');
 const currentPassword = ref(''), newPassword = ref(''), confirmPassword = ref('');
@@ -39,5 +40,6 @@ function revoke(all: boolean) { dialog.warning({ title: all ? '退出所有设�
     </NForm>
   </div>
   <div v-else class="panel spaced" style="max-width:720px;padding:22px 24px"><h2>协会账号</h2><p class="muted">账号资料和密码由协会官网统一管理。</p><a href="https://www.cwnupaa.com" target="_blank" rel="noopener noreferrer" class="quick-link-pill">前往协会官网管理账号 ↗</a></div>
+  <div class="panel spaced" style="max-width:720px;padding:22px 24px"><h2>外观与个性化配色</h2><p class="muted" style="margin-top:-4px;margin-bottom:14px">设置保存在当前浏览器本地，支持护眼中间色调与自定义强调色。</p><ThemePicker inline /></div>
   <div class="panel" style="max-width:720px"><div class="panel-toolbar"><h2>有效会话（{{ sessions.length }}）</h2><NSpace><NButton size="small" :disabled="busy" @click="revoke(false)">退出其他设备</NButton><NButton size="small" type="error" secondary :disabled="busy" @click="revoke(true)">退出所有设备</NButton></NSpace></div><table class="data-table"><thead><tr><th>登录时间</th><th>有效期至</th><th>标记</th></tr></thead><tbody><tr v-for="(s,i) in sessions" :key="i"><td class="mono-num">{{ new Date(s.createdAt).toLocaleString('zh-CN') }}</td><td class="mono-num">{{ new Date(s.expiresAt).toLocaleString('zh-CN') }}</td><td><NTag v-if="s.current" size="small" :bordered="false" type="success">当前会话</NTag></td></tr></tbody></table></div>
 </template>

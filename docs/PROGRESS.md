@@ -1247,3 +1247,17 @@ SandboxClient 的 HTTP 错误增加方法与端点，错误响应仅读取最多
 - **云服务器只读预检与更新：**更新前只读核对 `/root/ProblemForge`、端口归属（`5181/25432/26379/25050/25051` 全部由 ProblemForge 独占）、磁盘（`/` 余 `38 GiB`，67%）与内存（可用 `1.2 GiB`，无 Swap）。仅暂停 ProblemForge 自身 4 个 PM2 进程释放构建内存后，执行 `cd /root/ProblemForge && git pull --ff-only origin master && bash deploy.sh update`；全程未触碰同机其他项目服务或容器。
 - **实际验证：**`deploy.sh update` 零报错完成 `git-ac56a1314ae24ff99c7d3120e5523d9cc7b7db70` 部署，生成备份 `/opt/problemforge/shared/backups/20261124145215674`，保留最近两份完整备份与历史回滚版本；复查 `http://127.0.0.1:5181/api/health`、`https://problems.cwnupaa.com/api/health` 均返回 `status=ok`，`https://problems.cwnupaa.com/` 返回 `HTTP/2 200`，4 个 ProblemForge PM2 进程（2 API + 1 TeX + 1 Judge）与 4 个容器均正常在线，内核日志无 OOM，更新后可用内存 `1.5 GiB`、`/` 余 `32 GiB`（73%）。
 - **未验证：**本次未在云端浏览器实测登录及在线触发通信题真实评测或导出流程。本交接记录提交于本地，未另行推送。
+
+## 多主题与个性化配色系统（2026-11-25）
+
+针对“亮色太刺眼、暗黑太压抑”的反馈，为工作台补充中间过渡色调主题与自由配色能力（纯前端本地持久化，零后端/数据库改动）：
+
+- **实现：**
+  1. **6 套明暗/护眼主题预设（`apps/web/src/theme.ts`、`apps/web/src/style.css`、`apps/web/index.html`）：**保留「晴空亮白（`light`）」与「极夜深黑（`dark`）」，新增「暖纸护眼（`paper`）」「青岚护眼（`sage`）」「暮灰微暗（`slate`）」「北欧霜蓝（`nord`）」4 套柔和过渡主题；`index.html` 首屏防闪烁脚本同步识别全部 6 套主题并写入 `data-theme` 与 `color-scheme`。
+  2. **8 套强调色预设 + 自定义取色器：**支持「靛蓝 / 晴蓝 / 翡翠 / 青瓷 / 琥珀 / 绯红 / 紫罗兰 / 墨岩」以及自由取色器与十六进制输入（`#RRGGBB`），按当前明暗底色与 WCAG 相对亮度自动推导 `--accent`、`--accent-hover`、`--accent-pressed`、`--accent-soft`、`--accent-line`、`--brand-gradient`、`--on-accent` 与 Naive UI `themeOverrides`。
+  3. **Monaco 编辑器同步（`apps/web/src/components/MonacoEditor.vue`）：**为全部 6 套主题注册匹配底色/行高亮/语法配色，并实时跟随当前强调色更新光标、选区与关键字高亮。
+  4. **全局入口（`apps/web/src/components/ThemePicker.vue`、`App.vue`、`Login.vue`、`Account.vue`、`CommandPalette.vue`）：**在顶栏和登录页右上角提供带迷你界面预览卡片与色点/自定义取色的主题弹出面板，在「账户设置」页内嵌完整「外观与个性化配色」配置区，并在 `⌘K` 命令面板支持直接搜索切换全部 6 套主题；支持一键「恢复默认」。
+- **实际验证：**
+  - `pnpm check web`（`vue-tsc --noEmit`）、`pnpm build:web`（`vite build`）与 `pnpm test:quick`（11/11）全部通过。
+  - 在本机 `http://localhost:5180` 浏览器实测顶栏主题弹窗渲染、切换「暖纸护眼」「暮灰微暗」「北欧霜蓝」、切换「翡翠」强调色、输入自定义十六进制 `#0d9488` 及「恢复默认」，`data-theme`、`--accent`、`--on-accent` 均即时生效且控制台 0 报错。
+- **未验证与阻塞：**尚未实测 Monaco 编辑器在全部 6 套主题下的视觉对比及移动端窄屏布局，也未推送至 GitHub 或部署到云服务器。本地提交，不 push。

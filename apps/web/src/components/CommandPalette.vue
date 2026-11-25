@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router';
 import { NModal } from 'naive-ui';
 import { api, session } from '../api';
-import { isDark, toggleTheme } from '../theme';
+import { THEME_PRESETS, setThemeMode, themeMode } from '../theme';
 import AppIcon from './AppIcon.vue';
 
 const props = defineProps<{ show: boolean }>();
@@ -65,7 +65,15 @@ const items = computed<PaletteItem[]>(() => {
     );
   }
   const actions: PaletteItem[] = [
-    { id: 'act-theme', group: '快捷操作', label: isDark.value ? '切换到亮色模式' : '切换到暗黑模式', hint: 'Theme', icon: isDark.value ? 'sun' : 'moon', keywords: '主题 亮色 暗黑 dark light theme', run: () => toggleTheme() },
+    ...THEME_PRESETS.filter(p => p.id !== themeMode.value).map(p => ({
+      id: `act-theme-${p.id}`,
+      group: '外观主题',
+      label: `切换主题：${p.name}`,
+      hint: p.subtitle.split(' · ')[0],
+      icon: p.isDark ? 'moon' : 'sun',
+      keywords: `主题 配色 护眼 ${p.name} ${p.subtitle} ${p.id} theme color`,
+      run: () => setThemeMode(p.id),
+    })),
     { id: 'act-sidebar', group: '快捷操作', label: '展开 / 收起侧边栏', hint: 'Sidebar', icon: 'sidebar', keywords: '侧边栏 折叠 收起 sidebar', run: () => emit('toggleSidebar') },
   ];
   const problemItems: PaletteItem[] = problems.value.map(p => ({
@@ -250,7 +258,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey));
 }
 .cmd-item.active .cmd-item-icon {
   background: var(--accent);
-  color: #ffffff;
+  color: var(--on-accent, #ffffff);
 }
 .cmd-item-main {
   flex: 1;

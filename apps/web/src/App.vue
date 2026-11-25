@@ -7,7 +7,8 @@ import NavigationStatus from './components/NavigationStatus.vue';
 import DraftExportDialog from './components/DraftExportDialog.vue';
 import CommandPalette from './components/CommandPalette.vue';
 import AppIcon from './components/AppIcon.vue';
-import { isDark, naiveTheme, themeOverrides, toggleTheme } from './theme';
+import ThemePicker from './components/ThemePicker.vue';
+import { naiveTheme, themeOverrides } from './theme';
 
 const router = useRouter();
 const logoutError = ref('');
@@ -116,15 +117,7 @@ async function logout() {
                 <span>快速跳转</span>
                 <kbd>⌘K</kbd>
               </button>
-              <button
-                type="button"
-                class="icon-btn theme-toggle"
-                :aria-label="isDark ? '切换到亮色模式' : '切换到暗黑模式'"
-                :title="isDark ? '切换到亮色模式' : '切换到暗黑模式'"
-                @click="toggleTheme"
-              >
-                <AppIcon :name="isDark ? 'sun' : 'moon'" :size="16" />
-              </button>
+              <ThemePicker />
               <div class="user-pill">
                 <span class="user-avatar" aria-hidden="true">{{ session.user.name.slice(0, 1).toUpperCase() }}</span>
                 <span class="user-name">{{ session.user.name }}</span>

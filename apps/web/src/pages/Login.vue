@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { NInput, NButton, NForm, NFormItem, NAlert, NTabs, NTab } from 'naive-ui';
 import { api, session } from '../api';
 import AppIcon from '../components/AppIcon.vue';
-import { isDark, toggleTheme } from '../theme';
+import ThemePicker from '../components/ThemePicker.vue';
 
 const router = useRouter(), route = useRoute();
 const mode = ref<'association' | 'admin'>(route.query.mode === 'admin' ? 'admin' : 'association');
@@ -28,15 +28,9 @@ async function login() {
 </script>
 <template>
   <div class="login-shell">
-    <button
-      type="button"
-      class="icon-btn login-theme-btn"
-      :aria-label="isDark ? '切换到亮色模式' : '切换到暗黑模式'"
-      :title="isDark ? '切换到亮色模式' : '切换到暗黑模式'"
-      @click="toggleTheme"
-    >
-      <AppIcon :name="isDark ? 'sun' : 'moon'" :size="16" />
-    </button>
+    <div class="login-theme-btn">
+      <ThemePicker />
+    </div>
 
     <section class="login-hero" aria-hidden="true">
       <div class="login-hero-brand">
